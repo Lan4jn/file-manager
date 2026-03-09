@@ -1,0 +1,51 @@
+server:
+  port: 8080
+
+spring:
+  servlet:
+    multipart:
+      max-file-size: 100MB
+      max-request-size: 100MB
+
+minio:
+  endpoint: http://localhost:9000
+  access-key: minioadmin
+  secret-key: minioadmin
+  bucket-name: file-manager
+  # 文件访问地址（可配置CDN或Nginx）
+  public-url: http://localhost:9000/file-manager
+
+# 文件配置
+file:
+  # 预览图片最大大小（字节）
+  preview-max-size: 10485760
+  # 允许的文件类型
+  allowed-extensions:
+    - jpg
+    - jpeg
+    - png
+    - gif
+    - bmp
+    - webp
+    - pdf
+    - doc
+    - docx
+    - xls
+    - xlsx
+    - ppt
+    - pptx
+    - txt
+    - mp3
+    - mp4
+    - avi
+    - zip
+    - rar
+
+# 分享链接配置
+share:
+  # 分享链接默认有效期（小时）
+  default-expiration: 24
+
+logging:
+  level:
+    com.poss.file: debug
