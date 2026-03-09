@@ -1,0 +1,469 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>文件管理器</title>
+    <link rel="stylesheet" href="https://unpkg.com/element-plus@2.3.14/dist/index.css">
+    <link rel="stylesheet" href="/css/app.css">
+</head>
+<body>
+    <div id="app">
+        <!-- Login Page -->
+        <div v-if="!isLoggedIn" class="login-container">
+            <el-card class="login-card">
+                <template #header>
+                    <h2>文件管理器</h2>
+                </template>
+                <el-form :model="loginForm" @submit.prevent="handleLogin">
+                    <el-form-item>
+                        <el-input v-model="loginForm.username" placeholder="用户名" prefix-icon="User"></el-input>
+                    </el-form-item>
+                    <el-form-item>
+                        <el-input v-model="loginForm.password" type="password" placeholder="密码" prefix-icon="Lock"></el-input>
+                    </el-form-item>
+                    <el-form-item>
+                        <el-button type="primary" style="width: 100%" @click="handleLogin" :loading="loginLoading">登录</el-button>
+                    </el-form-item>
+                </el-form>
+            </el-card>
+        </div>
+
+        <!-- Main App -->
+        <div v-else class="main-container">
+            <!-- Header -->
+            <div class="header">
+                <div class="header-left">
+                    <h2>文件管理器</h2>
+                </div>
+                <div class="header-right">
+                    <el-dropdown @command="handleCommand">
+                        <span class="user-info">
+                            <el-icon><User /></el-icon>
+                            {{ userInfo.nickname || userInfo.username }}
+                            <el-icon><ArrowDown /></el-icon>
+                        </span>
+                        <template #dropdown>
+                            <el-dropdown-menu>
+                                <el-dropdown-item command="profile">个人信息</el-dropdown-item>
+                                <el-dropdown-item command="logout">退出登录</el-dropdown-item>
+                            </el-dropdown-menu>
+                        </template>
+                    </el-dropdown>
+                </div>
+            </div>
+
+            <!-- Main Content -->
+            <div class="content">
+                <!-- Sidebar -->
+                <div class="sidebar">
+                    <el-menu :default-active="currentMenu" @select="handleMenuSelect">
+                        <el-menu-item index="buckets">
+                            <el-icon><Box /></el-icon>
+                            <span>存储桶管理</span>
+                            <el-tooltip content="管理MinIO所有存储桶，包括创建、删除、查看文件" placement="right" effect="light">
+                                <el-icon class="help-icon"><QuestionFilled /></el-icon>
+                            </el-tooltip>
+                        </el-menu-item>
+                        <el-menu-item index="files">
+                            <el-icon><Folder /></el-icon>
+                            <span>文件管理</span>
+                            <el-tooltip content="浏览、上传、下载、删除文件，支持文件夹操作" placement="right" effect="light">
+                                <el-icon class="help-icon"><QuestionFilled /></el-icon>
+                            </el-tooltip>
+                        </el-menu-item>
+                        <el-menu-item index="shares">
+                            <el-icon><Share /></el-icon>
+                            <span>我的分享</span>
+                            <el-tooltip content="创建文件分享链接，支持设置密码和有效期" placement="right" effect="light">
+                                <el-icon class="help-icon"><QuestionFilled /></el-icon>
+                            </el-tooltip>
+                        </el-menu-item>
+                        <el-menu-item v-if="isAdmin" index="users">
+                            <el-icon><UserFilled /></el-icon>
+                            <span>用户管理</span>
+                            <el-tooltip content="管理系统用户，创建、编辑、删除用户账号" placement="right" effect="light">
+                                <el-icon class="help-icon"><QuestionFilled /></el-icon>
+                            </el-tooltip>
+                        </el-menu-item>
+                        <el-menu-item v-if="isAdmin" index="roles">
+                            <el-icon><Avatar /></el-icon>
+                            <span>角色管理</span>
+                            <el-tooltip content="管理系统角色，配置角色权限" placement="right" effect="light">
+                                <el-icon class="help-icon"><QuestionFilled /></el-icon>
+                            </el-tooltip>
+                        </el-menu-item>
+                        <el-menu-item v-if="isAdmin" index="config">
+                            <el-icon><Setting /></el-icon>
+                            <span>系统配置</span>
+                            <el-tooltip content="配置允许上传的文件类型和大小限制" placement="right" effect="light">
+                                <el-icon class="help-icon"><QuestionFilled /></el-icon>
+                            </el-tooltip>
+                        </el-menu-item>
+                    </el-menu>
+                </div>
+
+                <!-- Main Content Area -->
+                <div class="main-content">
+                    <!-- Bucket Management -->
+                    <div v-if="currentMenu === 'buckets'" class="page-content">
+                        <div class="page-header">
+                            <h3>存储桶管理</h3>
+                            <el-button type="primary" @click="showBucketDialog = true">
+                                <el-icon><Plus /></el-icon>
+                                创建存储桶
+                                <el-tooltip content="在MinIO中创建一个新的存储桶用于存放文件" placement="top" effect="light">
+                                    <el-icon class="inline-help"><QuestionFilled /></el-icon>
+                                </el-tooltip>
+                            </el-button>
+                        </div>
+                        <el-table :data="bucketList" v-loading="bucketLoading">
+                            <el-table-column prop="name" label="存储桶名称">
+                                <template #default="{ row }">
+                                    <span class="bucket-name" @click="selectBucket(row.name)">{{ row.name }}</span>
+                                </template>
+                            </el-table-column>
+                            <el-table-column prop="creationDate" label="创建时间" width="180"></el-table-column>
+                            <el-table-column prop="objectCount" label="文件数量" width="100"></el-table-column>
+                            <el-table-column prop="totalSize" label="总大小" width="120">
+                                <template #default="{ row }">
+                                    {{ formatSize(row.totalSize) }}
+                                </template>
+                            </el-table-column>
+                            <el-table-column label="操作" width="150">
+                                <template #default="{ row }">
+                                    <el-button size="small" type="primary" @click="selectBucket(row.name)">管理文件</el-button>
+                                    <el-button size="small" type="danger" @click="deleteBucket(row)">删除</el-button>
+                                </template>
+                            </el-table-column>
+                        </el-table>
+                    </div>
+
+                    <!-- File Manager -->
+                    <div v-if="currentMenu === 'files'" class="page-content">
+                        <div class="page-header">
+                            <h3>文件管理</h3>
+                            <div class="header-actions">
+                                <el-select v-model="currentBucket" placeholder="选择存储桶" @change="loadFiles" style="width: 200px; margin-right: 10px;">
+                                    <el-option v-for="b in bucketList" :key="b.name" :label="b.name" :value="b.name"></el-option>
+                                </el-select>
+                                <el-button type="primary" @click="showUploadDialog = true">
+                                    <el-icon><Upload /></el-icon>
+                                    上传文件
+                                    <el-tooltip content="将本地文件上传到当前存储桶的指定目录" placement="top" effect="light">
+                                        <el-icon class="inline-help"><QuestionFilled /></el-icon>
+                                    </el-tooltip>
+                                </el-button>
+                                <el-button @click="showFolderDialog = true">
+                                    <el-icon><FolderAdd /></el-icon>
+                                    新建文件夹
+                                    <el-tooltip content="在当前目录创建新的文件夹用于分类存储文件" placement="top" effect="light">
+                                        <el-icon class="inline-help"><QuestionFilled /></el-icon>
+                                    </el-tooltip>
+                                </el-button>
+                                <el-button @click="refreshFiles" :loading="fileLoading">
+                                    <el-icon><Refresh /></el-icon>
+                                    刷新
+                                </el-button>
+                            </div>
+                        </div>
+
+                        <el-breadcrumb separator="/" style="margin: 15px 0">
+                            <el-breadcrumb-item @click="navigateToFolder('')">
+                                <el-icon><HomeFilled /></el-icon> 根目录
+                            </el-breadcrumb-item>
+                            <el-breadcrumb-item v-for="(folder, index) in breadcrumb" :key="index" @click="navigateToFolder(folder.path)">
+                                {{ folder.name }}
+                            </el-breadcrumb-item>
+                        </el-breadcrumb>
+
+                        <el-table :data="fileList" v-loading="fileLoading" @selection-change="handleSelectionChange">
+                            <el-table-column type="selection" width="55"></el-table-column>
+                            <el-table-column label="名称">
+                                <template #default="{ row }">
+                                    <div class="file-name" @click="row.isFolder ? navigateToFolder(row.objectName) : previewFile(row)">
+                                        <el-icon v-if="row.isFolder"><Folder /></el-icon>
+                                        <el-icon v-else><Document /></el-icon>
+                                        {{ row.fileName }}
+                                    </div>
+                                </template>
+                            </el-table-column>
+                            <el-table-column prop="size" label="大小" width="120">
+                                <template #default="{ row }">
+                                    <span v-if="!row.isFolder">{{ formatSize(row.size) }}</span>
+                                    <span v-else>-</span>
+                                </template>
+                            </el-table-column>
+                            <el-table-column prop="uploadTime" label="修改时间" width="180"></el-table-column>
+                            <el-table-column label="操作" width="280">
+                                <template #default="{ row }">
+                                    <el-tooltip content="下载文件到本地" placement="top" effect="light">
+                                        <el-button size="small" @click="downloadFile(row)">
+                                            <el-icon><Download /></el-icon>
+                                        </el-button>
+                                    </el-tooltip>
+                                    <el-tooltip content="创建分享链接供他人下载" placement="top" effect="light">
+                                        <el-button size="small" @click="shareFile(row)">
+                                            <el-icon><Share /></el-icon>
+                                        </el-button>
+                                    </el-tooltip>
+                                    <el-tooltip content="删除文件或文件夹" placement="top" effect="light">
+                                        <el-button size="small" type="danger" @click="deleteFile(row)">
+                                            <el-icon><Delete /></el-icon>
+                                        </el-button>
+                                    </el-tooltip>
+                                </template>
+                            </el-table-column>
+                        </el-table>
+                    </div>
+
+                    <!-- Shares -->
+                    <div v-if="currentMenu === 'shares'" class="page-content">
+                        <div class="page-header">
+                            <h3>我的分享</h3>
+                            <el-tooltip content="查看和管理您创建的所有分享链接" placement="top" effect="light">
+                                <el-icon class="inline-help"><QuestionFilled /></el-icon>
+                            </el-tooltip>
+                        </div>
+                        <el-table :data="shareList" v-loading="shareLoading">
+                            <el-table-column prop="fileName" label="文件名"></el-table-column>
+                            <el-table-column prop="shareCode" label="分享码"></el-table-column>
+                            <el-table-column prop="expireTime" label="过期时间"></el-table-column>
+                            <el-table-column prop="viewCount" label="浏览次数"></el-table-column>
+                            <el-table-column label="操作" width="200">
+                                <template #default="{ row }">
+                                    <el-tooltip content="复制分享链接到剪贴板" placement="top" effect="light">
+                                        <el-button size="small" @click="copyShareLink(row)">
+                                            <el-icon><CopyDocument /></el-icon> 复制
+                                        </el-button>
+                                    </el-tooltip>
+                                    <el-tooltip content="删除分享链接" placement="top" effect="light">
+                                        <el-button size="small" type="danger" @click="deleteShare(row)">
+                                            <el-icon><Delete /></el-icon>
+                                        </el-button>
+                                    </el-tooltip>
+                                </template>
+                            </el-table-column>
+                        </el-table>
+                    </div>
+
+                    <!-- User Management -->
+                    <div v-if="currentMenu === 'users' && isAdmin" class="page-content">
+                        <div class="page-header">
+                            <h3>用户管理</h3>
+                            <el-button type="primary" @click="showUserDialog = true">
+                                <el-icon><Plus /></el-icon>
+                                添加用户
+                                <el-tooltip content="创建新用户账号，可设置用户名、昵称、角色等" placement="top" effect="light">
+                                    <el-icon class="inline-help"><QuestionFilled /></el-icon>
+                                </el-tooltip>
+                            </el-button>
+                        </div>
+                        <el-table :data="userList" v-loading="userLoading">
+                            <el-table-column prop="id" label="ID" width="60"></el-table-column>
+                            <el-table-column prop="username" label="用户名"></el-table-column>
+                            <el-table-column prop="nickname" label="昵称"></el-table-column>
+                            <el-table-column prop="email" label="邮箱"></el-table-column>
+                            <el-table-column prop="enabled" label="状态" width="80">
+                                <template #default="{ row }">
+                                    <el-tag :type="row.enabled ? 'success' : 'danger'">
+                                        {{ row.enabled ? '启用' : '禁用' }}
+                                    </el-tag>
+                                </template>
+                            </el-table-column>
+                            <el-table-column label="操作" width="180">
+                                <template #default="{ row }">
+                                    <el-tooltip content="编辑用户信息或角色" placement="top" effect="light">
+                                        <el-button size="small" @click="editUser(row)">
+                                            <el-icon><Edit /></el-icon>
+                                        </el-button>
+                                    </el-tooltip>
+                                    <el-tooltip content="删除用户账号" placement="top" effect="light">
+                                        <el-button size="small" type="danger" @click="deleteUser(row)">
+                                            <el-icon><Delete /></el-icon>
+                                        </el-button>
+                                    </el-tooltip>
+                                </template>
+                            </el-table-column>
+                        </el-table>
+                    </div>
+
+                    <!-- Role Management -->
+                    <div v-if="currentMenu === 'roles' && isAdmin" class="page-content">
+                        <div class="page-header">
+                            <h3>角色管理</h3>
+                            <el-button type="primary" @click="showRoleDialog = true">
+                                <el-icon><Plus /></el-icon>
+                                添加角色
+                                <el-tooltip content="创建新角色并配置权限，角色决定用户可访问的功能" placement="top" effect="light">
+                                    <el-icon class="inline-help"><QuestionFilled /></el-icon>
+                                </el-tooltip>
+                            </el-button>
+                        </div>
+                        <el-table :data="roleList" v-loading="roleLoading">
+                            <el-table-column prop="id" label="ID" width="60"></el-table-column>
+                            <el-table-column prop="code" label="编码"></el-table-column>
+                            <el-table-column prop="name" label="名称"></el-table-column>
+                            <el-table-column prop="description" label="描述"></el-table-column>
+                            <el-table-column label="操作" width="180">
+                                <template #default="{ row }">
+                                    <el-tooltip content="编辑角色信息和权限" placement="top" effect="light">
+                                        <el-button size="small" @click="editRole(row)">
+                                            <el-icon><Edit /></el-icon>
+                                        </el-button>
+                                    </el-tooltip>
+                                    <el-tooltip content="删除角色" placement="top" effect="light">
+                                        <el-button size="small" type="danger" @click="deleteRole(row)">
+                                            <el-icon><Delete /></el-icon>
+                                        </el-button>
+                                    </el-tooltip>
+                                </template>
+                            </el-table-column>
+                        </el-table>
+                    </div>
+
+                    <!-- Config -->
+                    <div v-if="currentMenu === 'config' && isAdmin" class="page-content">
+                        <div class="page-header">
+                            <h3>系统配置</h3>
+                        </div>
+                        <el-form label-width="120px" style="max-width: 600px">
+                            <el-form-item label="允许的文件类型">
+                                <el-tooltip content="用户只能上传指定扩展名的文件，多个用逗号分隔" placement="top" effect="light">
+                                    <el-icon class="form-help"><QuestionFilled /></el-icon>
+                                </el-tooltip>
+                                <el-input v-model="fileConfig.allowedExtensionsText" type="textarea" rows="3" placeholder="jpg,png,pdf,docx..."></el-input>
+                            </el-form-item>
+                            <el-form-item label="最大文件大小">
+                                <el-tooltip content="限制单次上传文件的最大大小" placement="top" effect="light">
+                                    <el-icon class="form-help"><QuestionFilled /></el-icon>
+                                </el-tooltip>
+                                <el-input-number v-model="fileConfig.maxFileSizeMB" :min="1" :max="1024"></el-input-number>
+                                <span style="margin-left: 10px">MB</span>
+                            </el-form-item>
+                            <el-form-item>
+                                <el-button type="primary" @click="saveFileConfig">保存配置</el-button>
+                            </el-form-item>
+                        </el-form>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Upload Dialog -->
+        <el-dialog v-model="showUploadDialog" title="上传文件" width="500px">
+            <el-alert type="info" :closable="false" style="margin-bottom: 15px">
+                上传到存储桶: <strong>{{ currentBucket }}</strong>
+            </el-alert>
+            <el-upload
+                ref="upload"
+                class="upload-demo"
+                :action="uploadUrl"
+                :headers="uploadHeaders"
+                :data="uploadData"
+                :on-success="handleUploadSuccess"
+                :on-error="handleUploadError"
+                :auto-upload="false"
+                drag
+                multiple
+            >
+                <el-icon class="el-icon--upload"><Upload /></el-icon>
+                <div class="el-upload__text">将文件拖到此处，或<em>点击上传</em></div>
+                <template #tip>
+                    <div class="el-upload__tip">
+                        支持任意文件类型，单个文件最大 {{ fileConfig.maxFileSizeMB }}MB
+                    </div>
+                </template>
+            </el-upload>
+            <template #footer>
+                <el-button @click="showUploadDialog = false">取消</el-button>
+                <el-button type="primary" @click="submitUpload">上传</el-button>
+            </template>
+        </el-dialog>
+
+        <!-- Folder Dialog -->
+        <el-dialog v-model="showFolderDialog" title="新建文件夹" width="400px">
+            <el-input v-model="newFolderName" placeholder="文件夹名称"></el-input>
+            <el-alert type="info" :closable="false" style="margin-top: 15px">
+                在 <strong>{{ currentBucket }}</strong> / <strong>{{ currentFolder || '根目录' }}</strong> 下创建
+            </el-alert>
+            <template #footer>
+                <el-button @click="showFolderDialog = false">取消</el-button>
+                <el-button type="primary" @click="createFolder">创建</el-button>
+            </template>
+        </el-dialog>
+
+        <!-- Bucket Dialog -->
+        <el-dialog v-model="showBucketDialog" title="创建存储桶" width="400px">
+            <el-form>
+                <el-form-item label="存储桶名称">
+                    <el-input v-model="newBucketName" placeholder="请输入存储桶名称"></el-input>
+                </el-form-item>
+            </el-form>
+            <el-alert type="warning" :closable="false">
+                存储桶名称只能包含小写字母、数字和连字符，且必须以字母或数字开头
+            </el-alert>
+            <template #footer>
+                <el-button @click="showBucketDialog = false">取消</el-button>
+                <el-button type="primary" @click="createBucket">创建</el-button>
+            </template>
+        </el-dialog>
+
+        <!-- Share Dialog -->
+        <el-dialog v-model="showShareDialog" title="分享文件" width="400px">
+            <el-form :model="shareForm">
+                <el-form-item label="有效期">
+                    <el-select v-model="shareForm.expirationHours" placeholder="选择有效期" style="width: 100%">
+                        <el-option label="24小时" :value="24"></el-option>
+                        <el-option label="7天" :value="168"></el-option>
+                        <el-option label="30天" :value="720"></el-option>
+                    </el-select>
+                </el-form-item>
+                <el-form-item label="密码(可选)">
+                    <el-input v-model="shareForm.password" type="password" placeholder="留空则无需密码"></el-input>
+                </el-form-item>
+            </el-form>
+            <template #footer>
+                <el-button @click="showShareDialog = false">取消</el-button>
+                <el-button type="primary" @click="createShare">创建分享</el-button>
+            </template>
+        </el-dialog>
+
+        <!-- User Dialog -->
+        <el-dialog v-model="showUserDialog" :title="userForm.id ? '编辑用户' : '添加用户'" width="500px">
+            <el-form :model="userForm" label-width="80px">
+                <el-form-item label="用户名">
+                    <el-input v-model="userForm.username" :disabled="!!userForm.id"></el-input>
+                </el-form-item>
+                <el-form-item label="昵称">
+                    <el-input v-model="userForm.nickname"></el-input>
+                </el-form-item>
+                <el-form-item label="邮箱">
+                    <el-input v-model="userForm.email"></el-input>
+                </el-form-item>
+                <el-form-item label="手机">
+                    <el-input v-model="userForm.phone"></el-input>
+                </el-form-item>
+                <el-form-item label="状态">
+                    <el-switch v-model="userForm.enabled"></el-switch>
+                </el-form-item>
+                <el-form-item label="角色">
+                    <el-select v-model="userForm.roles" multiple placeholder="选择角色" style="width: 100%">
+                        <el-option v-for="role in roleList" :key="role.id" :label="role.name" :value="role.code"></el-option>
+                    </el-select>
+                </el-form-item>
+            </el-form>
+            <template #footer>
+                <el-button @click="showUserDialog = false">取消</el-button>
+                <el-button type="primary" @click="saveUser">保存</el-button>
+            </template>
+        </el-dialog>
+    </div>
+
+    <script src="https://unpkg.com/vue@3.3.4/dist/vue.global.js"></script>
+    <script src="https://unpkg.com/element-plus@2.3.14/dist/index.full.js"></script>
+    <script src="https://unpkg.com/@element-plus/icons-vue@2.1.0/dist/index.iife.min.js"></script>
+    <script src="https://unpkg.com/axios@1.4.0/dist/axios.min.js"></script>
+    <script src="/js/app.js"></script>
+</body>
+</html>

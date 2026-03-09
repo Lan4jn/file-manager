@@ -1,0 +1,31 @@
+# 默认配置
+# 使用方式: java -jar file-manager-1.0.0.jar
+# 或指定环境: ENV_FILE=dev java -jar file-manager-1.0.0.jar
+
+server:
+  port: 8080
+
+spring:
+  datasource:
+    driver-class-name: org.sqlite.JDBC
+    url: jdbc:sqlite:./data/file-manager.db
+  jpa:
+    database-platform: org.hibernate.community.dialect.SQLiteDialect
+    hibernate:
+      ddl-auto: update
+    show-sql: false
+
+minio:
+  endpoint: http://localhost:9000
+  access-key: minioadmin
+  secret-key: minioadmin
+  default-bucket: file-manager
+  public-url: http://localhost:9000
+
+jwt:
+  secret: default-jwt-secret-key
+  expiration: 86400000
+
+logging:
+  level:
+    com.poss.file: info

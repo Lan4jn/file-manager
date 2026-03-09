@@ -1,0 +1,30 @@
+# 生产环境配置
+# 使用方式: ENV_FILE=prod java -jar file-manager-1.0.0.jar
+
+server:
+  port: 8080
+
+spring:
+  datasource:
+    driver-class-name: org.sqlite.JDBC
+    url: jdbc:sqlite:/data/file-manager.db
+  jpa:
+    database-platform: org.hibernate.community.dialect.SQLiteDialect
+    hibernate:
+      ddl-auto: update
+    show-sql: false
+
+minio:
+  endpoint: http://minio-server:9000
+  access-key: your-access-key
+  secret-key: your-secret-key
+  default-bucket: file-manager
+  public-url: http://minio-server:9000
+
+jwt:
+  secret: prod-jwt-secret-key-change-this
+  expiration: 86400000
+
+logging:
+  level:
+    com.poss.file: info
