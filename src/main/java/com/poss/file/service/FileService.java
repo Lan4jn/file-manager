@@ -2,8 +2,10 @@ package com.poss.file.service;
 
 import cn.hutool.core.util.StrUtil;
 import com.poss.file.dto.UploadResponse;
+import com.poss.file.model.BucketInfo;
 import com.poss.file.model.FileInfo;
 import io.minio.*;
+import io.minio.messages.Bucket;
 import io.minio.messages.Item;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -24,24 +26,165 @@ public class FileService {
     private static final Logger log = LoggerFactory.getLogger(FileService.class);
 
     private final MinioClient minioClient;
+    private final ConfigService configService;
 
-    @Value("${minio.bucket-name}")
-    private String bucketName;
+    @Value("${minio.default-bucket:file-manager}")
+    private String defaultBucket;
 
-    @Value("${minio.public-url}")
+    @Value("${minio.public-url:}")
     private String publicUrl;
 
-    public FileService(MinioClient minioClient) {
+    public FileService(MinioClient minioClient, ConfigService configService) {
         this.minioClient = minioClient;
+        this.configService = configService;
+    }
+
+    /**
+     * 获取所有Bucket列表
+     */
+    public List<BucketInfo> listBuckets() {
+        try {
+            List<Bucket> buckets = minioClient.listBuckets();
+            List<BucketInfo> result = new ArrayList<>();
+
+            for (Bucket bucket : buckets) {
+                BucketInfo info = new BucketInfo();
+                info.setName(bucket.name());
+                info.setCreationDate(LocalDateTime.ofInstant(
+                        bucket.creationDate().toInstant(), ZoneId.systemDefault()));
+
+                // 统计bucket中的对象数量和大小
+                try {
+                    Iterable<Result<Item>> objects = minioClient.listObjects(
+                            ListObjectsArgs.builder()
+                                    .bucket(bucket.name())
+                                    .recursive(true)
+                                    .build()
+                    );
+
+                    long objectCount = 0;
+                    long totalSize = 0;
+                    for (Result<Item> obj : objects) {
+                        Item item = obj.get();
+                        if (!item.isDir()) {
+                            objectCount++;
+                            totalSize += item.size();
+                        }
+                    }
+                    info.setObjectCount(objectCount);
+                    info.setTotalSize(totalSize);
+                } catch (Exception e) {
+                    info.setObjectCount(0L);
+                    info.setTotalSize(0L);
+                }
+
+                result.add(info);
+            }
+
+            return result;
+        } catch (Exception e) {
+            log.error("Failed to list buckets", e);
+            throw new RuntimeException("获取Bucket列表失败: " + e.getMessage());
+        }
+    }
+
+    /**
+     * 创建Bucket
+     */
+    public BucketInfo createBucket(String bucketName) {
+        try {
+            boolean exists = minioClient.bucketExists(
+                    BucketExistsArgs.builder().bucket(bucketName).build()
+            );
+
+            if (exists) {
+                throw new RuntimeException("Bucket已存在: " + bucketName);
+            }
+
+            minioClient.makeBucket(
+                    MakeBucketArgs.builder().bucket(bucketName).build()
+            );
+
+            BucketInfo info = new BucketInfo();
+            info.setName(bucketName);
+            info.setCreationDate(LocalDateTime.now());
+            info.setObjectCount(0L);
+            info.setTotalSize(0L);
+
+            log.info("Bucket created: {}", bucketName);
+            return info;
+        } catch (RuntimeException e) {
+            throw e;
+        } catch (Exception e) {
+            log.error("Failed to create bucket: {}", bucketName, e);
+            throw new RuntimeException("创建Bucket失败: " + e.getMessage());
+        }
+    }
+
+    /**
+     * 删除Bucket
+     */
+    public void deleteBucket(String bucketName) {
+        try {
+            // 先删除所有对象
+            Iterable<Result<Item>> objects = minioClient.listObjects(
+                    ListObjectsArgs.builder()
+                            .bucket(bucketName)
+                            .recursive(true)
+                            .build()
+            );
+
+            for (Result<Item> result : objects) {
+                minioClient.removeObject(
+                        RemoveObjectArgs.builder()
+                                .bucket(bucketName)
+                                .object(result.get().objectName())
+                                .build()
+                );
+            }
+
+            // 再删除bucket
+            minioClient.removeBucket(
+                    RemoveBucketArgs.builder().bucket(bucketName).build()
+            );
+
+            log.info("Bucket deleted: {}", bucketName);
+        } catch (Exception e) {
+            log.error("Failed to delete bucket: {}", bucketName, e);
+            throw new RuntimeException("删除Bucket失败: " + e.getMessage());
+        }
+    }
+
+    /**
+     * 获取默认Bucket名称
+     */
+    public String getDefaultBucket() {
+        return defaultBucket;
     }
 
     /**
      * 上传文件
      */
-    public UploadResponse uploadFile(MultipartFile file, String folder) {
+    public UploadResponse uploadFile(MultipartFile file, String folder, String bucket) {
+        if (bucket == null || bucket.isEmpty()) {
+            bucket = defaultBucket;
+        }
+
         try {
             String originalFilename = file.getOriginalFilename();
-            String extension = getFileExtension(originalFilename);
+            String extension = getFileExtension(originalFilename).toLowerCase();
+
+            // 检查文件类型是否允许
+            Set<String> allowedExtensions = configService.getAllowedExtensions();
+            if (!allowedExtensions.isEmpty() && !allowedExtensions.contains(extension)) {
+                throw new RuntimeException("不允许上传此类文件: " + extension);
+            }
+
+            // 检查文件大小
+            Long maxSize = configService.getMaxFileSize();
+            if (file.getSize() > maxSize) {
+                throw new RuntimeException("文件大小超出限制: 最大 " + formatSize(maxSize));
+            }
 
             // 生成唯一文件名
             String objectName = generateObjectName(folder, originalFilename);
@@ -49,7 +192,7 @@ public class FileService {
             // 上传到 MinIO
             minioClient.putObject(
                     PutObjectArgs.builder()
-                            .bucket(bucketName)
+                            .bucket(bucket)
                             .object(objectName)
                             .stream(file.getInputStream(), file.getSize(), -1)
                             .contentType(file.getContentType())
@@ -58,7 +201,7 @@ public class FileService {
 
             // 获取文件 Etag
             StatObjectArgs statArgs = StatObjectArgs.builder()
-                    .bucket(bucketName)
+                    .bucket(bucket)
                     .object(objectName)
                     .build();
             StatObjectResponse stat = minioClient.statObject(statArgs);
@@ -68,11 +211,13 @@ public class FileService {
             response.setFileName(originalFilename);
             response.setSize(file.getSize());
             response.setContentType(file.getContentType());
-            response.setUrl(publicUrl + "/" + objectName);
+            response.setUrl(publicUrl + "/" + bucket + "/" + objectName);
             response.setEtag(stat.etag());
 
             log.info("File uploaded successfully: {}", objectName);
             return response;
+        } catch (RuntimeException e) {
+            throw e;
         } catch (Exception e) {
             log.error("Failed to upload file", e);
             throw new RuntimeException("文件上传失败: " + e.getMessage());
@@ -82,7 +227,11 @@ public class FileService {
     /**
      * 获取文件列表
      */
-    public List<FileInfo> listFiles(String folder) {
+    public List<FileInfo> listFiles(String folder, String bucket) {
+        if (bucket == null || bucket.isEmpty()) {
+            bucket = defaultBucket;
+        }
+
         try {
             // 确保 folder 以 / 结尾
             if (StrUtil.isNotEmpty(folder) && !folder.endsWith("/")) {
@@ -92,7 +241,7 @@ public class FileService {
             // 列出指定前缀的所有对象
             Iterable<Result<Item>> results = minioClient.listObjects(
                     ListObjectsArgs.builder()
-                            .bucket(bucketName)
+                            .bucket(bucket)
                             .prefix(folder)
                             .recursive(false)
                             .build()
@@ -108,7 +257,7 @@ public class FileService {
                 fileInfo.setIsFolder(item.isDir());
                 fileInfo.setUploadTime(LocalDateTime.ofInstant(
                         item.lastModified().toInstant(), ZoneId.systemDefault()));
-                fileInfo.setUrl(publicUrl + "/" + item.objectName());
+                fileInfo.setUrl(publicUrl + "/" + bucket + "/" + item.objectName());
                 fileList.add(fileInfo);
             }
 
@@ -122,11 +271,15 @@ public class FileService {
     /**
      * 删除文件
      */
-    public void deleteFile(String objectName) {
+    public void deleteFile(String objectName, String bucket) {
+        if (bucket == null || bucket.isEmpty()) {
+            bucket = defaultBucket;
+        }
+
         try {
             minioClient.removeObject(
                     RemoveObjectArgs.builder()
-                            .bucket(bucketName)
+                            .bucket(bucket)
                             .object(objectName)
                             .build()
             );
@@ -140,15 +293,18 @@ public class FileService {
     /**
      * 创建文件夹
      */
-    public void createFolder(String folderPath) {
+    public void createFolder(String folderPath, String bucket) {
+        if (bucket == null || bucket.isEmpty()) {
+            bucket = defaultBucket;
+        }
+
         try {
             if (!folderPath.endsWith("/")) {
                 folderPath = folderPath + "/";
             }
-            // 创建一个空对象来模拟文件夹
             minioClient.putObject(
                     PutObjectArgs.builder()
-                            .bucket(bucketName)
+                            .bucket(bucket)
                             .object(folderPath)
                             .stream(new ByteArrayInputStream(new byte[0]), 0, -1)
                             .build()
@@ -163,11 +319,15 @@ public class FileService {
     /**
      * 获取文件流
      */
-    public InputStream getFileStream(String objectName) {
+    public InputStream getFileStream(String objectName, String bucket) {
+        if (bucket == null || bucket.isEmpty()) {
+            bucket = defaultBucket;
+        }
+
         try {
             return minioClient.getObject(
                     GetObjectArgs.builder()
-                            .bucket(bucketName)
+                            .bucket(bucket)
                             .object(objectName)
                             .build()
             );
@@ -180,11 +340,15 @@ public class FileService {
     /**
      * 获取文件信息
      */
-    public FileInfo getFileInfo(String objectName) {
+    public FileInfo getFileInfo(String objectName, String bucket) {
+        if (bucket == null || bucket.isEmpty()) {
+            bucket = defaultBucket;
+        }
+
         try {
             StatObjectResponse stat = minioClient.statObject(
                     StatObjectArgs.builder()
-                            .bucket(bucketName)
+                            .bucket(bucket)
                             .object(objectName)
                             .build()
             );
@@ -197,7 +361,7 @@ public class FileService {
             fileInfo.setEtag(stat.etag());
             fileInfo.setUploadTime(LocalDateTime.ofInstant(
                     stat.lastModified().toInstant(), ZoneId.systemDefault()));
-            fileInfo.setUrl(publicUrl + "/" + objectName);
+            fileInfo.setUrl(publicUrl + "/" + bucket + "/" + objectName);
             fileInfo.setIsFolder(objectName.endsWith("/"));
 
             return fileInfo;
@@ -208,23 +372,37 @@ public class FileService {
     }
 
     /**
+     * 获取文件信息（使用默认bucket）
+     */
+    public FileInfo getFileInfo(String objectName) {
+        return getFileInfo(objectName, defaultBucket);
+    }
+
+    /**
      * 复制文件
      */
-    public void copyFile(String sourceObjectName, String destObjectName) {
+    public void copyFile(String sourceObjectName, String destObjectName, String sourceBucket, String destBucket) {
+        if (sourceBucket == null || sourceBucket.isEmpty()) {
+            sourceBucket = defaultBucket;
+        }
+        if (destBucket == null || destBucket.isEmpty()) {
+            destBucket = defaultBucket;
+        }
+
         try {
             minioClient.copyObject(
                     CopyObjectArgs.builder()
-                            .bucket(bucketName)
+                            .bucket(destBucket)
                             .object(destObjectName)
                             .source(
                                     CopySource.builder()
-                                            .bucket(bucketName)
+                                            .bucket(sourceBucket)
                                             .object(sourceObjectName)
                                             .build()
                             )
                             .build()
             );
-            log.info("File copied from {} to {}", sourceObjectName, destObjectName);
+            log.info("File copied from {}/{} to {}/{}", sourceBucket, sourceObjectName, destBucket, destObjectName);
         } catch (Exception e) {
             log.error("Failed to copy file", e);
             throw new RuntimeException("文件复制失败: " + e.getMessage());
@@ -234,17 +412,20 @@ public class FileService {
     /**
      * 移动文件
      */
-    public void moveFile(String sourceObjectName, String destObjectName) {
-        copyFile(sourceObjectName, destObjectName);
-        deleteFile(sourceObjectName);
-        log.info("File moved from {} to {}", sourceObjectName, destObjectName);
+    public void moveFile(String sourceObjectName, String destObjectName, String sourceBucket, String destBucket) {
+        copyFile(sourceObjectName, destObjectName, sourceBucket, destBucket);
+        deleteFile(sourceObjectName, sourceBucket);
+        log.info("File moved from {}/{} to {}/{}", sourceBucket, sourceObjectName, destBucket, destObjectName);
     }
 
     /**
      * 获取文件预览URL
      */
-    public String getPreviewUrl(String objectName) {
-        return publicUrl + "/" + objectName;
+    public String getPreviewUrl(String objectName, String bucket) {
+        if (bucket == null || bucket.isEmpty()) {
+            bucket = defaultBucket;
+        }
+        return publicUrl + "/" + bucket + "/" + objectName;
     }
 
     // ===== 私有方法 =====
@@ -264,7 +445,7 @@ public class FileService {
         }
 
         String nameWithoutExt = originalFilename.substring(0,
-                originalFilename.length() - extension.length() - 1);
+                Math.max(0, originalFilename.length() - extension.length() - 1));
         nameWithoutExt = nameWithoutExt.replaceAll("[^a-zA-Z0-9.-]", "_");
 
         sb.append(nameWithoutExt)
@@ -296,5 +477,12 @@ public class FileService {
             return objectName.substring(lastSlash + 1);
         }
         return objectName;
+    }
+
+    private String formatSize(long bytes) {
+        if (bytes < 1024) return bytes + " B";
+        if (bytes < 1024 * 1024) return String.format("%.2f KB", bytes / 1024.0);
+        if (bytes < 1024 * 1024 * 1024) return String.format("%.2f MB", bytes / (1024.0 * 1024));
+        return String.format("%.2f GB", bytes / (1024.0 * 1024 * 1024));
     }
 }

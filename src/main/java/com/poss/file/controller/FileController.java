@@ -2,6 +2,7 @@ package com.poss.file.controller;
 
 import com.poss.file.common.Result;
 import com.poss.file.dto.UploadResponse;
+import com.poss.file.model.BucketInfo;
 import com.poss.file.model.FileInfo;
 import com.poss.file.service.FileService;
 import org.slf4j.Logger;
@@ -31,65 +32,87 @@ public class FileController {
         this.fileService = fileService;
     }
 
-    /**
-     * 上传文件
-     */
+    // ==================== Bucket Management ====================
+
+    @GetMapping("/buckets")
+    public Result<List<BucketInfo>> listBuckets() {
+        return Result.success(fileService.listBuckets());
+    }
+
+    @PostMapping("/buckets")
+    public Result<BucketInfo> createBucket(@RequestBody java.util.Map<String, String> request) {
+        String bucketName = request.get("bucketName");
+        if (bucketName == null || bucketName.isEmpty()) {
+            return Result.error("Bucket名称不能为空");
+        }
+        return Result.success(fileService.createBucket(bucketName));
+    }
+
+    @DeleteMapping("/buckets")
+    public Result<Void> deleteBucket(@RequestParam("bucketName") String bucketName) {
+        fileService.deleteBucket(bucketName);
+        return Result.success();
+    }
+
+    @GetMapping("/buckets/default")
+    public Result<String> getDefaultBucket() {
+        return Result.success(fileService.getDefaultBucket());
+    }
+
+    // ==================== File Management ====================
+
     @PostMapping("/upload")
     public Result<UploadResponse> upload(
             @RequestParam("file") MultipartFile file,
-            @RequestParam(value = "folder", required = false, defaultValue = "") String folder) {
-        log.info("Uploading file: {}, folder: {}", file.getOriginalFilename(), folder);
-        UploadResponse response = fileService.uploadFile(file, folder);
+            @RequestParam(value = "folder", required = false, defaultValue = "") String folder,
+            @RequestParam(value = "bucket", required = false, defaultValue = "") String bucket) {
+        log.info("Uploading file: {}, folder: {}, bucket: {}", file.getOriginalFilename(), folder, bucket);
+        UploadResponse response = fileService.uploadFile(file, folder, bucket);
         return Result.success(response);
     }
 
-    /**
-     * 获取文件列表
-     */
     @GetMapping("/list")
-    public Result<List<FileInfo>> list(@RequestParam(value = "folder", required = false, defaultValue = "") String folder) {
-        log.info("Listing files, folder: {}", folder);
-        List<FileInfo> files = fileService.listFiles(folder);
+    public Result<List<FileInfo>> list(
+            @RequestParam(value = "folder", required = false, defaultValue = "") String folder,
+            @RequestParam(value = "bucket", required = false, defaultValue = "") String bucket) {
+        log.info("Listing files, folder: {}, bucket: {}", folder, bucket);
+        List<FileInfo> files = fileService.listFiles(folder, bucket);
         return Result.success(files);
     }
 
-    /**
-     * 获取文件信息
-     */
     @GetMapping("/info")
-    public Result<FileInfo> info(@RequestParam("objectName") String objectName) {
-        FileInfo fileInfo = fileService.getFileInfo(objectName);
+    public Result<FileInfo> info(
+            @RequestParam("objectName") String objectName,
+            @RequestParam(value = "bucket", required = false, defaultValue = "") String bucket) {
+        FileInfo fileInfo = fileService.getFileInfo(objectName, bucket);
         return Result.success(fileInfo);
     }
 
-    /**
-     * 删除文件
-     */
     @DeleteMapping("/delete")
-    public Result<Void> delete(@RequestParam("objectName") String objectName) {
-        log.info("Deleting file: {}", objectName);
-        fileService.deleteFile(objectName);
+    public Result<Void> delete(
+            @RequestParam("objectName") String objectName,
+            @RequestParam(value = "bucket", required = false, defaultValue = "") String bucket) {
+        log.info("Deleting file: {}, bucket: {}", objectName, bucket);
+        fileService.deleteFile(objectName, bucket);
         return Result.success();
     }
 
-    /**
-     * 创建文件夹
-     */
     @PostMapping("/folder")
-    public Result<Void> createFolder(@RequestParam("path") String path) {
-        log.info("Creating folder: {}", path);
-        fileService.createFolder(path);
+    public Result<Void> createFolder(
+            @RequestParam("path") String path,
+            @RequestParam(value = "bucket", required = false, defaultValue = "") String bucket) {
+        log.info("Creating folder: {}, bucket: {}", path, bucket);
+        fileService.createFolder(path, bucket);
         return Result.success();
     }
 
-    /**
-     * 下载文件
-     */
     @GetMapping("/download")
-    public ResponseEntity<InputStreamResource> download(@RequestParam("objectName") String objectName) {
-        log.info("Downloading file: {}", objectName);
-        FileInfo fileInfo = fileService.getFileInfo(objectName);
-        InputStream stream = fileService.getFileStream(objectName);
+    public ResponseEntity<InputStreamResource> download(
+            @RequestParam("objectName") String objectName,
+            @RequestParam(value = "bucket", required = false, defaultValue = "") String bucket) {
+        log.info("Downloading file: {}, bucket: {}", objectName, bucket);
+        FileInfo fileInfo = fileService.getFileInfo(objectName, bucket);
+        InputStream stream = fileService.getFileStream(objectName, bucket);
 
         String filename = URLEncoder.encode(fileInfo.getFileName(), StandardCharsets.UTF_8);
 
@@ -100,14 +123,13 @@ public class FileController {
                 .body(new InputStreamResource(stream));
     }
 
-    /**
-     * 预览文件
-     */
     @GetMapping("/preview")
-    public ResponseEntity<InputStreamResource> preview(@RequestParam("objectName") String objectName) {
-        log.info("Previewing file: {}", objectName);
-        FileInfo fileInfo = fileService.getFileInfo(objectName);
-        InputStream stream = fileService.getFileStream(objectName);
+    public ResponseEntity<InputStreamResource> preview(
+            @RequestParam("objectName") String objectName,
+            @RequestParam(value = "bucket", required = false, defaultValue = "") String bucket) {
+        log.info("Previewing file: {}, bucket: {}", objectName, bucket);
+        FileInfo fileInfo = fileService.getFileInfo(objectName, bucket);
+        InputStream stream = fileService.getFileStream(objectName, bucket);
 
         return ResponseEntity.ok()
                 .contentType(MediaType.parseMediaType(fileInfo.getContentType()))
@@ -115,36 +137,33 @@ public class FileController {
                 .body(new InputStreamResource(stream));
     }
 
-    /**
-     * 获取文件预览URL
-     */
     @GetMapping("/preview-url")
-    public Result<String> getPreviewUrl(@RequestParam("objectName") String objectName) {
-        String url = fileService.getPreviewUrl(objectName);
+    public Result<String> getPreviewUrl(
+            @RequestParam("objectName") String objectName,
+            @RequestParam(value = "bucket", required = false, defaultValue = "") String bucket) {
+        String url = fileService.getPreviewUrl(objectName, bucket);
         return Result.success(url);
     }
 
-    /**
-     * 复制文件
-     */
     @PostMapping("/copy")
     public Result<Void> copy(
             @RequestParam("source") String sourceObjectName,
-            @RequestParam("dest") String destObjectName) {
+            @RequestParam("dest") String destObjectName,
+            @RequestParam(value = "sourceBucket", required = false, defaultValue = "") String sourceBucket,
+            @RequestParam(value = "destBucket", required = false, defaultValue = "") String destBucket) {
         log.info("Copying file from {} to {}", sourceObjectName, destObjectName);
-        fileService.copyFile(sourceObjectName, destObjectName);
+        fileService.copyFile(sourceObjectName, destObjectName, sourceBucket, destBucket);
         return Result.success();
     }
 
-    /**
-     * 移动文件
-     */
     @PostMapping("/move")
     public Result<Void> move(
             @RequestParam("source") String sourceObjectName,
-            @RequestParam("dest") String destObjectName) {
+            @RequestParam("dest") String destObjectName,
+            @RequestParam(value = "sourceBucket", required = false, defaultValue = "") String sourceBucket,
+            @RequestParam(value = "destBucket", required = false, defaultValue = "") String destBucket) {
         log.info("Moving file from {} to {}", sourceObjectName, destObjectName);
-        fileService.moveFile(sourceObjectName, destObjectName);
+        fileService.moveFile(sourceObjectName, destObjectName, sourceBucket, destBucket);
         return Result.success();
     }
 }
