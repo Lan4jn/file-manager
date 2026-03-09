@@ -4,8 +4,8 @@ import com.poss.file.common.Result;
 import com.poss.file.dto.UploadResponse;
 import com.poss.file.model.FileInfo;
 import com.poss.file.service.FileService;
-import lombok.RequiredArgsConstructor;
-import lombok.extern.slf4j.Slf4j;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.core.io.InputStreamResource;
 import org.springframework.http.HttpHeaders;
 import org.springframework.http.MediaType;
@@ -18,14 +18,18 @@ import java.net.URLEncoder;
 import java.nio.charset.StandardCharsets;
 import java.util.List;
 
-@Slf4j
 @RestController
 @RequestMapping("/api/file")
-@RequiredArgsConstructor
 @CrossOrigin(origins = "*")
 public class FileController {
 
+    private static final Logger log = LoggerFactory.getLogger(FileController.class);
+
     private final FileService fileService;
+
+    public FileController(FileService fileService) {
+        this.fileService = fileService;
+    }
 
     /**
      * 上传文件

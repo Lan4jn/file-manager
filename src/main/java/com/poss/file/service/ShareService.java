@@ -5,19 +5,21 @@ import cn.hutool.core.util.StrUtil;
 import com.poss.file.dto.CreateShareRequest;
 import com.poss.file.model.FileInfo;
 import com.poss.file.model.ShareLink;
-import lombok.RequiredArgsConstructor;
-import lombok.extern.slf4j.Slf4j;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Service;
 
 import java.time.LocalDateTime;
+import java.util.List;
 import java.util.Map;
 import java.util.concurrent.ConcurrentHashMap;
+import java.util.stream.Collectors;
 
-@Slf4j
 @Service
-@RequiredArgsConstructor
 public class ShareService {
+
+    private static final Logger log = LoggerFactory.getLogger(ShareService.class);
 
     private final FileService fileService;
 
@@ -27,6 +29,10 @@ public class ShareService {
     // 内存存储，实际项目应使用数据库
     private final Map<String, ShareLink> shareLinkMap = new ConcurrentHashMap<>();
     private final Map<String, Integer> shareViewCountMap = new ConcurrentHashMap<>();
+
+    public ShareService(FileService fileService) {
+        this.fileService = fileService;
+    }
 
     /**
      * 创建分享链接
@@ -132,10 +138,10 @@ public class ShareService {
     /**
      * 获取当前用户的所有分享链接
      */
-    public java.util.List<ShareLink> getShareLinksByUser(String createBy) {
+    public List<ShareLink> getShareLinksByUser(String createBy) {
         return shareLinkMap.values().stream()
                 .filter(link -> createBy.equals(link.getCreateBy()))
-                .collect(java.util.stream.Collectors.toList());
+                .collect(Collectors.toList());
     }
 
     private String generateShareCode() {

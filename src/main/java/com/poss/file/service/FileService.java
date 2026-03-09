@@ -4,26 +4,24 @@ import cn.hutool.core.util.StrUtil;
 import com.poss.file.dto.UploadResponse;
 import com.poss.file.model.FileInfo;
 import io.minio.*;
-import io.minio.errors.MinioException;
 import io.minio.messages.Item;
-import lombok.RequiredArgsConstructor;
-import lombok.extern.slf4j.Slf4j;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Service;
 import org.springframework.web.multipart.MultipartFile;
 
+import java.io.ByteArrayInputStream;
 import java.io.InputStream;
 import java.time.LocalDateTime;
 import java.time.ZoneId;
 import java.time.format.DateTimeFormatter;
 import java.util.*;
-import java.util.stream.Collectors;
-import java.util.stream.StreamSupport;
 
-@Slf4j
 @Service
-@RequiredArgsConstructor
 public class FileService {
+
+    private static final Logger log = LoggerFactory.getLogger(FileService.class);
 
     private final MinioClient minioClient;
 
@@ -32,6 +30,10 @@ public class FileService {
 
     @Value("${minio.public-url}")
     private String publicUrl;
+
+    public FileService(MinioClient minioClient) {
+        this.minioClient = minioClient;
+    }
 
     /**
      * 上传文件
@@ -148,7 +150,7 @@ public class FileService {
                     PutObjectArgs.builder()
                             .bucket(bucketName)
                             .object(folderPath)
-                            .stream(new byte[0], 0, -1)
+                            .stream(new ByteArrayInputStream(new byte[0]), 0, -1)
                             .build()
             );
             log.info("Folder created: {}", folderPath);

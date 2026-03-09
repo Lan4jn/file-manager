@@ -5,20 +5,24 @@ import com.poss.file.dto.CreateShareRequest;
 import com.poss.file.model.FileInfo;
 import com.poss.file.model.ShareLink;
 import com.poss.file.service.ShareService;
-import lombok.RequiredArgsConstructor;
-import lombok.extern.slf4j.Slf4j;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.web.bind.annotation.*;
 
 import java.util.List;
 
-@Slf4j
 @RestController
 @RequestMapping("/api/share")
-@RequiredArgsConstructor
 @CrossOrigin(origins = "*")
 public class ShareController {
 
+    private static final Logger log = LoggerFactory.getLogger(ShareController.class);
+
     private final ShareService shareService;
+
+    public ShareController(ShareService shareService) {
+        this.shareService = shareService;
+    }
 
     /**
      * 创建分享链接
