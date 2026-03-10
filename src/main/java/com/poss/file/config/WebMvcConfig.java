@@ -4,6 +4,7 @@ import org.springframework.beans.factory.annotation.Value;
 import org.springframework.context.annotation.Configuration;
 import org.springframework.web.servlet.config.annotation.CorsRegistry;
 import org.springframework.web.servlet.config.annotation.ResourceHandlerRegistry;
+import org.springframework.web.servlet.config.annotation.ViewControllerRegistry;
 import org.springframework.web.servlet.config.annotation.WebMvcConfigurer;
 
 @Configuration
@@ -23,7 +24,16 @@ public class WebMvcConfig implements WebMvcConfigurer {
     }
 
     @Override
+    public void addViewControllers(ViewControllerRegistry registry) {
+        // 根路径映射到 index.html
+        registry.addViewController("/").setViewName("forward:/index.html");
+    }
+
+    @Override
     public void addResourceHandlers(ResourceHandlerRegistry registry) {
+        // 静态资源
+        registry.addResourceHandler("/index.html", "/css/**", "/js/**", "/img/**")
+                .addResourceLocations("classpath:/static/");
         // 文件预览路径映射
         registry.addResourceHandler("/preview/**")
                 .addResourceLocations(publicUrl + "/");
