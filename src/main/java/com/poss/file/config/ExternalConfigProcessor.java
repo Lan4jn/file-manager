@@ -16,16 +16,8 @@ public class ExternalConfigProcessor implements EnvironmentPostProcessor {
 
     @Override
     public void postProcessEnvironment(ConfigurableEnvironment environment, SpringApplication application) {
-        // 获取jar包所在目录
         String jarPath = System.getProperty("user.dir");
-        // 读取环境变量 ENV_FILE
         String envFile = System.getenv("ENV_FILE");
-
-        // 设置 active profiles
-        if (envFile != null && !envFile.isEmpty()) {
-            application.setAdditionalProfiles(envFile);
-            System.out.println("[ExternalConfig] Active profile set to: " + envFile);
-        }
 
         Map<String, Object> properties = new HashMap<>();
 

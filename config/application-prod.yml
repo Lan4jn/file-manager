@@ -7,19 +7,19 @@ server:
 spring:
   datasource:
     driver-class-name: org.sqlite.JDBC
-    url: jdbc:sqlite:/data/file-manager.db
+    url: jdbc:sqlite:/opt/app/config/file-manager.db
   jpa:
-    database-platform: org.hibernate.community.dialect.SQLiteDialect
+    database-platform: com.github.gwenn.sqlitedialect.SQLiteDialect
     hibernate:
       ddl-auto: update
     show-sql: false
 
 minio:
-  endpoint: http://minio-server:9000
-  access-key: your-access-key
-  secret-key: your-secret-key
+  endpoint: http://localhost:9000
+  access-key: minioadmin
+  secret-key: Poss#1144
   default-bucket: file-manager
-  public-url: http://minio-server:9000
+  public-url: http://localhost:9000
 
 jwt:
   secret: prod-jwt-secret-key-change-this
