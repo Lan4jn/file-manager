@@ -42,7 +42,7 @@ public class FileService {
     /**
      * 获取所有Bucket列表
      */
-    public List<BucketInfo> listBuckets() {
+    public List<BucketInfo> listBuckets(String sortBy, String order) {
         try {
             List<Bucket> buckets = minioClient.listBuckets();
             List<BucketInfo> result = new ArrayList<>();
@@ -80,6 +80,22 @@ public class FileService {
 
                 result.add(info);
             }
+
+            // 排序
+            result.sort((b1, b2) -> {
+                int resultVal;
+                switch (sortBy) {
+                    case "size":
+                        resultVal = Long.compare(b1.getTotalSize() != null ? b1.getTotalSize() : 0, b2.getTotalSize() != null ? b2.getTotalSize() : 0);
+                        break;
+                    case "time":
+                        resultVal = (b1.getCreationDate() != null ? b1.getCreationDate() : LocalDateTime.MIN).compareTo(b2.getCreationDate() != null ? b2.getCreationDate() : LocalDateTime.MIN);
+                        break;
+                    default: // name
+                        resultVal = (b1.getName() != null ? b1.getName() : "").compareTo(b2.getName() != null ? b2.getName() : "");
+                }
+                return "desc".equalsIgnoreCase(order) ? -resultVal : resultVal;
+            });
 
             return result;
         } catch (Exception e) {
@@ -227,7 +243,7 @@ public class FileService {
     /**
      * 获取文件列表
      */
-    public List<FileInfo> listFiles(String folder, String bucket) {
+    public List<FileInfo> listFiles(String folder, String bucket, String sortBy, String order) {
         if (bucket == null || bucket.isEmpty()) {
             bucket = defaultBucket;
         }
@@ -255,11 +271,35 @@ public class FileService {
                 fileInfo.setFileName(getFileName(item.objectName()));
                 fileInfo.setSize(item.size());
                 fileInfo.setIsFolder(item.isDir());
-                fileInfo.setUploadTime(LocalDateTime.ofInstant(
-                        item.lastModified().toInstant(), ZoneId.systemDefault()));
+                try {
+                    if (item.lastModified() != null) {
+                        fileInfo.setUploadTime(LocalDateTime.ofInstant(
+                                item.lastModified().toInstant(), ZoneId.systemDefault()));
+                    } else {
+                        fileInfo.setUploadTime(LocalDateTime.now());
+                    }
+                } catch (Exception e) {
+                    fileInfo.setUploadTime(LocalDateTime.now());
+                }
                 fileInfo.setUrl(publicUrl + "/" + bucket + "/" + item.objectName());
                 fileList.add(fileInfo);
             }
+
+            // 排序
+            fileList.sort((f1, f2) -> {
+                int result;
+                switch (sortBy) {
+                    case "size":
+                        result = Long.compare(f1.getSize() != null ? f1.getSize() : 0, f2.getSize() != null ? f2.getSize() : 0);
+                        break;
+                    case "time":
+                        result = (f1.getUploadTime() != null ? f1.getUploadTime() : LocalDateTime.MIN).compareTo(f2.getUploadTime() != null ? f2.getUploadTime() : LocalDateTime.MIN);
+                        break;
+                    default: // name
+                        result = (f1.getFileName() != null ? f1.getFileName() : "").compareTo(f2.getFileName() != null ? f2.getFileName() : "");
+                }
+                return "desc".equalsIgnoreCase(order) ? -result : result;
+            });
 
             return fileList;
         } catch (Exception e) {

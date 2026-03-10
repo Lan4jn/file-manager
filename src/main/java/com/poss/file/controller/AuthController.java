@@ -17,7 +17,6 @@ import java.util.Map;
 
 @RestController
 @RequestMapping("/api/auth")
-@CrossOrigin(origins = "*")
 public class AuthController {
 
     @Autowired
@@ -38,13 +37,16 @@ public class AuthController {
         String password = loginRequest.get("password");
 
         try {
-            Authentication authentication = authenticationManager.authenticate(
-                    new UsernamePasswordAuthenticationToken(username, password)
-            );
-
             User user = userRepository.findByUsername(username).orElse(null);
             if (user == null) {
                 return Result.error("用户不存在");
+            }
+
+            // 直接验证密码
+            boolean matches = passwordEncoder.matches(password, user.getPassword());
+            System.out.println("[DEBUG] Password matches: " + matches + " for user: " + username);
+            if (!matches) {
+                return Result.error("用户名或密码错误");
             }
 
             String roles = "";
@@ -66,6 +68,7 @@ public class AuthController {
 
             return Result.success(data);
         } catch (Exception e) {
+            e.printStackTrace();
             return Result.error("用户名或密码错误");
         }
     }

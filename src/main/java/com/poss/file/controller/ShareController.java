@@ -13,7 +13,7 @@ import java.util.List;
 
 @RestController
 @RequestMapping("/api/share")
-@CrossOrigin(origins = "*")
+
 public class ShareController {
 
     private static final Logger log = LoggerFactory.getLogger(ShareController.class);

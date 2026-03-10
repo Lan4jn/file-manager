@@ -23,7 +23,7 @@ public class MinioConfig {
     @Value("${minio.secret-key}")
     private String secretKey;
 
-    @Value("${minio.bucket-name}")
+    @Value("${minio.default-bucket}")
     private String bucketName;
 
     @Bean

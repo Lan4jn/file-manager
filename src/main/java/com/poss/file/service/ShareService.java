@@ -44,10 +44,12 @@ public class ShareService {
             expirationHours = defaultExpiration;
         }
 
+        String bucket = request.getBucket();
         ShareLink shareLink = new ShareLink();
         shareLink.setShareCode(shareCode);
         shareLink.setObjectName(request.getObjectName());
-        shareLink.setFileName(fileService.getFileInfo(request.getObjectName()).getFileName());
+        shareLink.setBucket(bucket);
+        shareLink.setFileName(fileService.getFileInfo(request.getObjectName(), bucket).getFileName());
         shareLink.setExpireTime(LocalDateTime.now().plusHours(expirationHours));
         shareLink.setCreateTime(LocalDateTime.now());
         shareLink.setCreateBy(createBy);
@@ -112,7 +114,7 @@ public class ShareService {
             throw new RuntimeException("分享链接已过期");
         }
 
-        return fileService.getFileInfo(shareLink.getObjectName());
+        return fileService.getFileInfo(shareLink.getObjectName(), shareLink.getBucket());
     }
 
     /**

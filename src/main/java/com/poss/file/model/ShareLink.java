@@ -5,6 +5,7 @@ import java.time.LocalDateTime;
 public class ShareLink {
     private String shareCode;
     private String objectName;
+    private String bucket;
     private String fileName;
     private LocalDateTime expireTime;
     private LocalDateTime createTime;
@@ -26,6 +27,14 @@ public class ShareLink {
 
     public void setObjectName(String objectName) {
         this.objectName = objectName;
+    }
+
+    public String getBucket() {
+        return bucket;
+    }
+
+    public void setBucket(String bucket) {
+        this.bucket = bucket;
     }
 
     public String getFileName() {

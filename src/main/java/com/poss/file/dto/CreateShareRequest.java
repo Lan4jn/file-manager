@@ -2,6 +2,7 @@ package com.poss.file.dto;
 
 public class CreateShareRequest {
     private String objectName;
+    private String bucket;
     private Integer expirationHours;
     private String password;
 
@@ -11,6 +12,14 @@ public class CreateShareRequest {
 
     public void setObjectName(String objectName) {
         this.objectName = objectName;
+    }
+
+    public String getBucket() {
+        return bucket;
+    }
+
+    public void setBucket(String bucket) {
+        this.bucket = bucket;
     }
 
     public Integer getExpirationHours() {

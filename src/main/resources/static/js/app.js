@@ -16,6 +16,8 @@ const app = createApp({
         const currentBucket = ref('');
         const showBucketDialog = ref(false);
         const newBucketName = ref('');
+        const bucketSortBy = ref('name');
+        const bucketOrder = ref('asc');
 
         // File management
         const fileList = ref([]);
@@ -23,6 +25,8 @@ const app = createApp({
         const currentFolder = ref('');
         const breadcrumb = ref([]);
         const selectedFiles = ref([]);
+        const fileSortBy = ref('name');
+        const fileOrder = ref('asc');
 
         // Dialogs
         const showUploadDialog = ref(false);
@@ -167,7 +171,9 @@ const app = createApp({
         const loadBuckets = async () => {
             bucketLoading.value = true;
             try {
-                const res = await api.get('/file/buckets');
+                const res = await api.get('/file/buckets', {
+                    params: { sortBy: bucketSortBy.value, order: bucketOrder.value }
+                });
                 if (res.code === 200) {
                     bucketList.value = res.data || [];
                 }
@@ -176,6 +182,19 @@ const app = createApp({
             } finally {
                 bucketLoading.value = false;
             }
+        };
+
+        const handleBucketSortChange = ({ prop, order }) => {
+            if (!prop) return;
+            if (prop === 'creationDate') {
+                bucketSortBy.value = 'time';
+            } else if (prop === 'objectCount') {
+                bucketSortBy.value = 'size';
+            } else {
+                bucketSortBy.value = prop;
+            }
+            bucketOrder.value = order === 'ascending' ? 'asc' : 'desc';
+            loadBuckets();
         };
 
         const selectBucket = (bucketName) => {
@@ -227,7 +246,12 @@ const app = createApp({
             fileLoading.value = true;
             try {
                 const res = await api.get('/file/list', {
-                    params: { folder: currentFolder.value, bucket: currentBucket.value }
+                    params: {
+                        folder: currentFolder.value,
+                        bucket: currentBucket.value,
+                        sortBy: fileSortBy.value,
+                        order: fileOrder.value
+                    }
                 });
                 if (res.code === 200) {
                     fileList.value = res.data || [];
@@ -237,6 +261,19 @@ const app = createApp({
             } finally {
                 fileLoading.value = false;
             }
+        };
+
+        const handleFileSortChange = ({ prop, order }) => {
+            if (!prop) return;
+            if (prop === 'fileName') {
+                fileSortBy.value = 'name';
+            } else if (prop === 'uploadTime') {
+                fileSortBy.value = 'time';
+            } else {
+                fileSortBy.value = prop;
+            }
+            fileOrder.value = order === 'ascending' ? 'asc' : 'desc';
+            loadFiles();
         };
 
         const refreshFiles = () => {
@@ -568,8 +605,12 @@ const app = createApp({
             currentBucket,
             showBucketDialog,
             newBucketName,
+            bucketSortBy,
+            bucketOrder,
             fileList,
             fileLoading,
+            fileSortBy,
+            fileOrder,
             currentFolder,
             breadcrumb,
             selectedFiles,
@@ -601,7 +642,9 @@ const app = createApp({
             selectBucket,
             createBucket,
             deleteBucket,
+            handleBucketSortChange,
             loadFiles,
+            handleFileSortChange,
             refreshFiles,
             navigateToFolder,
             downloadFile,

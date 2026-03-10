@@ -21,7 +21,7 @@ import java.util.List;
 
 @RestController
 @RequestMapping("/api/file")
-@CrossOrigin(origins = "*")
+
 public class FileController {
 
     private static final Logger log = LoggerFactory.getLogger(FileController.class);
@@ -35,8 +35,10 @@ public class FileController {
     // ==================== Bucket Management ====================
 
     @GetMapping("/buckets")
-    public Result<List<BucketInfo>> listBuckets() {
-        return Result.success(fileService.listBuckets());
+    public Result<List<BucketInfo>> listBuckets(
+            @RequestParam(value = "sortBy", required = false, defaultValue = "name") String sortBy,
+            @RequestParam(value = "order", required = false, defaultValue = "asc") String order) {
+        return Result.success(fileService.listBuckets(sortBy, order));
     }
 
     @PostMapping("/buckets")
@@ -74,9 +76,11 @@ public class FileController {
     @GetMapping("/list")
     public Result<List<FileInfo>> list(
             @RequestParam(value = "folder", required = false, defaultValue = "") String folder,
-            @RequestParam(value = "bucket", required = false, defaultValue = "") String bucket) {
-        log.info("Listing files, folder: {}, bucket: {}", folder, bucket);
-        List<FileInfo> files = fileService.listFiles(folder, bucket);
+            @RequestParam(value = "bucket", required = false, defaultValue = "") String bucket,
+            @RequestParam(value = "sortBy", required = false, defaultValue = "name") String sortBy,
+            @RequestParam(value = "order", required = false, defaultValue = "asc") String order) {
+        log.info("Listing files, folder: {}, bucket: {}, sortBy: {}, order: {}", folder, bucket, sortBy, order);
+        List<FileInfo> files = fileService.listFiles(folder, bucket, sortBy, order);
         return Result.success(files);
     }
 

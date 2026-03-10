@@ -9,7 +9,7 @@ spring:
     driver-class-name: org.sqlite.JDBC
     url: jdbc:sqlite:/opt/app/config/file-manager.db
   jpa:
-    database-platform: com.github.gwenn.sqlitedialect.SQLiteDialect
+    database-platform: org.sqlite.hibernate.dialect.SQLiteDialect
     hibernate:
       ddl-auto: update
     show-sql: false
