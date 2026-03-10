@@ -12,6 +12,8 @@ import org.springframework.security.core.context.SecurityContextHolder;
 import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.web.bind.annotation.*;
 
+import java.nio.charset.StandardCharsets;
+import java.security.MessageDigest;
 import java.util.HashMap;
 import java.util.Map;
 
@@ -31,6 +33,23 @@ public class AuthController {
     @Autowired
     private PasswordEncoder passwordEncoder;
 
+    // SHA512 加密
+    private String sha512(String input) {
+        try {
+            MessageDigest md = MessageDigest.getInstance("SHA-512");
+            byte[] hash = md.digest(input.getBytes(StandardCharsets.UTF_8));
+            StringBuilder hexString = new StringBuilder();
+            for (byte b : hash) {
+                String hex = Integer.toHexString(0xff & b);
+                if (hex.length() == 1) hexString.append('0');
+                hexString.append(hex);
+            }
+            return hexString.toString();
+        } catch (Exception e) {
+            throw new RuntimeException(e);
+        }
+    }
+
     @PostMapping("/login")
     public Result<Map<String, Object>> login(@RequestBody Map<String, String> loginRequest) {
         String username = loginRequest.get("username");
@@ -42,8 +61,8 @@ public class AuthController {
                 return Result.error("用户不存在");
             }
 
-            // 直接验证密码
-            boolean matches = passwordEncoder.matches(password, user.getPassword());
+            // 验证密码 - 前端已经SHA512，直接比较
+            boolean matches = password.equals(user.getPassword());
             System.out.println("[DEBUG] Password matches: " + matches + " for user: " + username);
             if (!matches) {
                 return Result.error("用户名或密码错误");
@@ -79,7 +98,8 @@ public class AuthController {
             return Result.error("用户名已存在");
         }
 
-        user.setPassword(passwordEncoder.encode(user.getPassword()));
+        // 使用SHA512存储密码
+        user.setPassword(sha512(user.getPassword()));
         user.setCreateTime(System.currentTimeMillis());
         user.setEnabled(true);
         userRepository.save(user);

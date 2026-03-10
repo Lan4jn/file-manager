@@ -1,8 +1,16 @@
 package com.poss.file.model;
 
+import javax.persistence.*;
 import java.time.LocalDateTime;
 
+@Entity
+@Table(name = "sys_share_link")
 public class ShareLink {
+    @Id
+    @GeneratedValue(strategy = GenerationType.IDENTITY)
+    private Long id;
+
+    @Column(unique = true, nullable = false)
     private String shareCode;
     private String objectName;
     private String bucket;
@@ -12,6 +20,7 @@ public class ShareLink {
     private String createBy;
     private Long viewCount;
     private Boolean hasPassword;
+    private String password;
 
     public String getShareCode() {
         return shareCode;
@@ -83,5 +92,13 @@ public class ShareLink {
 
     public void setHasPassword(Boolean hasPassword) {
         this.hasPassword = hasPassword;
+    }
+
+    public String getPassword() {
+        return password;
+    }
+
+    public void setPassword(String password) {
+        this.password = password;
     }
 }

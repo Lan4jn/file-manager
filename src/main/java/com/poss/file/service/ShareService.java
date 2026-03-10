@@ -5,6 +5,7 @@ import cn.hutool.core.util.StrUtil;
 import com.poss.file.dto.CreateShareRequest;
 import com.poss.file.model.FileInfo;
 import com.poss.file.model.ShareLink;
+import com.poss.file.repository.ShareLinkRepository;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Value;
@@ -12,9 +13,7 @@ import org.springframework.stereotype.Service;
 
 import java.time.LocalDateTime;
 import java.util.List;
-import java.util.Map;
-import java.util.concurrent.ConcurrentHashMap;
-import java.util.stream.Collectors;
+import java.util.Optional;
 
 @Service
 public class ShareService {
@@ -22,16 +21,14 @@ public class ShareService {
     private static final Logger log = LoggerFactory.getLogger(ShareService.class);
 
     private final FileService fileService;
+    private final ShareLinkRepository shareLinkRepository;
 
     @Value("${share.default-expiration: 24}")
     private Integer defaultExpiration;
 
-    // 内存存储，实际项目应使用数据库
-    private final Map<String, ShareLink> shareLinkMap = new ConcurrentHashMap<>();
-    private final Map<String, Integer> shareViewCountMap = new ConcurrentHashMap<>();
-
-    public ShareService(FileService fileService) {
+    public ShareService(FileService fileService, ShareLinkRepository shareLinkRepository) {
         this.fileService = fileService;
+        this.shareLinkRepository = shareLinkRepository;
     }
 
     /**
@@ -55,15 +52,9 @@ public class ShareService {
         shareLink.setCreateBy(createBy);
         shareLink.setViewCount(0L);
         shareLink.setHasPassword(StrUtil.isNotEmpty(request.getPassword()));
+        shareLink.setPassword(request.getPassword()); // 简单存储，实际项目应加密
 
-        // 如果有密码，应该加密存储（简化处理）
-        if (StrUtil.isNotEmpty(request.getPassword())) {
-            shareLinkMap.put(shareCode + "_pwd", shareLink);
-            // 实际项目需要加密存储密码
-        }
-
-        shareLinkMap.put(shareCode, shareLink);
-        shareViewCountMap.put(shareCode, 0);
+        shareLink = shareLinkRepository.save(shareLink);
 
         log.info("Share link created: {}", shareCode);
         return shareLink;
@@ -73,10 +64,8 @@ public class ShareService {
      * 获取分享信息
      */
     public ShareLink getShareInfo(String shareCode, String password) {
-        ShareLink shareLink = shareLinkMap.get(shareCode);
-        if (shareLink == null) {
-            throw new RuntimeException("分享链接不存在");
-        }
+        ShareLink shareLink = shareLinkRepository.findByShareCode(shareCode)
+                .orElseThrow(() -> new RuntimeException("分享链接不存在"));
 
         // 检查是否过期
         if (LocalDateTime.now().isAfter(shareLink.getExpireTime())) {
@@ -85,18 +74,15 @@ public class ShareService {
 
         // 检查密码
         if (shareLink.getHasPassword()) {
-            String storedPwd = shareLinkMap.get(shareCode + "_pwd") != null
-                    ? shareLinkMap.get(shareCode + "_pwd").toString()
-                    : null;
+            String storedPwd = shareLink.getPassword();
             if (!password.equals(storedPwd)) {
                 throw new RuntimeException("密码错误");
             }
         }
 
         // 更新浏览次数
-        Integer viewCount = shareViewCountMap.get(shareCode);
-        shareViewCountMap.put(shareCode, viewCount + 1);
-        shareLink.setViewCount(viewCount + 1L);
+        shareLink.setViewCount(shareLink.getViewCount() + 1);
+        shareLinkRepository.save(shareLink);
 
         return shareLink;
     }
@@ -105,10 +91,8 @@ public class ShareService {
      * 通过分享链接获取文件信息
      */
     public FileInfo getFileByShareCode(String shareCode) {
-        ShareLink shareLink = shareLinkMap.get(shareCode);
-        if (shareLink == null) {
-            throw new RuntimeException("分享链接不存在");
-        }
+        ShareLink shareLink = shareLinkRepository.findByShareCode(shareCode)
+                .orElseThrow(() -> new RuntimeException("分享链接不存在"));
 
         if (LocalDateTime.now().isAfter(shareLink.getExpireTime())) {
             throw new RuntimeException("分享链接已过期");
@@ -121,19 +105,15 @@ public class ShareService {
      * 验证分享链接是否有效
      */
     public boolean validateShareCode(String shareCode) {
-        ShareLink shareLink = shareLinkMap.get(shareCode);
-        if (shareLink == null) {
-            return false;
-        }
-        return !LocalDateTime.now().isAfter(shareLink.getExpireTime());
+        Optional<ShareLink> shareLink = shareLinkRepository.findByShareCode(shareCode);
+        return shareLink.isPresent() && !LocalDateTime.now().isAfter(shareLink.get().getExpireTime());
     }
 
     /**
      * 删除分享链接
      */
     public void deleteShareLink(String shareCode) {
-        shareLinkMap.remove(shareCode);
-        shareViewCountMap.remove(shareCode);
+        shareLinkRepository.deleteByShareCode(shareCode);
         log.info("Share link deleted: {}", shareCode);
     }
 
@@ -141,9 +121,7 @@ public class ShareService {
      * 获取当前用户的所有分享链接
      */
     public List<ShareLink> getShareLinksByUser(String createBy) {
-        return shareLinkMap.values().stream()
-                .filter(link -> createBy.equals(link.getCreateBy()))
-                .collect(Collectors.toList());
+        return shareLinkRepository.findByCreateBy(createBy);
     }
 
     private String generateShareCode() {

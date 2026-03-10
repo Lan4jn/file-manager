@@ -71,7 +71,17 @@ const app = createApp({
         });
 
         api.interceptors.response.use(
-            response => response.data,
+            response => {
+                // 对 blob 响应（文件下载）不做处理
+                if (response.config.responseType === 'blob') {
+                    return response;
+                }
+                // 检查业务状态码
+                if (response.data && response.data.code !== 200) {
+                    return Promise.reject(new Error(response.data.message || '请求失败'));
+                }
+                return response.data;
+            },
             error => {
                 if (error.response && error.response.status === 401) {
                     logout();
@@ -94,11 +104,23 @@ const app = createApp({
             bucket: currentBucket.value
         }));
 
+        // SHA512 hash function
+        const sha512 = async (message) => {
+            const msgBuffer = new TextEncoder().encode(message);
+            const hashBuffer = await crypto.subtle.digest('SHA-512', msgBuffer);
+            const hashArray = Array.from(new Uint8Array(hashBuffer));
+            return hashArray.map(b => b.toString(16).padStart(2, '0')).join('');
+        };
+
         // Methods
         const handleLogin = async () => {
             loginLoading.value = true;
             try {
-                const res = await api.post('/auth/login', loginForm.value);
+                const hashedPassword = await sha512(loginForm.value.password);
+                const res = await api.post('/auth/login', {
+                    username: loginForm.value.username,
+                    password: hashedPassword
+                });
                 if (res.code === 200) {
                     token.value = res.data.token;
                     localStorage.setItem('token', token.value);
@@ -301,11 +323,28 @@ const app = createApp({
             breadcrumb.value = crumbs;
         };
 
-        const downloadFile = (file) => {
-            const params = new URLSearchParams();
-            params.append('objectName', file.objectName);
-            params.append('bucket', currentBucket.value);
-            window.open('/api/file/download?' + params.toString());
+        const downloadFile = async (file) => {
+            // 不能下载目录
+            if (file.isFolder) {
+                ElementPlus.ElMessage.warning('无法下载文件夹');
+                return;
+            }
+            try {
+                const response = await api.get('/file/download', {
+                    params: { objectName: file.objectName, bucket: currentBucket.value },
+                    responseType: 'blob'
+                });
+                const url = window.URL.createObjectURL(new Blob([response.data]));
+                const link = document.createElement('a');
+                link.href = url;
+                link.setAttribute('download', file.fileName);
+                document.body.appendChild(link);
+                link.click();
+                link.remove();
+                window.URL.revokeObjectURL(url);
+            } catch (error) {
+                ElementPlus.ElMessage.error('下载失败');
+            }
         };
 
         const previewFile = (file) => {

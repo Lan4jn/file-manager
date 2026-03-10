@@ -15,6 +15,7 @@ import org.springframework.web.bind.annotation.*;
 import org.springframework.web.multipart.MultipartFile;
 
 import java.io.InputStream;
+import java.io.UnsupportedEncodingException;
 import java.net.URLEncoder;
 import java.nio.charset.StandardCharsets;
 import java.util.List;
@@ -113,12 +114,12 @@ public class FileController {
     @GetMapping("/download")
     public ResponseEntity<InputStreamResource> download(
             @RequestParam("objectName") String objectName,
-            @RequestParam(value = "bucket", required = false, defaultValue = "") String bucket) {
+            @RequestParam(value = "bucket", required = false, defaultValue = "") String bucket) throws UnsupportedEncodingException {
         log.info("Downloading file: {}, bucket: {}", objectName, bucket);
         FileInfo fileInfo = fileService.getFileInfo(objectName, bucket);
         InputStream stream = fileService.getFileStream(objectName, bucket);
 
-        String filename = URLEncoder.encode(fileInfo.getFileName(), StandardCharsets.UTF_8);
+        String filename = URLEncoder.encode(fileInfo.getFileName(), "UTF-8");
 
         return ResponseEntity.ok()
                 .header(HttpHeaders.CONTENT_DISPOSITION, "attachment; filename=\"" + filename + "\"")
@@ -130,12 +131,15 @@ public class FileController {
     @GetMapping("/preview")
     public ResponseEntity<InputStreamResource> preview(
             @RequestParam("objectName") String objectName,
-            @RequestParam(value = "bucket", required = false, defaultValue = "") String bucket) {
+            @RequestParam(value = "bucket", required = false, defaultValue = "") String bucket) throws UnsupportedEncodingException {
         log.info("Previewing file: {}, bucket: {}", objectName, bucket);
         FileInfo fileInfo = fileService.getFileInfo(objectName, bucket);
         InputStream stream = fileService.getFileStream(objectName, bucket);
 
+        String filename = URLEncoder.encode(fileInfo.getFileName(), "UTF-8");
+
         return ResponseEntity.ok()
+                .header(HttpHeaders.CONTENT_DISPOSITION, "inline; filename=\"" + filename + "\"")
                 .contentType(MediaType.parseMediaType(fileInfo.getContentType()))
                 .contentLength(fileInfo.getSize())
                 .body(new InputStreamResource(stream));
