@@ -15,10 +15,14 @@ import org.springframework.web.bind.annotation.*;
 import org.springframework.web.multipart.MultipartFile;
 
 import java.io.InputStream;
+import java.io.PipedInputStream;
+import java.io.PipedOutputStream;
 import java.io.UnsupportedEncodingException;
 import java.net.URLEncoder;
 import java.nio.charset.StandardCharsets;
 import java.util.List;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
 
 @RestController
 @RequestMapping("/api/file")
@@ -28,6 +32,7 @@ public class FileController {
     private static final Logger log = LoggerFactory.getLogger(FileController.class);
 
     private final FileService fileService;
+    private final ExecutorService executorService = Executors.newCachedThreadPool();
 
     public FileController(FileService fileService) {
         this.fileService = fileService;
@@ -126,6 +131,52 @@ public class FileController {
                 .contentType(MediaType.parseMediaType(fileInfo.getContentType()))
                 .contentLength(fileInfo.getSize())
                 .body(new InputStreamResource(stream));
+    }
+
+    @GetMapping("/download-folder")
+    public ResponseEntity<InputStreamResource> downloadFolder(
+            @RequestParam("objectName") String objectName,
+            @RequestParam(value = "bucket", required = false, defaultValue = "") String bucket) throws Exception {
+        log.info("Downloading folder: {}, bucket: {}", objectName, bucket);
+
+        // 获取目录名
+        String folderName = objectName;
+        if (objectName.endsWith("/")) {
+            folderName = objectName.substring(0, objectName.length() - 1);
+        }
+        int lastSlash = folderName.lastIndexOf('/');
+        if (lastSlash >= 0) {
+            folderName = folderName.substring(lastSlash + 1);
+        }
+        if (folderName.isEmpty()) {
+            folderName = "folder";
+        }
+
+        // 使用管道流来实现流式传输
+        PipedOutputStream pipedOut = new PipedOutputStream();
+        PipedInputStream pipedIn = new PipedInputStream(pipedOut);
+
+        // 在后台线程中生成ZIP
+        executorService.submit(() -> {
+            try {
+                fileService.downloadFolderAsZip(objectName, bucket, pipedOut);
+                pipedOut.close();
+            } catch (Exception e) {
+                log.error("Failed to create ZIP for folder: {}", objectName, e);
+                try {
+                    pipedOut.close();
+                } catch (Exception ex) {
+                    // ignore
+                }
+            }
+        });
+
+        String filename = URLEncoder.encode(folderName + ".zip", "UTF-8");
+
+        return ResponseEntity.ok()
+                .header(HttpHeaders.CONTENT_DISPOSITION, "attachment; filename=\"" + filename + "\"")
+                .contentType(MediaType.parseMediaType("application/zip"))
+                .body(new InputStreamResource(pipedIn));
     }
 
     @GetMapping("/preview")

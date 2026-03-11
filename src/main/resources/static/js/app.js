@@ -324,11 +324,35 @@ const app = createApp({
         };
 
         const downloadFile = async (file) => {
-            // 不能下载目录
+            // 目录下载
             if (file.isFolder) {
-                ElementPlus.ElMessage.warning('无法下载文件夹');
+                try {
+                    ElementPlus.ElMessage.info('正在打包目录，请稍候...');
+                    const response = await api.get('/file/download-folder', {
+                        params: { objectName: file.objectName, bucket: currentBucket.value },
+                        responseType: 'blob',
+                        timeout: 300000 // 5分钟超时
+                    });
+                    const url = window.URL.createObjectURL(new Blob([response.data]));
+                    const link = document.createElement('a');
+                    link.href = url;
+                    link.setAttribute('download', file.fileName + '.zip');
+                    document.body.appendChild(link);
+                    link.click();
+                    link.remove();
+                    window.URL.revokeObjectURL(url);
+                    ElementPlus.ElMessage.success('下载完成');
+                } catch (error) {
+                    if (error.response?.data?.message) {
+                        ElementPlus.ElMessage.error(error.response.data.message);
+                    } else {
+                        ElementPlus.ElMessage.error('下载失败: ' + (error.message || ''));
+                    }
+                }
                 return;
             }
+
+            // 文件下载
             try {
                 const response = await api.get('/file/download', {
                     params: { objectName: file.objectName, bucket: currentBucket.value },

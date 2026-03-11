@@ -15,6 +15,9 @@ import org.springframework.web.multipart.MultipartFile;
 
 import java.io.ByteArrayInputStream;
 import java.io.InputStream;
+import java.io.OutputStream;
+import java.util.zip.ZipEntry;
+import java.util.zip.ZipOutputStream;
 import java.time.LocalDateTime;
 import java.time.ZoneId;
 import java.time.format.DateTimeFormatter;
@@ -466,6 +469,149 @@ public class FileService {
             bucket = defaultBucket;
         }
         return publicUrl + "/" + bucket + "/" + objectName;
+    }
+
+    /**
+     * 递归列出目录下的所有文件
+     */
+    public List<FileInfo> listFilesRecursive(String folder, String bucket) {
+        if (bucket == null || bucket.isEmpty()) {
+            bucket = defaultBucket;
+        }
+
+        try {
+            // 确保 folder 以 / 结尾
+            if (StrUtil.isNotEmpty(folder) && !folder.endsWith("/")) {
+                folder = folder + "/";
+            }
+
+            // 递归列出所有对象
+            Iterable<Result<Item>> results = minioClient.listObjects(
+                    ListObjectsArgs.builder()
+                            .bucket(bucket)
+                            .prefix(folder)
+                            .recursive(true)
+                            .build()
+            );
+
+            List<FileInfo> fileList = new ArrayList<>();
+            for (Result<Item> result : results) {
+                Item item = result.get();
+                // 跳过目录本身
+                if (item.isDir()) {
+                    continue;
+                }
+                FileInfo fileInfo = new FileInfo();
+                fileInfo.setObjectName(item.objectName());
+                // 获取相对路径作为文件名（去掉folder前缀）
+                String relativePath = item.objectName();
+                if (StrUtil.isNotEmpty(folder) && relativePath.startsWith(folder)) {
+                    relativePath = relativePath.substring(folder.length());
+                }
+                fileInfo.setFileName(relativePath);
+                fileInfo.setSize(item.size());
+                fileInfo.setIsFolder(false);
+                try {
+                    if (item.lastModified() != null) {
+                        fileInfo.setUploadTime(LocalDateTime.ofInstant(
+                                item.lastModified().toInstant(), ZoneId.systemDefault()));
+                    } else {
+                        fileInfo.setUploadTime(LocalDateTime.now());
+                    }
+                } catch (Exception e) {
+                    fileInfo.setUploadTime(LocalDateTime.now());
+                }
+                fileList.add(fileInfo);
+            }
+
+            return fileList;
+        } catch (Exception e) {
+            log.error("Failed to list files recursively", e);
+            throw new RuntimeException("获取文件列表失败: " + e.getMessage());
+        }
+    }
+
+    /**
+     * 将目录压缩成ZIP并写入输出流
+     */
+    public void downloadFolderAsZip(String folder, String bucket, OutputStream outputStream) {
+        if (bucket == null || bucket.isEmpty()) {
+            bucket = defaultBucket;
+        }
+
+        // 确保 folder 以 / 结尾
+        if (StrUtil.isNotEmpty(folder) && !folder.endsWith("/")) {
+            folder = folder + "/";
+        }
+
+        // 获取目录名
+        String folderName = folder;
+        if (StrUtil.isNotEmpty(folder)) {
+            String[] parts = folder.split("/");
+            folderName = parts[parts.length - 2];
+            if (folderName.isEmpty()) {
+                folderName = "folder";
+            }
+        } else {
+            folderName = "root";
+        }
+
+        try {
+            // 获取所有文件
+            List<FileInfo> files = listFilesRecursive(folder, bucket);
+
+            // 计算总大小（解压后）
+            long totalSize = 0;
+            for (FileInfo file : files) {
+                totalSize += file.getSize() != null ? file.getSize() : 0;
+            }
+
+            // 检查是否超过2GB
+            long maxSize = 2147483648L; // 2GB
+            if (totalSize > maxSize) {
+                throw new RuntimeException("目录压缩后大小超过2GB，无法下载");
+            }
+
+            // 创建ZIP输出流
+            try (ZipOutputStream zos = new ZipOutputStream(outputStream)) {
+                byte[] buffer = new byte[8192];
+
+                for (FileInfo file : files) {
+                    // 获取文件流
+                    InputStream is = getFileStream(file.getObjectName(), bucket);
+
+                    // 创建ZIP条目（使用相对路径作为条目名）
+                    String entryName = file.getFileName();
+                    ZipEntry zipEntry = new ZipEntry(entryName);
+                    zos.putNextEntry(zipEntry);
+
+                    // 复制文件内容到ZIP
+                    long bytesWritten = 0;
+                    int len;
+                    while ((len = is.read(buffer)) > 0) {
+                        bytesWritten += len;
+                        // 再次检查大小（因为压缩后可能比原文件大）
+                        if (bytesWritten > maxSize) {
+                            is.close();
+                            throw new RuntimeException("目录压缩后大小超过2GB，无法下载");
+                        }
+                        zos.write(buffer, 0, len);
+                    }
+
+                    zos.closeEntry();
+                    is.close();
+                }
+
+                zos.finish();
+            }
+
+            log.info("Folder downloaded as ZIP: {}", folder);
+        } catch (RuntimeException e) {
+            throw e;
+        } catch (Exception e) {
+            log.error("Failed to download folder as ZIP: {}", folder, e);
+            throw new RuntimeException("目录下载失败: " + e.getMessage());
+        }
     }
 
     // ===== 私有方法 =====
