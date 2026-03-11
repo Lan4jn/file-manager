@@ -170,6 +170,35 @@ public class AdminController {
         return Result.success();
     }
 
+    // ==================== Share Config Management ====================
+
+    @GetMapping("/share-config")
+    public Result<Map<String, Object>> getShareConfig() {
+        Long shareMaxSize = configService.getShareMaxSize();
+        Integer shareExpireHours = configService.getShareExpireHours();
+
+        Map<String, Object> config = new HashMap<>();
+        config.put("shareMaxSize", shareMaxSize);
+        config.put("shareExpireHours", shareExpireHours);
+
+        return Result.success(config);
+    }
+
+    @PostMapping("/share-config")
+    public Result<Void> updateShareConfig(@RequestBody Map<String, Object> configData) {
+        if (configData.containsKey("shareMaxSize")) {
+            Long maxSize = Long.valueOf(configData.get("shareMaxSize").toString());
+            configService.setShareMaxSize(maxSize);
+        }
+
+        if (configData.containsKey("shareExpireHours")) {
+            Integer hours = Integer.valueOf(configData.get("shareExpireHours").toString());
+            configService.setShareExpireHours(hours);
+        }
+
+        return Result.success();
+    }
+
     // ==================== Initialize ====================
 
     @PostMapping("/init")

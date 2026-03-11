@@ -19,6 +19,8 @@ public class ConfigService {
 
     public static final String KEY_ALLOWED_EXTENSIONS = "allowed_extensions";
     public static final String KEY_MAX_FILE_SIZE = "max_file_size";
+    public static final String KEY_SHARE_MAX_SIZE = "share_max_size";
+    public static final String KEY_SHARE_EXPIRE_HOURS = "share_expire_hours";
 
     public String getConfig(String key, String defaultValue) {
         return configRepository.findByConfigKey(key)
@@ -73,5 +75,33 @@ public class ConfigService {
     @Transactional
     public void setMaxFileSize(Long sizeInBytes) {
         setConfig(KEY_MAX_FILE_SIZE, String.valueOf(sizeInBytes), "最大文件大小(字节)");
+    }
+
+    public Long getShareMaxSize() {
+        String value = getConfig(KEY_SHARE_MAX_SIZE, "2147483648"); // 2GB default
+        try {
+            return Long.parseLong(value);
+        } catch (NumberFormatException e) {
+            return 2147483648L;
+        }
+    }
+
+    public Integer getShareExpireHours() {
+        String value = getConfig(KEY_SHARE_EXPIRE_HOURS, "168"); // 7 days default
+        try {
+            return Integer.parseInt(value);
+        } catch (NumberFormatException e) {
+            return 168;
+        }
+    }
+
+    @Transactional
+    public void setShareMaxSize(Long sizeInBytes) {
+        setConfig(KEY_SHARE_MAX_SIZE, String.valueOf(sizeInBytes), "分享目录最大大小(字节)");
+    }
+
+    @Transactional
+    public void setShareExpireHours(Integer hours) {
+        setConfig(KEY_SHARE_EXPIRE_HOURS, String.valueOf(hours), "分享链接有效期(小时)");
     }
 }

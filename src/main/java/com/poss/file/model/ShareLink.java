@@ -21,6 +21,8 @@ public class ShareLink {
     private Long viewCount;
     private Boolean hasPassword;
     private String password;
+    private Boolean isFolder;  // 是否是目录分享
+    private String zipFileName;  // 压缩包文件名
 
     public String getShareCode() {
         return shareCode;
@@ -100,5 +102,21 @@ public class ShareLink {
 
     public void setPassword(String password) {
         this.password = password;
+    }
+
+    public Boolean getIsFolder() {
+        return isFolder;
+    }
+
+    public void setIsFolder(Boolean isFolder) {
+        this.isFolder = isFolder;
+    }
+
+    public String getZipFileName() {
+        return zipFileName;
+    }
+
+    public void setZipFileName(String zipFileName) {
+        this.zipFileName = zipFileName;
     }
 }

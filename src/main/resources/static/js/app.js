@@ -57,6 +57,12 @@ const app = createApp({
             maxFileSizeMB: 100
         });
 
+        // Share config
+        const shareConfig = ref({
+            maxSizeGB: 2,
+            expireHours: 168
+        });
+
         // API
         const api = axios.create({
             baseURL: '/api',
@@ -186,6 +192,7 @@ const app = createApp({
                 loadRoles();
             } else if (index === 'config') {
                 loadFileConfig();
+                loadShareConfig();
             }
         };
 
@@ -425,7 +432,8 @@ const app = createApp({
                 objectName: file.objectName,
                 bucket: currentBucket.value,
                 expirationHours: 24,
-                password: ''
+                password: '',
+                isFolder: file.isFolder || false
             };
             showShareDialog.value = true;
         };
@@ -439,11 +447,15 @@ const app = createApp({
                     password: shareForm.value.password
                 });
                 if (res.code === 200) {
-                    ElementPlus.ElMessage.success('分享创建成功');
+                    let successMsg = '分享创建成功';
+                    if (shareForm.value.isFolder) {
+                        successMsg += '（仅分享当前目录的文件状态）';
+                    }
+                    ElementPlus.ElMessage.success(successMsg);
                     showShareDialog.value = false;
                 }
             } catch (error) {
-                ElementPlus.ElMessage.error('创建分享失败');
+                ElementPlus.ElMessage.error('创建分享失败: ' + (error.response?.data?.message || error.message));
             }
         };
 
@@ -639,6 +651,33 @@ const app = createApp({
             }
         };
 
+        // Share config
+        const loadShareConfig = async () => {
+            try {
+                const res = await api.get('/admin/share-config');
+                if (res.code === 200) {
+                    shareConfig.value.maxSizeGB = Math.floor((res.data.shareMaxSize || 2147483648) / 1024 / 1024 / 1024);
+                    shareConfig.value.expireHours = res.data.shareExpireHours || 168;
+                }
+            } catch (error) {
+                // Use defaults
+            }
+        };
+
+        const saveShareConfig = async () => {
+            try {
+                const res = await api.post('/admin/share-config', {
+                    shareMaxSize: shareConfig.value.maxSizeGB * 1024 * 1024 * 1024,
+                    shareExpireHours: shareConfig.value.expireHours
+                });
+                if (res.code === 200) {
+                    ElementPlus.ElMessage.success('保存成功');
+                }
+            } catch (error) {
+                ElementPlus.ElMessage.error('保存失败');
+            }
+        };
+
         // Utils
         const formatSize = (bytes) => {
             if (!bytes) return '0 B';
@@ -693,6 +732,7 @@ const app = createApp({
             userLoading,
             roleLoading,
             fileConfig,
+            shareConfig,
             isAdmin,
             uploadUrl,
             uploadHeaders,
@@ -727,6 +767,8 @@ const app = createApp({
             deleteRole,
             loadFileConfig,
             saveFileConfig,
+            loadShareConfig,
+            saveShareConfig,
             formatSize
         };
     }

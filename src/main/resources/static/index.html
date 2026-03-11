@@ -345,6 +345,27 @@
                                 <el-button type="primary" @click="saveFileConfig">保存配置</el-button>
                             </el-form-item>
                         </el-form>
+                        <el-divider></el-divider>
+                        <h4>分享设置</h4>
+                        <el-form label-width="140px" style="max-width: 600px">
+                            <el-form-item label="分享目录最大大小">
+                                <el-tooltip content="目录分享时，压缩包的最大大小限制" placement="top" effect="light">
+                                    <el-icon class="form-help"><QuestionFilled /></el-icon>
+                                </el-tooltip>
+                                <el-input-number v-model="shareConfig.maxSizeGB" :min="1" :max="100"></el-input-number>
+                                <span style="margin-left: 10px">GB</span>
+                            </el-form-item>
+                            <el-form-item label="分享链接有效期">
+                                <el-tooltip content="分享链接的默认有效期" placement="top" effect="light">
+                                    <el-icon class="form-help"><QuestionFilled /></el-icon>
+                                </el-tooltip>
+                                <el-input-number v-model="shareConfig.expireHours" :min="1" :max="8760"></el-input-number>
+                                <span style="margin-left: 10px">小时</span>
+                            </el-form-item>
+                            <el-form-item>
+                                <el-button type="primary" @click="saveShareConfig">保存分享设置</el-button>
+                            </el-form-item>
+                        </el-form>
                     </div>
                 </div>
             </div>

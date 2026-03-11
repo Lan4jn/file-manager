@@ -14,6 +14,8 @@ import org.springframework.http.MediaType;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
 
+import java.io.File;
+import java.io.FileInputStream;
 import java.io.InputStream;
 import java.io.UnsupportedEncodingException;
 import java.net.URLEncoder;
@@ -72,9 +74,22 @@ public class ShareController {
      */
     @GetMapping("/download")
     public ResponseEntity<InputStreamResource> downloadByShareCode(@RequestParam("shareCode") String shareCode) throws UnsupportedEncodingException {
-        ShareLink shareLink = shareService.getShareInfo(shareCode, null);
-        FileInfo fileInfo = fileService.getFileInfo(shareLink.getObjectName(), shareLink.getBucket());
-        InputStream stream = fileService.getFileStream(shareLink.getObjectName(), shareLink.getBucket());
+        ShareLink link = shareService.getShareInfo(shareCode, null);
+
+        // 如果是目录分享，下载ZIP压缩包
+        Boolean isFolder = link.getIsFolder();
+        if (isFolder != null && isFolder) {
+            try {
+                ResponseEntity<InputStreamResource> result = downloadFolderShareLink(shareCode);
+                return result;
+            } catch (Exception e) {
+                throw new RuntimeException(e.getMessage());
+            }
+        }
+
+        // 文件分享
+        FileInfo fileInfo = fileService.getFileInfo(link.getObjectName(), link.getBucket());
+        InputStream stream = fileService.getFileStream(link.getObjectName(), link.getBucket());
 
         String filename = URLEncoder.encode(fileInfo.getFileName(), "UTF-8");
 
@@ -82,6 +97,42 @@ public class ShareController {
                 .header(HttpHeaders.CONTENT_DISPOSITION, "attachment; filename=\"" + filename + "\"")
                 .contentType(MediaType.parseMediaType(fileInfo.getContentType()))
                 .contentLength(fileInfo.getSize())
+                .body(new InputStreamResource(stream));
+    }
+
+    /**
+     * 通过分享链接下载目录（ZIP压缩包）
+     */
+    @GetMapping("/download-folder")
+    public ResponseEntity<InputStreamResource> downloadFolderShareLink(
+            @RequestParam("shareCode") String shareCode) throws Exception {
+
+        ShareLink link = shareService.getShareInfo(shareCode, null);
+
+        if (!Boolean.TRUE.equals(link.getIsFolder())) {
+            throw new RuntimeException("不是目录分享");
+        }
+
+        File zipFile;
+
+        // 检查压缩包是否存在，不存在则重新压缩
+        if (!shareService.isZipFileExists(shareCode)) {
+            // 重新压缩
+            shareService.recompressShareFolder(shareCode);
+        }
+        zipFile = shareService.getZipFile(shareCode);
+
+        if (zipFile == null || !zipFile.exists()) {
+            throw new RuntimeException("分享文件不存在");
+        }
+
+        InputStream stream = new FileInputStream(zipFile);
+        String filename = URLEncoder.encode(link.getFileName() + ".zip", "UTF-8");
+
+        return ResponseEntity.ok()
+                .header(HttpHeaders.CONTENT_DISPOSITION, "attachment; filename=\"" + filename + "\"")
+                .contentType(MediaType.parseMediaType("application/zip"))
+                .contentLength(zipFile.length())
                 .body(new InputStreamResource(stream));
     }
 
