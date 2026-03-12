@@ -1,0 +1,15 @@
+package com.poss.file.repository;
+
+import com.poss.file.model.ShareLink;
+import org.springframework.data.jpa.repository.JpaRepository;
+import org.springframework.stereotype.Repository;
+
+import java.util.List;
+import java.util.Optional;
+
+@Repository
+public interface ShareLinkRepository extends JpaRepository<ShareLink, Long> {
+    Optional<ShareLink> findByShareCode(String shareCode);
+    List<ShareLink> findByCreateBy(String createBy);
+    void deleteByShareCode(String shareCode);
+}
