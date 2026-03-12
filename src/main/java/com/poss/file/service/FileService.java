@@ -580,8 +580,8 @@ public class FileService {
                     // 获取文件流
                     InputStream is = getFileStream(file.getObjectName(), bucket);
 
-                    // 创建ZIP条目（使用相对路径作为条目名）
-                    String entryName = file.getFileName();
+                    // 创建ZIP条目（使用完整目录结构）
+                    String entryName = file.getObjectName();
                     ZipEntry zipEntry = new ZipEntry(entryName);
                     zos.putNextEntry(zipEntry);
 
@@ -612,6 +612,80 @@ public class FileService {
             log.error("Failed to download folder as ZIP: {}", folder, e);
             throw new RuntimeException("目录下载失败: " + e.getMessage());
         }
+    }
+
+    /**
+     * 批量下载多个文件/目录为ZIP
+     */
+    public void downloadBatchAsZip(List<String> objectNames, String bucket, OutputStream outputStream) {
+        if (bucket == null || bucket.isEmpty()) {
+            bucket = defaultBucket;
+        }
+
+        try {
+            // 创建ZIP输出流
+            try (ZipOutputStream zos = new ZipOutputStream(outputStream)) {
+                byte[] buffer = new byte[8192];
+                long maxSize = 2147483648L; // 2GB
+
+                for (String objectName : objectNames) {
+                    // 判断是否是目录（以/结尾）
+                    boolean isFolder = objectName.endsWith("/");
+
+                    if (isFolder) {
+                        // 如果是目录，递归获取所有文件
+                        try {
+                            List<FileInfo> folderFiles = listFilesRecursive(objectName, bucket);
+                            for (FileInfo subFile : folderFiles) {
+                                addFileToZip(zos, subFile, bucket, buffer, maxSize);
+                            }
+                        } catch (Exception e) {
+                            log.warn("Failed to list folder {}: {}", objectName, e.getMessage());
+                        }
+                    } else {
+                        // 文件直接添加到ZIP
+                        try {
+                            FileInfo fileInfo = getFileInfo(objectName, bucket);
+                            addFileToZip(zos, fileInfo, bucket, buffer, maxSize);
+                        } catch (Exception e) {
+                            log.warn("Failed to get file {}: {}", objectName, e.getMessage());
+                        }
+                    }
+                }
+
+                zos.finish();
+            }
+
+            log.info("Batch files downloaded as ZIP: {} items", objectNames.size());
+        } catch (RuntimeException e) {
+            throw e;
+        } catch (Exception e) {
+            log.error("Failed to download batch as ZIP", e);
+            throw new RuntimeException("批量下载失败: " + e.getMessage());
+        }
+    }
+
+    private void addFileToZip(ZipOutputStream zos, FileInfo fileInfo, String bucket, byte[] buffer, long maxSize) throws Exception {
+        InputStream is = getFileStream(fileInfo.getObjectName(), bucket);
+
+        // 使用 objectName 保留完整目录结构
+        String entryName = fileInfo.getObjectName();
+        ZipEntry zipEntry = new ZipEntry(entryName);
+        zos.putNextEntry(zipEntry);
+
+        long bytesWritten = 0;
+        int len;
+        while ((len = is.read(buffer)) > 0) {
+            bytesWritten += len;
+            if (bytesWritten > maxSize) {
+                is.close();
+                throw new RuntimeException("批量下载压缩后大小超过2GB，无法下载");
+            }
+            zos.write(buffer, 0, len);
+        }
+
+        zos.closeEntry();
+        is.close();
     }
 
     // ===== 私有方法 =====

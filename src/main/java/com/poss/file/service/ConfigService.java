@@ -19,7 +19,8 @@ public class ConfigService {
 
     public static final String KEY_ALLOWED_EXTENSIONS = "allowed_extensions";
     public static final String KEY_MAX_FILE_SIZE = "max_file_size";
-    public static final String KEY_SHARE_MAX_SIZE = "share_max_size";
+    public static final String KEY_BATCH_SHARE_MAX_SIZE = "batch_share_max_size";  // 批量分享/目录分享大小限制
+    public static final String KEY_BATCH_DOWNLOAD_MAX_SIZE = "batch_download_max_size";  // 批量下载大小限制
     public static final String KEY_SHARE_EXPIRE_HOURS = "share_expire_hours";
 
     public String getConfig(String key, String defaultValue) {
@@ -56,11 +57,12 @@ public class ConfigService {
     }
 
     public Long getMaxFileSize() {
-        String value = getConfig(KEY_MAX_FILE_SIZE, "104857600"); // 100MB default
+        String value = getConfig(KEY_MAX_FILE_SIZE, "-1"); // -1 means unlimited
         try {
-            return Long.parseLong(value);
+            long size = Long.parseLong(value);
+            return size < 0 ? -1 : size; // Return -1 for unlimited
         } catch (NumberFormatException e) {
-            return 104857600L;
+            return -1L;
         }
     }
 
@@ -74,11 +76,20 @@ public class ConfigService {
 
     @Transactional
     public void setMaxFileSize(Long sizeInBytes) {
-        setConfig(KEY_MAX_FILE_SIZE, String.valueOf(sizeInBytes), "最大文件大小(字节)");
+        setConfig(KEY_MAX_FILE_SIZE, String.valueOf(sizeInBytes), "最大文件大小(字节)，-1表示无限制");
     }
 
-    public Long getShareMaxSize() {
-        String value = getConfig(KEY_SHARE_MAX_SIZE, "2147483648"); // 2GB default
+    public Long getBatchShareMaxSize() {
+        String value = getConfig(KEY_BATCH_SHARE_MAX_SIZE, "2147483648"); // 2GB default
+        try {
+            return Long.parseLong(value);
+        } catch (NumberFormatException e) {
+            return 2147483648L;
+        }
+    }
+
+    public Long getBatchDownloadMaxSize() {
+        String value = getConfig(KEY_BATCH_DOWNLOAD_MAX_SIZE, "2147483648"); // 2GB default
         try {
             return Long.parseLong(value);
         } catch (NumberFormatException e) {
@@ -96,8 +107,13 @@ public class ConfigService {
     }
 
     @Transactional
-    public void setShareMaxSize(Long sizeInBytes) {
-        setConfig(KEY_SHARE_MAX_SIZE, String.valueOf(sizeInBytes), "分享目录最大大小(字节)");
+    public void setBatchShareMaxSize(Long sizeInBytes) {
+        setConfig(KEY_BATCH_SHARE_MAX_SIZE, String.valueOf(sizeInBytes), "批量分享/目录分享大小限制(字节)");
+    }
+
+    @Transactional
+    public void setBatchDownloadMaxSize(Long sizeInBytes) {
+        setConfig(KEY_BATCH_DOWNLOAD_MAX_SIZE, String.valueOf(sizeInBytes), "批量下载大小限制(字节)");
     }
 
     @Transactional

@@ -34,17 +34,40 @@ const app = createApp({
         const showShareDialog = ref(false);
         const showUserDialog = ref(false);
         const showRoleDialog = ref(false);
+        const showMinioKeyDialog = ref(false);
 
         // Form data
         const newFolderName = ref('');
         const shareForm = ref({ objectName: '', expirationHours: 24, password: '' });
         const userForm = ref({});
         const roleForm = ref({});
+        const minioKeyForm = ref({
+            name: '',
+            bucketPermissions: [],  // 改为数组，每个元素包含 bucket, canRead, canWrite, canDelete
+            expireDays: 0
+        });
+
+        // 辅助函数：添加桶权限
+        const addBucketPermission = () => {
+            minioKeyForm.value.bucketPermissions.push({
+                bucket: '',
+                canRead: true,
+                canWrite: false,
+                canDelete: false
+            });
+        };
+
+        // 辅助函数：移除桶权限
+        const removeBucketPermission = (index) => {
+            minioKeyForm.value.bucketPermissions.splice(index, 1);
+        };
 
         // Lists
         const shareList = ref([]);
         const userList = ref([]);
         const roleList = ref([]);
+        const minioKeyList = ref([]);
+        const minioKeyLoading = ref(false);
 
         // Loading states
         const shareLoading = ref(false);
@@ -59,7 +82,8 @@ const app = createApp({
 
         // Share config
         const shareConfig = ref({
-            maxSizeGB: 2,
+            batchShareMaxSizeGB: 2,
+            batchDownloadMaxSizeGB: 2,
             expireHours: 168
         });
 
@@ -193,6 +217,8 @@ const app = createApp({
             } else if (index === 'config') {
                 loadFileConfig();
                 loadShareConfig();
+            } else if (index === 'minio-keys') {
+                loadMinioKeys();
             }
         };
 
@@ -402,6 +428,63 @@ const app = createApp({
             } catch (error) {
                 if (error !== 'cancel') {
                     ElementPlus.ElMessage.error('删除失败');
+                }
+            }
+        };
+
+        // Batch share
+        const batchShare = async () => {
+            if (selectedFiles.value.length === 0) {
+                ElementPlus.ElMessage.warning('请先选择要分享的文件');
+                return;
+            }
+            try {
+                const objectNames = selectedFiles.value.map(f => f.objectName);
+                const res = await api.post('/share/batch-create', {
+                    objectNames: objectNames,
+                    bucket: currentBucket.value,
+                    expirationHours: 24
+                });
+                if (res.code === 200) {
+                    ElementPlus.ElMessage.success('分享创建成功（仅分享当前选择的内容）');
+                    // Copy share link
+                    const link = window.location.origin + '/share/' + res.data.shareCode;
+                    navigator.clipboard.writeText(link);
+                    ElementPlus.ElMessage.info('分享链接已复制到剪贴板');
+                }
+            } catch (error) {
+                ElementPlus.ElMessage.error('创建分享失败: ' + (error.response?.data?.message || error.message));
+            }
+        };
+
+        // Batch download
+        const batchDownload = async () => {
+            if (selectedFiles.value.length === 0) {
+                ElementPlus.ElMessage.warning('请先选择要下载的文件');
+                return;
+            }
+            try {
+                ElementPlus.ElMessage.info('正在打包文件，请稍候...');
+                const objectNames = selectedFiles.value.map(f => f.objectName).join(',');
+                const response = await api.get('/file/batch-download', {
+                    params: { objectNames: objectNames, bucket: currentBucket.value },
+                    responseType: 'blob',
+                    timeout: 600000 // 10分钟超时
+                });
+                const url = window.URL.createObjectURL(new Blob([response.data]));
+                const link = document.createElement('a');
+                link.href = url;
+                link.setAttribute('download', '批量下载_' + selectedFiles.value.length + '个文件.zip');
+                document.body.appendChild(link);
+                link.click();
+                link.remove();
+                window.URL.revokeObjectURL(url);
+                ElementPlus.ElMessage.success('下载完成');
+            } catch (error) {
+                if (error.response?.data?.message) {
+                    ElementPlus.ElMessage.error(error.response.data.message);
+                } else {
+                    ElementPlus.ElMessage.error('下载失败: ' + (error.message || ''));
                 }
             }
         };
@@ -619,6 +702,100 @@ const app = createApp({
             }
         };
 
+        // MinIO API Key management
+        const loadMinioKeys = async () => {
+            minioKeyLoading.value = true;
+            try {
+                const res = await api.get('/admin/minio-key/list');
+                if (res.code === 200) {
+                    minioKeyList.value = res.data || [];
+                }
+            } catch (error) {
+                ElementPlus.ElMessage.error('加载密钥列表失败');
+            } finally {
+                minioKeyLoading.value = false;
+            }
+        };
+
+        const createMinioKey = async () => {
+            try {
+                // 验证至少添加了一个桶权限
+                if (!minioKeyForm.value.bucketPermissions || minioKeyForm.value.bucketPermissions.length === 0) {
+                    ElementPlus.ElMessage.error('请至少添加一个桶权限');
+                    return;
+                }
+                // 验证每个桶权限都已选择桶
+                for (const bp of minioKeyForm.value.bucketPermissions) {
+                    if (!bp.bucket) {
+                        ElementPlus.ElMessage.error('请为每个权限选择桶');
+                        return;
+                    }
+                }
+
+                const res = await api.post('/admin/minio-key/create', {
+                    name: minioKeyForm.value.name,
+                    bucketPermissions: minioKeyForm.value.bucketPermissions,
+                    expireDays: minioKeyForm.value.expireDays
+                });
+                if (res.code === 200) {
+                    ElementPlus.ElMessage.success('创建成功');
+                    showMinioKeyDialog.value = false;
+                    // Reset form
+                    minioKeyForm.value = {
+                        name: '',
+                        bucketPermissions: [],
+                        expireDays: 0
+                    };
+                    // Show the created key info
+                    ElementPlus.ElMessageBox.alert(
+                        '密钥创建成功！\n\nAccess Key: ' + res.data.accessKey + '\nSecret Key: ' + res.data.secretKey + '\n\n请妥善保存Secret Key，因为它只会显示一次！',
+                        '密钥信息',
+                        { confirmButtonText: '我知道了', type: 'success' }
+                    );
+                    loadMinioKeys();
+                }
+            } catch (error) {
+                ElementPlus.ElMessage.error('创建失败: ' + (error.response?.data?.message || error.message));
+            }
+        };
+
+        const copyMinioKey = async (key) => {
+            // 解析桶权限信息
+            let bucketInfo = '';
+            if (key.bucketsJson) {
+                try {
+                    const perms = JSON.parse(key.bucketsJson);
+                    bucketInfo = perms.map(p =>
+                        `${p.bucket}: ${p.canRead ? '读' : ''}${p.canWrite ? '写' : ''}${p.canDelete ? '删' : ''}`
+                    ).join(', ');
+                } catch (e) {
+                    bucketInfo = key.bucketsJson;
+                }
+            }
+            const text = 'Access Key: ' + key.accessKey + '\nSecret Key: (请在创建时查看)\n桶权限: ' + bucketInfo;
+            navigator.clipboard.writeText(text);
+            ElementPlus.ElMessage.success('已复制到剪贴板');
+        };
+
+        const deleteMinioKey = async (key) => {
+            try {
+                await ElementPlus.ElMessageBox.confirm('确定要删除这个密钥吗？', '提示', {
+                    confirmButtonText: '确定',
+                    cancelButtonText: '取消',
+                    type: 'warning'
+                });
+                const res = await api.delete('/admin/minio-key/' + key.id);
+                if (res.code === 200) {
+                    ElementPlus.ElMessage.success('删除成功');
+                    loadMinioKeys();
+                }
+            } catch (error) {
+                if (error !== 'cancel') {
+                    ElementPlus.ElMessage.error('删除失败');
+                }
+            }
+        };
+
         // Config
         const loadFileConfig = async () => {
             try {
@@ -656,7 +833,8 @@ const app = createApp({
             try {
                 const res = await api.get('/admin/share-config');
                 if (res.code === 200) {
-                    shareConfig.value.maxSizeGB = Math.floor((res.data.shareMaxSize || 2147483648) / 1024 / 1024 / 1024);
+                    shareConfig.value.batchShareMaxSizeGB = Math.floor((res.data.batchShareMaxSize || 2147483648) / 1024 / 1024 / 1024);
+                    shareConfig.value.batchDownloadMaxSizeGB = Math.floor((res.data.batchDownloadMaxSize || 2147483648) / 1024 / 1024 / 1024);
                     shareConfig.value.expireHours = res.data.shareExpireHours || 168;
                 }
             } catch (error) {
@@ -667,7 +845,8 @@ const app = createApp({
         const saveShareConfig = async () => {
             try {
                 const res = await api.post('/admin/share-config', {
-                    shareMaxSize: shareConfig.value.maxSizeGB * 1024 * 1024 * 1024,
+                    batchShareMaxSize: shareConfig.value.batchShareMaxSizeGB * 1024 * 1024 * 1024,
+                    batchDownloadMaxSize: shareConfig.value.batchDownloadMaxSizeGB * 1024 * 1024 * 1024,
                     shareExpireHours: shareConfig.value.expireHours
                 });
                 if (res.code === 200) {
@@ -721,6 +900,12 @@ const app = createApp({
             showShareDialog,
             showUserDialog,
             showRoleDialog,
+            showMinioKeyDialog,
+            minioKeyForm,
+            minioKeyList,
+            minioKeyLoading,
+            addBucketPermission,
+            removeBucketPermission,
             newFolderName,
             shareForm,
             userForm,
@@ -753,6 +938,8 @@ const app = createApp({
             downloadFile,
             previewFile,
             deleteFile,
+            batchShare,
+            batchDownload,
             createFolder,
             shareFile,
             createShare,
@@ -765,6 +952,10 @@ const app = createApp({
             deleteUser,
             editRole,
             deleteRole,
+            loadMinioKeys,
+            createMinioKey,
+            copyMinioKey,
+            deleteMinioKey,
             loadFileConfig,
             saveFileConfig,
             loadShareConfig,

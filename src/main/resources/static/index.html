@@ -4,7 +4,7 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>文件管理器</title>
-    <link rel="stylesheet" href="https://unpkg.com/element-plus@2.3.14/dist/index.css">
+    <link rel="stylesheet" href="/css/element-plus.css">
     <link rel="stylesheet" href="/css/app.css">
 </head>
 <body>
@@ -93,6 +93,13 @@
                                 <el-icon class="help-icon"><QuestionFilled /></el-icon>
                             </el-tooltip>
                         </el-menu-item>
+                        <el-menu-item v-if="isAdmin" index="minio-keys">
+                            <el-icon><Key /></el-icon>
+                            <span>MinIO密钥</span>
+                            <el-tooltip content="管理MinIO访问密钥和桶权限" placement="right" effect="light">
+                                <el-icon class="help-icon"><QuestionFilled /></el-icon>
+                            </el-tooltip>
+                        </el-menu-item>
                         <el-menu-item v-if="isAdmin" index="config">
                             <el-icon><Setting /></el-icon>
                             <span>系统配置</span>
@@ -164,6 +171,14 @@
                                 <el-button @click="refreshFiles" :loading="fileLoading">
                                     <el-icon><Refresh /></el-icon>
                                     刷新
+                                </el-button>
+                                <el-button type="success" @click="batchShare">
+                                    <el-icon><Share /></el-icon>
+                                    批量分享
+                                </el-button>
+                                <el-button type="warning" @click="batchDownload">
+                                    <el-icon><Download /></el-icon>
+                                    批量下载
                                 </el-button>
                             </div>
                         </div>
@@ -335,11 +350,11 @@
                                 <el-input v-model="fileConfig.allowedExtensionsText" type="textarea" rows="3" placeholder="jpg,png,pdf,docx..."></el-input>
                             </el-form-item>
                             <el-form-item label="最大文件大小">
-                                <el-tooltip content="限制单次上传文件的最大大小" placement="top" effect="light">
+                                <el-tooltip content="限制单次上传文件的最大大小，设置为-1表示无限制" placement="top" effect="light">
                                     <el-icon class="form-help"><QuestionFilled /></el-icon>
                                 </el-tooltip>
-                                <el-input-number v-model="fileConfig.maxFileSizeMB" :min="1" :max="1024"></el-input-number>
-                                <span style="margin-left: 10px">MB</span>
+                                <el-input-number v-model="fileConfig.maxFileSizeMB" :min="-1" :max="102400"></el-input-number>
+                                <span style="margin-left: 10px">MB (-1表示无限制)</span>
                             </el-form-item>
                             <el-form-item>
                                 <el-button type="primary" @click="saveFileConfig">保存配置</el-button>
@@ -347,12 +362,12 @@
                         </el-form>
                         <el-divider></el-divider>
                         <h4>分享设置</h4>
-                        <el-form label-width="140px" style="max-width: 600px">
-                            <el-form-item label="分享目录最大大小">
-                                <el-tooltip content="目录分享时，压缩包的最大大小限制" placement="top" effect="light">
+                        <el-form label-width="160px" style="max-width: 600px">
+                            <el-form-item label="批量分享/目录分享大小限制">
+                                <el-tooltip content="批量分享和目录分享时，压缩包的最大大小限制" placement="top" effect="light">
                                     <el-icon class="form-help"><QuestionFilled /></el-icon>
                                 </el-tooltip>
-                                <el-input-number v-model="shareConfig.maxSizeGB" :min="1" :max="100"></el-input-number>
+                                <el-input-number v-model="shareConfig.batchShareMaxSizeGB" :min="1" :max="100"></el-input-number>
                                 <span style="margin-left: 10px">GB</span>
                             </el-form-item>
                             <el-form-item label="分享链接有效期">
@@ -366,10 +381,102 @@
                                 <el-button type="primary" @click="saveShareConfig">保存分享设置</el-button>
                             </el-form-item>
                         </el-form>
+                        <el-divider></el-divider>
+                        <h4>下载设置</h4>
+                        <el-form label-width="160px" style="max-width: 600px">
+                            <el-form-item label="批量下载大小限制">
+                                <el-tooltip content="批量下载时，压缩包的最大大小限制" placement="top" effect="light">
+                                    <el-icon class="form-help"><QuestionFilled /></el-icon>
+                                </el-tooltip>
+                                <el-input-number v-model="shareConfig.batchDownloadMaxSizeGB" :min="1" :max="100"></el-input-number>
+                                <span style="margin-left: 10px">GB</span>
+                            </el-form-item>
+                            <el-form-item>
+                                <el-button type="primary" @click="saveShareConfig">保存下载设置</el-button>
+                            </el-form-item>
+                        </el-form>
+                    </div>
+
+                    <!-- MinIO API Keys -->
+                    <div v-if="currentMenu === 'minio-keys' && isAdmin" class="page-content">
+                        <div class="page-header">
+                            <h3>MinIO密钥管理</h3>
+                            <div class="header-actions">
+                                <el-button type="primary" @click="showMinioKeyDialog = true">
+                                    <el-icon><Plus /></el-icon>
+                                    创建密钥
+                                </el-button>
+                            </div>
+                        </div>
+                        <el-table :data="minioKeyList" v-loading="minioKeyLoading" stripe>
+                            <el-table-column prop="name" label="名称" width="150"></el-table-column>
+                            <el-table-column prop="accessKey" label="Access Key" width="200"></el-table-column>
+                            <el-table-column label="授权桶及权限" min-width="250">
+                                <template #default="{ row }">
+                                    <div v-if="row.bucketsJson">
+                                        <div v-for="(bp, idx) in JSON.parse(row.bucketsJson)" :key="idx" style="margin-bottom: 4px">
+                                            <el-tag size="small">{{ bp.bucket }}</el-tag>
+                                            <el-tag v-if="bp.canRead" size="small" type="info">读</el-tag>
+                                            <el-tag v-if="bp.canWrite" size="small" type="success">写</el-tag>
+                                            <el-tag v-if="bp.canDelete" size="small" type="danger">删</el-tag>
+                                        </div>
+                                    </div>
+                                    <span v-else>-</span>
+                                </template>
+                            </el-table-column>
+                            <el-table-column prop="expireTime" label="过期时间" width="180">
+                                <template #default="{ row }">
+                                    <span v-if="row.expireTime">{{ row.expireTime }}</span>
+                                    <span v-else>永不过期</span>
+                                </template>
+                            </el-table-column>
+                            <el-table-column label="状态" width="100">
+                                <template #default="{ row }">
+                                    <el-tag :type="row.isActive ? 'success' : 'info'" size="small">
+                                        {{ row.isActive ? '启用' : '禁用' }}
+                                    </el-tag>
+                                </template>
+                            </el-table-column>
+                            <el-table-column label="操作" width="150">
+                                <template #default="{ row }">
+                                    <el-button size="small" @click="copyMinioKey(row)">复制</el-button>
+                                    <el-button size="small" type="danger" @click="deleteMinioKey(row)">删除</el-button>
+                                </template>
+                            </el-table-column>
+                        </el-table>
                     </div>
                 </div>
             </div>
         </div>
+
+        <!-- MinIO Key Dialog -->
+        <el-dialog v-model="showMinioKeyDialog" title="创建MinIO密钥" width="600px">
+            <el-form :model="minioKeyForm" label-width="100px">
+                <el-form-item label="名称">
+                    <el-input v-model="minioKeyForm.name" placeholder="密钥名称"></el-input>
+                </el-form-item>
+                <el-form-item label="桶权限">
+                    <div v-for="(bp, index) in minioKeyForm.bucketPermissions" :key="index" style="margin-bottom: 10px; display: flex; align-items: center; gap: 10px;">
+                        <el-select v-model="bp.bucket" placeholder="选择桶" style="width: 150px">
+                            <el-option v-for="b in bucketList" :key="b.name" :label="b.name" :value="b.name"></el-option>
+                        </el-select>
+                        <el-checkbox v-model="bp.canRead">读</el-checkbox>
+                        <el-checkbox v-model="bp.canWrite">写</el-checkbox>
+                        <el-checkbox v-model="bp.canDelete">删</el-checkbox>
+                        <el-button size="small" type="danger" @click="removeBucketPermission(index)">删除</el-button>
+                    </div>
+                    <el-button size="small" @click="addBucketPermission">+ 添加桶权限</el-button>
+                </el-form-item>
+                <el-form-item label="有效期(天)">
+                    <el-input-number v-model="minioKeyForm.expireDays" :min="0" :max="3650"></el-input-number>
+                    <span style="margin-left: 10px">0表示永不过期</span>
+                </el-form-item>
+            </el-form>
+            <template #footer>
+                <el-button @click="showMinioKeyDialog = false">取消</el-button>
+                <el-button type="primary" @click="createMinioKey">创建</el-button>
+            </template>
+        </el-dialog>
 
         <!-- Upload Dialog -->
         <el-dialog v-model="showUploadDialog" title="上传文件" width="500px">
@@ -481,10 +588,22 @@
         </el-dialog>
     </div>
 
-    <script src="https://unpkg.com/vue@3.3.4/dist/vue.global.js"></script>
-    <script src="https://unpkg.com/element-plus@2.3.14/dist/index.full.js"></script>
-    <script src="https://unpkg.com/@element-plus/icons-vue@2.1.0/dist/index.iife.min.js"></script>
-    <script src="https://unpkg.com/axios@1.4.0/dist/axios.min.js"></script>
+    <script src="/js/vue.global.js"></script>
+    <script>
+        console.log('Vue loaded:', typeof Vue);
+    </script>
+    <script src="/js/element-plus.full.js"></script>
+    <script>
+        console.log('ElementPlus loaded:', typeof ElementPlus);
+    </script>
+    <script src="/js/element-icons.js"></script>
+    <script>
+        console.log('ElementPlusIconsVue loaded:', typeof ElementPlusIconsVue);
+    </script>
+    <script src="/js/axios.min.js"></script>
+    <script>
+        console.log('Axios loaded:', typeof axios);
+    </script>
     <script src="/js/app.js"></script>
 </body>
 </html>

@@ -21,6 +21,7 @@ import java.io.UnsupportedEncodingException;
 import java.net.URLEncoder;
 import java.nio.charset.StandardCharsets;
 import java.util.List;
+import java.util.Map;
 
 @RestController
 @RequestMapping("/api/share")
@@ -50,6 +51,24 @@ public class ShareController {
     }
 
     /**
+     * 创建批量分享链接
+     */
+    @PostMapping("/batch-create")
+    public Result<ShareLink> createBatchShare(
+            @RequestBody Map<String, Object> params,
+            @RequestParam(value = "createBy", required = false, defaultValue = "anonymous") String createBy) {
+        log.info("Creating batch share");
+        List<String> objectNames = (List<String>) params.get("objectNames");
+        String bucket = (String) params.get("bucket");
+        Integer expirationHours = params.get("expirationHours") != null
+            ? Integer.valueOf(params.get("expirationHours").toString())
+            : null;
+
+        ShareLink shareLink = shareService.createBatchShareLink(objectNames, bucket, createBy, expirationHours);
+        return Result.success(shareLink);
+    }
+
+    /**
      * 获取分享信息
      */
     @GetMapping("/info")
@@ -74,11 +93,13 @@ public class ShareController {
      */
     @GetMapping("/download")
     public ResponseEntity<InputStreamResource> downloadByShareCode(@RequestParam("shareCode") String shareCode) throws UnsupportedEncodingException {
+        log.info("Processing download request for share: {}", shareCode);
         ShareLink link = shareService.getShareInfo(shareCode, null);
 
         // 如果是目录分享，下载ZIP压缩包
         Boolean isFolder = link.getIsFolder();
         if (isFolder != null && isFolder) {
+            log.info("Share {} is a folder, redirecting to download-folder", shareCode);
             try {
                 ResponseEntity<InputStreamResource> result = downloadFolderShareLink(shareCode);
                 return result;
@@ -88,6 +109,7 @@ public class ShareController {
         }
 
         // 文件分享
+        log.info("Downloading file {} from bucket {}", link.getObjectName(), link.getBucket());
         FileInfo fileInfo = fileService.getFileInfo(link.getObjectName(), link.getBucket());
         InputStream stream = fileService.getFileStream(link.getObjectName(), link.getBucket());
 
@@ -107,6 +129,7 @@ public class ShareController {
     public ResponseEntity<InputStreamResource> downloadFolderShareLink(
             @RequestParam("shareCode") String shareCode) throws Exception {
 
+        log.info("Processing folder download request for share: {}", shareCode);
         ShareLink link = shareService.getShareInfo(shareCode, null);
 
         if (!Boolean.TRUE.equals(link.getIsFolder())) {
@@ -117,15 +140,18 @@ public class ShareController {
 
         // 检查压缩包是否存在，不存在则重新压缩
         if (!shareService.isZipFileExists(shareCode)) {
+            log.info("ZIP file not found for share {}, recompressing", shareCode);
             // 重新压缩
             shareService.recompressShareFolder(shareCode);
         }
         zipFile = shareService.getZipFile(shareCode);
 
         if (zipFile == null || !zipFile.exists()) {
+            log.error("ZIP file not found for share {} after recompression", shareCode);
             throw new RuntimeException("分享文件不存在");
         }
 
+        log.info("Serving ZIP file {} for share {}", zipFile.getAbsolutePath(), shareCode);
         InputStream stream = new FileInputStream(zipFile);
         String filename = URLEncoder.encode(link.getFileName() + ".zip", "UTF-8");
 

@@ -174,11 +174,13 @@ public class AdminController {
 
     @GetMapping("/share-config")
     public Result<Map<String, Object>> getShareConfig() {
-        Long shareMaxSize = configService.getShareMaxSize();
+        Long batchShareMaxSize = configService.getBatchShareMaxSize();
+        Long batchDownloadMaxSize = configService.getBatchDownloadMaxSize();
         Integer shareExpireHours = configService.getShareExpireHours();
 
         Map<String, Object> config = new HashMap<>();
-        config.put("shareMaxSize", shareMaxSize);
+        config.put("batchShareMaxSize", batchShareMaxSize);
+        config.put("batchDownloadMaxSize", batchDownloadMaxSize);
         config.put("shareExpireHours", shareExpireHours);
 
         return Result.success(config);
@@ -186,9 +188,14 @@ public class AdminController {
 
     @PostMapping("/share-config")
     public Result<Void> updateShareConfig(@RequestBody Map<String, Object> configData) {
-        if (configData.containsKey("shareMaxSize")) {
-            Long maxSize = Long.valueOf(configData.get("shareMaxSize").toString());
-            configService.setShareMaxSize(maxSize);
+        if (configData.containsKey("batchShareMaxSize")) {
+            Long maxSize = Long.valueOf(configData.get("batchShareMaxSize").toString());
+            configService.setBatchShareMaxSize(maxSize);
+        }
+
+        if (configData.containsKey("batchDownloadMaxSize")) {
+            Long maxSize = Long.valueOf(configData.get("batchDownloadMaxSize").toString());
+            configService.setBatchDownloadMaxSize(maxSize);
         }
 
         if (configData.containsKey("shareExpireHours")) {

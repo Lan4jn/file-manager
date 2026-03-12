@@ -28,7 +28,6 @@ import java.util.zip.ZipOutputStream;
 public class ShareService {
 
     private static final Logger log = LoggerFactory.getLogger(ShareService.class);
-    private static final long MAX_SHARE_SIZE_BYTES = 2147483648L; // 2GB
 
     private final FileService fileService;
     private final ShareLinkRepository shareLinkRepository;
@@ -106,9 +105,10 @@ public class ShareService {
                     totalSize += file.getSize() != null ? file.getSize() : 0;
                 }
 
-                // 检查是否超过2GB
-                if (totalSize > MAX_SHARE_SIZE_BYTES) {
-                    throw new RuntimeException("目录压缩后大小超过2GB，无法分享");
+                // 检查是否超过配置的大小限制
+                long maxSize = configService.getBatchShareMaxSize();
+                if (totalSize > maxSize) {
+                    throw new RuntimeException("目录压缩后大小超过限制(" + formatSize(maxSize) + ")，无法分享");
                 }
 
                 // 确保share目录存在
@@ -247,6 +247,11 @@ public class ShareService {
         String objectName = shareLink.getObjectName();
         String bucket = shareLink.getBucket();
 
+        // 如果是批量分享，直接从数据库记录重新压缩
+        if (objectName != null && objectName.startsWith("batch:")) {
+            return recompressBatchShare(shareCode, shareLink);
+        }
+
         try {
             // 获取当前目录下的所有文件
             List<FileInfo> currentFiles = fileService.listFilesRecursive(objectName, bucket);
@@ -370,6 +375,210 @@ public class ShareService {
             log.error("Failed to recompress folder: {}", shareCode, e);
             throw new RuntimeException("重新压缩失败: " + e.getMessage());
         }
+    }
+
+    /**
+     * 重新压缩批量分享
+     */
+    private String recompressBatchShare(String shareCode, ShareLink shareLink) {
+        String bucket = shareLink.getBucket();
+
+        try {
+            // 获取数据库中记录的文件列表
+            List<ShareFileRecord> records = shareFileRecordRepository.findByShareCode(shareCode);
+
+            // 确保share目录存在
+            File shareDir = new File(shareDirectory);
+            if (!shareDir.exists()) {
+                shareDir.mkdirs();
+            }
+
+            // 生成新的压缩包
+            String zipFileName = shareCode + ".zip";
+            String zipFilePath = shareDirectory + "/" + zipFileName;
+
+            List<ShareFileRecord> newRecords = new ArrayList<>();
+            LocalDateTime now = LocalDateTime.now();
+            List<String> warnings = new ArrayList<>();
+
+            try (ZipOutputStream zos = new ZipOutputStream(new FileOutputStream(zipFilePath))) {
+                byte[] buffer = new byte[8192];
+
+                // 遍历记录中的文件，尝试添加到ZIP
+                for (ShareFileRecord record : records) {
+                    try {
+                        // 尝试从MinIO获取文件
+                        FileInfo fileInfo = fileService.getFileInfo(record.getFileName(), bucket);
+                        InputStream is = fileService.getFileStream(record.getFileName(), bucket);
+
+                        String entryName = record.getFileName();
+                        ZipEntry zipEntry = new ZipEntry(entryName);
+                        zos.putNextEntry(zipEntry);
+
+                        int len;
+                        while ((len = is.read(buffer)) > 0) {
+                            zos.write(buffer, 0, len);
+                        }
+
+                        zos.closeEntry();
+                        is.close();
+
+                        // 计算新的MD5
+                        is = fileService.getFileStream(record.getFileName(), bucket);
+                        String md5 = calculateMD5(is);
+                        is.close();
+
+                        // 更新记录
+                        ShareFileRecord newRecord = new ShareFileRecord();
+                        newRecord.setShareCode(shareCode);
+                        newRecord.setFileName(entryName);
+                        newRecord.setMd5(md5);
+                        newRecord.setFileSize(record.getFileSize());
+                        newRecord.setRecordTime(now);
+                        newRecords.add(newRecord);
+                    } catch (Exception e) {
+                        // 文件不存在，添加警告
+                        warnings.add("文件已删除或无法访问: " + record.getFileName());
+                    }
+                }
+            }
+
+            // 更新数据库记录
+            shareFileRecordRepository.deleteByShareCode(shareCode);
+            shareFileRecordRepository.saveAll(newRecords);
+
+            // 更新分享链接的压缩包文件名
+            shareLink.setZipFileName(zipFileName);
+            shareLinkRepository.save(shareLink);
+
+            log.info("Batch share recompressed: {}", shareCode);
+
+            return warnings.isEmpty() ? null : String.join("\n", warnings);
+        } catch (Exception e) {
+            log.error("Failed to recompress batch share: {}", shareCode, e);
+            throw new RuntimeException("重新压缩失败: " + e.getMessage());
+        }
+    }
+
+    /**
+     * 创建批量分享链接
+     */
+    public ShareLink createBatchShareLink(List<String> objectNames, String bucket, String createBy, Integer expirationHours) {
+        if (objectNames == null || objectNames.isEmpty()) {
+            throw new RuntimeException("请选择要分享的文件");
+        }
+
+        String shareCode = generateShareCode();
+        if (expirationHours == null || expirationHours <= 0) {
+            expirationHours = defaultExpiration;
+        }
+
+        // 获取所有文件信息并计算总大小
+        List<FileInfo> files = new ArrayList<>();
+        long totalSize = 0;
+        for (String objectName : objectNames) {
+            FileInfo fileInfo = fileService.getFileInfo(objectName, bucket);
+            files.add(fileInfo);
+            totalSize += fileInfo.getSize() != null ? fileInfo.getSize() : 0;
+        }
+
+        // 检查是否超过配置的大小限制
+        long maxSize = configService.getBatchShareMaxSize();
+        if (totalSize > maxSize) {
+            throw new RuntimeException("批量分享压缩后大小超过限制(" + formatSize(maxSize) + ")，无法分享");
+        }
+
+        // 确保share目录存在
+        File shareDir = new File(shareDirectory);
+        if (!shareDir.exists()) {
+            shareDir.mkdirs();
+        }
+
+        // 生成压缩包文件名
+        String zipFileName = shareCode + ".zip";
+        String zipFilePath = shareDirectory + "/" + zipFileName;
+
+        // 保存文件记录（包含MD5）
+        List<ShareFileRecord> records = new ArrayList<>();
+        LocalDateTime now = LocalDateTime.now();
+
+        // 创建压缩包
+        try (ZipOutputStream zos = new ZipOutputStream(new FileOutputStream(zipFilePath))) {
+            byte[] buffer = new byte[8192];
+
+            for (FileInfo file : files) {
+                if (file.getIsFolder()) {
+                    // 如果是目录，递归获取目录下所有文件
+                    List<FileInfo> folderFiles = fileService.listFilesRecursive(file.getObjectName(), bucket);
+                    for (FileInfo subFile : folderFiles) {
+                        addFileToZip(zos, subFile, bucket, records, shareCode, now);
+                    }
+                } else {
+                    addFileToZip(zos, file, bucket, records, shareCode, now);
+                }
+            }
+        } catch (Exception e) {
+            log.error("Failed to create batch share ZIP", e);
+            throw new RuntimeException("批量分享压缩失败: " + e.getMessage());
+        }
+
+        // 保存文件记录到数据库
+        shareFileRecordRepository.saveAll(records);
+
+        // 创建分享链接
+        ShareLink shareLink = new ShareLink();
+        shareLink.setShareCode(shareCode);
+        shareLink.setObjectName("batch:" + String.join(",", objectNames));
+        shareLink.setBucket(bucket);
+        shareLink.setFileName("批量分享_" + files.size() + "个文件");
+        shareLink.setExpireTime(LocalDateTime.now().plusHours(expirationHours));
+        shareLink.setCreateTime(LocalDateTime.now());
+        shareLink.setCreateBy(createBy);
+        shareLink.setViewCount(0L);
+        shareLink.setIsFolder(true);  // 批量分享也视为目录类型
+        shareLink.setZipFileName(zipFileName);
+
+        shareLink = shareLinkRepository.save(shareLink);
+
+        log.info("Batch share link created: {}", shareCode);
+        return shareLink;
+    }
+
+    private void addFileToZip(ZipOutputStream zos, FileInfo file, String bucket,
+                             List<ShareFileRecord> records, String shareCode, LocalDateTime now) throws Exception {
+        InputStream is = fileService.getFileStream(file.getObjectName(), bucket);
+        String md5 = calculateMD5(is);
+        is.close();
+
+        is = fileService.getFileStream(file.getObjectName(), bucket);
+
+        String entryName = file.getFileName();
+        ZipEntry zipEntry = new ZipEntry(entryName);
+        zos.putNextEntry(zipEntry);
+
+        byte[] buffer = new byte[8192];
+        int len;
+        while ((len = is.read(buffer)) > 0) {
+            zos.write(buffer, 0, len);
+        }
+
+        zos.closeEntry();
+        is.close();
+
+        ShareFileRecord record = new ShareFileRecord();
+        record.setShareCode(shareCode);
+        record.setFileName(entryName);
+        record.setMd5(md5);
+        record.setFileSize(file.getSize());
+        record.setRecordTime(now);
+        records.add(record);
+    }
+
+    private String formatSize(long bytes) {
+        if (bytes < 1024) return bytes + " B";
+        if (bytes < 1024 * 1024) return String.format("%.2f KB", bytes / 1024.0);
+        if (bytes < 1024 * 1024 * 1024) return String.format("%.2f MB", bytes / (1024.0 * 1024));
+        return String.format("%.2f GB", bytes / (1024.0 * 1024 * 1024));
     }
 
     /**

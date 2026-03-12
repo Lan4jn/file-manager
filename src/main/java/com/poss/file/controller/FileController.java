@@ -4,6 +4,7 @@ import com.poss.file.common.Result;
 import com.poss.file.dto.UploadResponse;
 import com.poss.file.model.BucketInfo;
 import com.poss.file.model.FileInfo;
+import com.poss.file.service.ConfigService;
 import com.poss.file.service.FileService;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -20,6 +21,7 @@ import java.io.PipedOutputStream;
 import java.io.UnsupportedEncodingException;
 import java.net.URLEncoder;
 import java.nio.charset.StandardCharsets;
+import java.util.Arrays;
 import java.util.List;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
@@ -32,10 +34,12 @@ public class FileController {
     private static final Logger log = LoggerFactory.getLogger(FileController.class);
 
     private final FileService fileService;
+    private final ConfigService configService;
     private final ExecutorService executorService = Executors.newCachedThreadPool();
 
-    public FileController(FileService fileService) {
+    public FileController(FileService fileService, ConfigService configService) {
         this.fileService = fileService;
+        this.configService = configService;
     }
 
     // ==================== Bucket Management ====================
@@ -177,6 +181,81 @@ public class FileController {
                 .header(HttpHeaders.CONTENT_DISPOSITION, "attachment; filename=\"" + filename + "\"")
                 .contentType(MediaType.parseMediaType("application/zip"))
                 .body(new InputStreamResource(pipedIn));
+    }
+
+    @GetMapping("/batch-download")
+    public ResponseEntity<InputStreamResource> batchDownload(
+            @RequestParam("objectNames") String objectNamesStr,
+            @RequestParam(value = "bucket", required = false, defaultValue = "") String bucket) throws Exception {
+        // 解析逗号分隔的文件名列表
+        List<String> objectNames = Arrays.asList(objectNamesStr.split(","));
+        log.info("Batch downloading {} items, bucket: {}", objectNames.size(), bucket);
+
+        // 计算总大小
+        long totalSize = 0;
+        for (String objectName : objectNames) {
+            // 判断是否是目录（以/结尾）
+            boolean isFolder = objectName.endsWith("/");
+
+            if (isFolder) {
+                // 如果是目录，递归获取所有文件大小
+                try {
+                    List<FileInfo> folderFiles = fileService.listFilesRecursive(objectName, bucket);
+                    for (FileInfo subFile : folderFiles) {
+                        totalSize += subFile.getSize() != null ? subFile.getSize() : 0;
+                    }
+                } catch (Exception e) {
+                    log.warn("Failed to list folder {}: {}", objectName, e.getMessage());
+                }
+            } else {
+                // 文件直接获取大小
+                try {
+                    FileInfo fileInfo = fileService.getFileInfo(objectName, bucket);
+                    totalSize += fileInfo.getSize() != null ? fileInfo.getSize() : 0;
+                } catch (Exception e) {
+                    log.warn("Failed to get file info {}: {}", objectName, e.getMessage());
+                }
+            }
+        }
+
+        // 检查是否超过配置的大小限制
+        Long maxSize = configService.getBatchDownloadMaxSize();
+        if (totalSize > maxSize) {
+            throw new RuntimeException("批量下载压缩后大小超过限制(" + formatSize(maxSize) + ")，无法下载");
+        }
+
+        // 使用管道流来实现流式传输
+        PipedOutputStream pipedOut = new PipedOutputStream();
+        PipedInputStream pipedIn = new PipedInputStream(pipedOut);
+
+        // 在后台线程中生成ZIP
+        executorService.submit(() -> {
+            try {
+                fileService.downloadBatchAsZip(objectNames, bucket, pipedOut);
+                pipedOut.close();
+            } catch (Exception e) {
+                log.error("Failed to create batch ZIP", e);
+                try {
+                    pipedOut.close();
+                } catch (Exception ex) {
+                    // ignore
+                }
+            }
+        });
+
+        String filename = URLEncoder.encode("批量下载_" + objectNames.size() + "个文件.zip", "UTF-8");
+
+        return ResponseEntity.ok()
+                .header(HttpHeaders.CONTENT_DISPOSITION, "attachment; filename=\"" + filename + "\"")
+                .contentType(MediaType.parseMediaType("application/zip"))
+                .body(new InputStreamResource(pipedIn));
+    }
+
+    private String formatSize(long bytes) {
+        if (bytes < 1024) return bytes + " B";
+        if (bytes < 1024 * 1024) return String.format("%.2f KB", bytes / 1024.0);
+        if (bytes < 1024 * 1024 * 1024) return String.format("%.2f MB", bytes / (1024.0 * 1024));
+        return String.format("%.2f GB", bytes / (1024.0 * 1024 * 1024));
     }
 
     @GetMapping("/preview")
