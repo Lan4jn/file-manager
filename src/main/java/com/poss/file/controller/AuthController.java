@@ -4,6 +4,8 @@ import com.poss.file.common.Result;
 import com.poss.file.entity.User;
 import com.poss.file.repository.UserRepository;
 import com.poss.file.utils.JwtTokenUtil;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.security.authentication.AuthenticationManager;
 import org.springframework.security.authentication.UsernamePasswordAuthenticationToken;
@@ -20,6 +22,8 @@ import java.util.Map;
 @RestController
 @RequestMapping("/api/auth")
 public class AuthController {
+
+    private static final Logger log = LoggerFactory.getLogger(AuthController.class);
 
     @Autowired
     private AuthenticationManager authenticationManager;
@@ -52,18 +56,25 @@ public class AuthController {
 
     @PostMapping("/login")
     public Result<Map<String, Object>> login(@RequestBody Map<String, String> loginRequest) {
+        log.info("Login request received for username: {}", loginRequest.get("username"));
         String username = loginRequest.get("username");
-        String password = loginRequest.get("password");
+        String encodedPassword = loginRequest.get("password");
 
         try {
+            // 解码 base64 密码
+            String decodedPassword = new String(java.util.Base64.getDecoder().decode(encodedPassword), java.nio.charset.StandardCharsets.UTF_8);
+            // 对解码后的密码进行 SHA-512 哈希
+            String hashedPassword = sha512(decodedPassword);
+
             User user = userRepository.findByUsername(username).orElse(null);
+            log.info("User found: {}", user != null);
             if (user == null) {
                 return Result.error("用户不存在");
             }
 
-            // 验证密码 - 前端已经SHA512，直接比较
-            boolean matches = password.equals(user.getPassword());
-            System.out.println("[DEBUG] Password matches: " + matches + " for user: " + username);
+            // 验证密码
+            boolean matches = hashedPassword.equals(user.getPassword());
+            log.info("[DEBUG] Password matches: " + matches + " for user: " + username);
             if (!matches) {
                 return Result.error("用户名或密码错误");
             }
@@ -93,18 +104,31 @@ public class AuthController {
     }
 
     @PostMapping("/register")
-    public Result<Void> register(@RequestBody User user) {
-        if (userRepository.existsByUsername(user.getUsername())) {
+    public Result<Void> register(@RequestBody Map<String, String> request) {
+        String username = request.get("username");
+        String encodedPassword = request.get("password");
+
+        if (userRepository.existsByUsername(username)) {
             return Result.error("用户名已存在");
         }
 
-        // 使用SHA512存储密码
-        user.setPassword(sha512(user.getPassword()));
-        user.setCreateTime(System.currentTimeMillis());
-        user.setEnabled(true);
-        userRepository.save(user);
+        try {
+            // 解码 base64 密码并哈希
+            String decodedPassword = new String(java.util.Base64.getDecoder().decode(encodedPassword), java.nio.charset.StandardCharsets.UTF_8);
+            String hashedPassword = sha512(decodedPassword);
 
-        return Result.success();
+            User user = new User();
+            user.setUsername(username);
+            user.setPassword(hashedPassword);
+            user.setNickname(username);
+            user.setCreateTime(System.currentTimeMillis());
+            user.setEnabled(true);
+            userRepository.save(user);
+
+            return Result.success();
+        } catch (Exception e) {
+            return Result.error("注册失败: " + e.getMessage());
+        }
     }
 
     @GetMapping("/info")
