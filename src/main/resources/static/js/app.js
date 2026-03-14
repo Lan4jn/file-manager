@@ -691,6 +691,72 @@ const app = createApp({
             console.log('Upload progress:', event.percent);
         };
 
+        // 自定义上传请求，使用XMLHttpRequest获取真实进度
+        const customUploadRequest = (options) => {
+            const { file, action, headers, data, onProgress, onSuccess, onError } = options;
+
+            const xhr = new XMLHttpRequest();
+            xhr.open('POST', action, true);
+
+            // 设置请求头
+            if (headers) {
+                for (const key in headers) {
+                    xhr.setRequestHeader(key, headers[key]);
+                }
+            }
+
+            // 上传进度事件
+            xhr.upload.onprogress = (event) => {
+                if (event.lengthComputable) {
+                    const percent = (event.loaded / event.total) * 100;
+                    onProgress({ percent });
+                }
+            };
+
+            // 请求完成
+            xhr.onload = () => {
+                uploading.value = false;
+                if (xhr.status >= 200 && xhr.status < 300) {
+                    try {
+                        const response = JSON.parse(xhr.responseText);
+                        if (response.code === 200) {
+                            onSuccess(response);
+                        } else {
+                            onError(new Error(response.message || '上传失败'));
+                        }
+                    } catch (e) {
+                        onError(e);
+                    }
+                } else {
+                    try {
+                        const response = JSON.parse(xhr.responseText);
+                        onError(new Error(response.message || '上传失败'));
+                    } catch (e) {
+                        onError(new Error('上传失败'));
+                    }
+                }
+            };
+
+            xhr.onerror = () => {
+                uploading.value = false;
+                onError(new Error('网络错误'));
+            };
+
+            // 构建FormData
+            const formData = new FormData();
+            formData.append('file', file);
+            if (data) {
+                for (const key in data) {
+                    formData.append(key, data[key]);
+                }
+            }
+
+            xhr.send(formData);
+
+            // 保存xhr引用以便取消
+            options.xhr = xhr;
+        };
+
         const handleUploadSuccess = (response) => {
             console.log('Upload success:', response);
             uploading.value = false;
@@ -718,11 +784,27 @@ const app = createApp({
             }
         };
 
-        const cancelUpload = () => {
-            uploading.value = false;
-            showUploadDialog.value = false;
-            if (uploadRef.value) {
-                uploadRef.value.clearFiles();
+        const cancelUpload = async () => {
+            if (uploading.value) {
+                try {
+                    await ElementPlus.ElMessageBox.confirm(
+                        '是否取消上传，这将终止进行中的上传任务和取消还未进行的任务',
+                        '取消上传',
+                        { confirmButtonText: '确定取消', cancelButtonText: '继续上传', type: 'warning' }
+                    );
+                    uploading.value = false;
+                    showUploadDialog.value = false;
+                    if (uploadRef.value) {
+                        uploadRef.value.clearFiles();
+                    }
+                } catch (e) {
+                    // 用户点击继续上传，不做任何操作
+                }
+            } else {
+                showUploadDialog.value = false;
+                if (uploadRef.value) {
+                    uploadRef.value.clearFiles();
+                }
             }
         };
 
@@ -1118,6 +1200,7 @@ const app = createApp({
             handleUploadSuccess,
             handleUploadError,
             handleUploadProgress,
+            customUploadRequest,
             cancelUpload,
             uploading,
             copyShareLink,

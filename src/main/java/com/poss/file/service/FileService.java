@@ -207,7 +207,7 @@ public class FileService {
             }
 
             // 生成唯一文件名
-            String objectName = generateObjectName(folder, originalFilename);
+            String objectName = generateObjectName(folder, originalFilename, bucket);
 
             // 上传到 MinIO
             minioClient.putObject(
@@ -351,12 +351,46 @@ public class FileService {
         }
 
         try {
-            minioClient.removeObject(
-                    RemoveObjectArgs.builder()
-                            .bucket(bucket)
-                            .object(objectName)
-                            .build()
-            );
+            // 检查是否是文件夹（以/结尾）
+            boolean isFolder = objectName.endsWith("/");
+
+            // 如果是文件夹，删除文件夹内的所有文件
+            if (isFolder) {
+                // 列出文件夹下所有对象并删除
+                Iterable<Result<Item>> results = minioClient.listObjects(
+                        ListObjectsArgs.builder()
+                                .bucket(bucket)
+                                .prefix(objectName)
+                                .recursive(true)
+                                .build()
+                );
+                for (Result<Item> result : results) {
+                    Item item = result.get();
+                    if (!item.isDir()) {
+                        minioClient.removeObject(
+                                RemoveObjectArgs.builder()
+                                        .bucket(bucket)
+                                        .object(item.objectName())
+                                        .build()
+                        );
+                    }
+                }
+                // 最后删除文件夹本身
+                minioClient.removeObject(
+                        RemoveObjectArgs.builder()
+                                .bucket(bucket)
+                                .object(objectName)
+                                .build()
+                );
+            } else {
+                // 普通文件直接删除
+                minioClient.removeObject(
+                        RemoveObjectArgs.builder()
+                                .bucket(bucket)
+                                .object(objectName)
+                                .build()
+                );
+            }
             log.info("File deleted: {}", objectName);
         } catch (Exception e) {
             log.error("Failed to delete file: {}", objectName, e);
@@ -747,9 +781,7 @@ public class FileService {
 
     // ===== 私有方法 =====
 
-    private String generateObjectName(String folder, String originalFilename) {
-        String timestamp = LocalDateTime.now().format(DateTimeFormatter.ofPattern("yyyyMMddHHmmss"));
-        String uuid = UUID.randomUUID().toString().substring(0, 8);
+    private String generateObjectName(String folder, String originalFilename, String bucket) {
         String extension = getFileExtension(originalFilename);
 
         StringBuilder sb = new StringBuilder();
@@ -761,21 +793,56 @@ public class FileService {
             }
         }
 
-        String nameWithoutExt = originalFilename.substring(0,
-                Math.max(0, originalFilename.length() - extension.length() - 1));
+        // 保留原始文件名，只替换非法字符
+        String nameWithoutExt;
+        if (StrUtil.isNotEmpty(extension)) {
+            nameWithoutExt = originalFilename.substring(0,
+                    Math.max(0, originalFilename.length() - extension.length() - 1));
+        } else {
+            nameWithoutExt = originalFilename;
+        }
         nameWithoutExt = nameWithoutExt.replaceAll("[^a-zA-Z0-9.-]", "_");
 
-        sb.append(nameWithoutExt)
-                .append("_")
-                .append(timestamp)
-                .append("_")
-                .append(uuid);
-
         if (StrUtil.isNotEmpty(extension)) {
-            sb.append(".").append(extension);
+            sb.append(nameWithoutExt).append(".").append(extension);
+        } else {
+            sb.append(nameWithoutExt);
         }
 
-        return sb.toString();
+        String objectName = sb.toString();
+
+        // 检查文件是否已存在，如存在则添加数字后缀
+        if (fileExists(objectName, bucket)) {
+            int counter = 2;
+            String baseName = nameWithoutExt;
+            while (true) {
+                String newObjectName;
+                if (StrUtil.isNotEmpty(extension)) {
+                    newObjectName = sb.toString().replace(baseName + "." + extension, baseName + "_" + counter + "." + extension);
+                } else {
+                    newObjectName = sb.toString().replace(baseName, baseName + "_" + counter);
+                }
+                if (!fileExists(newObjectName, bucket)) {
+                    return newObjectName;
+                }
+                counter++;
+                if (counter > 1000) {
+                    throw new RuntimeException("文件命名冲突，无法创建唯一文件名");
+                }
+            }
+        }
+
+        return objectName;
+    }
+
+    // 检查文件是否已存在
+    private boolean fileExists(String objectName, String bucket) {
+        try {
+            minioClient.statObject(StatObjectArgs.builder().bucket(bucket).object(objectName).build());
+            return true;
+        } catch (Exception e) {
+            return false;
+        }
     }
 
     private String getFileExtension(String filename) {

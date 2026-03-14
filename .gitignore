@@ -3,3 +3,7 @@
 /share/
 /logs/
 /config/
+/.kiro/specs/minio-key-role-pagination/tasks.md
+/.kiro/specs/minio-key-role-pagination/design.md
+/.kiro/specs/minio-key-role-pagination/requirements.md
+/.kiro/

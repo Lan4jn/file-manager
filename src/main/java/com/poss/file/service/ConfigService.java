@@ -7,6 +7,7 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.util.Arrays;
+import java.util.HashSet;
 import java.util.List;
 import java.util.Set;
 import java.util.stream.Collectors;
@@ -48,8 +49,11 @@ public class ConfigService {
     }
 
     public Set<String> getAllowedExtensions() {
-        String value = getConfig(KEY_ALLOWED_EXTENSIONS,
-                "jpg,jpeg,png,gif,bmp,webp,pdf,doc,docx,xls,xlsx,ppt,pptx,txt,mp3,mp4,avi,zip,rar,jar");
+        String value = getConfig(KEY_ALLOWED_EXTENSIONS, "");
+        // 如果配置为空或为"无限制"，返回空集合表示允许所有类型
+        if (value == null || value.isEmpty() || value.equals("无限制")) {
+            return new HashSet<>();
+        }
         return Arrays.stream(value.split(","))
                 .map(String::trim)
                 .map(String::toLowerCase)
