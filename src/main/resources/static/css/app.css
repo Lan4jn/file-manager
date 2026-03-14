@@ -218,3 +218,142 @@ body {
     background: #fff;
     border: 1px solid #e4e7ed;
 }
+
+/* Version badge */
+.version-badge {
+    cursor: pointer;
+    transition: color 0.2s;
+}
+
+.version-badge:hover {
+    color: #409eff !important;
+}
+
+/* Help button */
+.help-button {
+    margin-right: 15px;
+}
+
+.help-text-button {
+    margin-right: 15px;
+    padding: 4px 10px;
+    font-size: 12px;
+    color: #909399;
+    background: #f5f7fa;
+    border: 1px solid #e4e7ed;
+    border-radius: 4px;
+    cursor: pointer;
+    transition: all 0.2s;
+}
+
+.help-text-button:hover {
+    color: #409eff;
+    background: #ecf5ff;
+    border-color: #c6e2ff;
+}
+
+/* Help content */
+.help-content {
+    max-height: 60vh;
+    overflow-y: auto;
+    line-height: 1.8;
+}
+
+.help-content h1 {
+    font-size: 24px;
+    margin-bottom: 20px;
+    color: #303133;
+    border-bottom: 2px solid #409eff;
+    padding-bottom: 10px;
+}
+
+.help-content h2 {
+    font-size: 18px;
+    margin-top: 25px;
+    margin-bottom: 15px;
+    color: #409eff;
+}
+
+.help-content h3 {
+    font-size: 16px;
+    margin-top: 20px;
+    margin-bottom: 10px;
+    color: #606266;
+}
+
+.help-content ul {
+    margin-left: 20px;
+    margin-bottom: 15px;
+}
+
+.help-content li {
+    margin-bottom: 8px;
+    color: #606266;
+}
+
+.help-content p {
+    margin-bottom: 12px;
+    color: #606266;
+}
+
+/* Version dialog */
+.version-list {
+    border-right: 1px solid #ebeef5;
+    padding-right: 10px;
+}
+
+.version-item {
+    padding: 12px 15px;
+    cursor: pointer;
+    border-radius: 4px;
+    margin-bottom: 5px;
+    transition: all 0.2s;
+    color: #606266;
+}
+
+.version-item:hover {
+    background: #ecf5ff;
+    color: #409eff;
+}
+
+.version-item.active {
+    background: #409eff;
+    color: #fff;
+}
+
+.version-content {
+    padding-left: 10px;
+    max-height: 60vh;
+    overflow-y: auto;
+    line-height: 1.8;
+}
+
+.version-content h1 {
+    font-size: 22px;
+    margin-bottom: 20px;
+    color: #303133;
+    border-bottom: 2px solid #409eff;
+    padding-bottom: 10px;
+}
+
+.version-content h2 {
+    font-size: 16px;
+    margin-top: 20px;
+    margin-bottom: 12px;
+    color: #409eff;
+}
+
+.version-content ul {
+    margin-left: 20px;
+    margin-bottom: 15px;
+}
+
+.version-content li {
+    margin-bottom: 8px;
+    color: #606266;
+}
+
+.version-content p {
+    margin-bottom: 12px;
+    color: #606266;
+}

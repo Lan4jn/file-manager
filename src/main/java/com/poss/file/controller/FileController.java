@@ -122,6 +122,20 @@ public class FileController {
         return Result.success();
     }
 
+    @DeleteMapping("/batch-delete")
+    public Result<Void> batchDelete(
+            @RequestParam("objectNames") String objectNamesStr,
+            @RequestParam(value = "bucket", required = false, defaultValue = "") String bucket) {
+        List<String> objectNames = Arrays.asList(objectNamesStr.split(","));
+        log.info("Batch deleting {} files, bucket: {}", objectNames.size(), bucket);
+        for (String objectName : objectNames) {
+            if (objectName != null && !objectName.isEmpty()) {
+                fileService.deleteFile(objectName, bucket);
+            }
+        }
+        return Result.success();
+    }
+
     @PostMapping("/folder")
     public Result<Void> createFolder(
             @RequestParam("path") String path,

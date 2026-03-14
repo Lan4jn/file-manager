@@ -14,7 +14,7 @@
         <div v-if="!isLoggedIn" class="login-container">
             <el-card class="login-card">
                 <template #header>
-                    <h2>文件管理器 <span style="font-size: 12px; color: #999; font-weight: normal;">v1.1dev</span></h2>
+                    <h2>文件管理器 <span style="font-size: 12px; color: #999; font-weight: normal;">v1.1</span></h2>
                 </template>
                 <el-form :model="loginForm" @submit.prevent="handleLogin">
                     <el-form-item>
@@ -35,9 +35,10 @@
             <!-- Header -->
             <div class="header">
                 <div class="header-left">
-                    <h2>文件管理器 <span style="font-size: 12px; color: #999; font-weight: normal;">v1.1dev</span></h2>
+                    <h2>文件管理器 <span style="font-size: 12px; color: #999; font-weight: normal; cursor: pointer;" @click="showVersionDialog = true">v1.1</span></h2>
                 </div>
                 <div class="header-right">
+                    <el-button class="help-text-button" @click="showHelpDialog = true">系统帮助</el-button>
                     <el-dropdown @command="handleCommand">
                         <span class="user-info">
                             <el-icon><User /></el-icon>
@@ -180,6 +181,10 @@
                                 <el-button type="warning" @click="batchDownload">
                                     <el-icon><Download /></el-icon>
                                     批量下载
+                                </el-button>
+                                <el-button type="danger" @click="batchDelete">
+                                    <el-icon><Delete /></el-icon>
+                                    批量删除
                                 </el-button>
                             </div>
                         </div>
@@ -607,6 +612,39 @@
             <template #footer>
                 <el-button @click="showUserDialog = false">取消</el-button>
                 <el-button type="primary" @click="saveUser">保存</el-button>
+            </template>
+        </el-dialog>
+
+        <!-- Help Dialog -->
+        <el-dialog v-model="showHelpDialog" title="系统功能和用法" width="800px">
+            <div class="help-content" v-html="helpContent"></div>
+            <template #footer>
+                <el-button @click="showHelpDialog = false">关闭</el-button>
+            </template>
+        </el-dialog>
+
+        <!-- Version Dialog -->
+        <el-dialog v-model="showVersionDialog" title="版本更新内容" width="900px">
+            <el-row :gutter="20">
+                <el-col :span="6">
+                    <div class="version-list">
+                        <div
+                            v-for="v in versionList"
+                            :key="v.version"
+                            class="version-item"
+                            :class="{ active: selectedVersion === v.version }"
+                            @click="loadVersionNote(v)"
+                        >
+                            {{ v.version }}
+                        </div>
+                    </div>
+                </el-col>
+                <el-col :span="18">
+                    <div class="version-content" v-html="versionContent"></div>
+                </el-col>
+            </el-row>
+            <template #footer>
+                <el-button @click="showVersionDialog = false">关闭</el-button>
             </template>
         </el-dialog>
     </div>

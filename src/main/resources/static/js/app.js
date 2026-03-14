@@ -1,4 +1,4 @@
-const { createApp, ref, computed, onMounted } = Vue;
+const { createApp, ref, computed, onMounted, watch } = Vue;
 
 const app = createApp({
     setup() {
@@ -41,10 +41,16 @@ const app = createApp({
         const showUserDialog = ref(false);
         const showRoleDialog = ref(false);
         const showMinioKeyDialog = ref(false);
+        const showHelpDialog = ref(false);
+        const showVersionDialog = ref(false);
+        const helpContent = ref('');
+        const versionList = ref([]);
+        const selectedVersion = ref('');
+        const versionContent = ref('');
 
         // Form data
         const newFolderName = ref('');
-        const createTestFile = ref(true);
+        const createTestFile = ref(false);
         const shareForm = ref({ objectName: '', expirationHours: 24, password: '' });
         const userForm = ref({});
         const roleForm = ref({});
@@ -619,6 +625,35 @@ const app = createApp({
             }
         };
 
+        // Batch delete
+        const batchDelete = async () => {
+            if (selectedFiles.value.length === 0) {
+                ElementPlus.ElMessage.warning('请先选择要删除的文件');
+                return;
+            }
+            try {
+                await ElementPlus.ElMessageBox.confirm(
+                    '确定要删除选中的 ' + selectedFiles.value.length + ' 个文件/文件夹吗？此操作不可恢复！',
+                    '确认删除',
+                    {
+                        confirmButtonText: '确定',
+                        cancelButtonText: '取消',
+                        type: 'warning'
+                    }
+                );
+                const objectNames = selectedFiles.value.map(f => f.objectName).join(',');
+                await api.delete('/file/batch-delete', {
+                    params: { objectNames: objectNames, bucket: currentBucket.value }
+                });
+                ElementPlus.ElMessage.success('删除成功');
+                loadFiles();
+            } catch (error) {
+                if (error !== 'cancel') {
+                    ElementPlus.ElMessage.error('删除失败: ' + (error.response?.data?.message || error.message));
+                }
+            }
+        };
+
         const createFolder = async () => {
             if (!newFolderName.value) {
                 ElementPlus.ElMessage.warning('请输入文件夹名称');
@@ -633,7 +668,7 @@ const app = createApp({
                     ElementPlus.ElMessage.success('创建成功');
                     showFolderDialog.value = false;
                     newFolderName.value = '';
-                    createTestFile.value = true;
+                    createTestFile.value = false;
                     loadFiles();
                 }
             } catch (error) {
@@ -1113,6 +1148,88 @@ const app = createApp({
             return bytes.toFixed(2) + ' ' + units[i];
         };
 
+        // Load system help
+        const loadSystemHelp = async () => {
+            try {
+                const res = await api.get('/help/system');
+                if (res.code === 200) {
+                    helpContent.value = markdownToHtml(res.data);
+                }
+            } catch (error) {
+                console.error('Failed to load system help:', error);
+            }
+        };
+
+        // Load version list
+        const loadVersionList = async () => {
+            try {
+                const res = await api.get('/help/versions');
+                if (res.code === 200) {
+                    versionList.value = res.data;
+                    if (versionList.value.length > 0) {
+                        loadVersionNote(versionList.value[0]);
+                    }
+                }
+            } catch (error) {
+                console.error('Failed to load version list:', error);
+            }
+        };
+
+        // Load version note
+        const loadVersionNote = async (versionInfo) => {
+            selectedVersion.value = versionInfo.version;
+            try {
+                const res = await api.get('/help/version', {
+                    params: { fileName: versionInfo.fileName }
+                });
+                if (res.code === 200) {
+                    versionContent.value = markdownToHtml(res.data);
+                }
+            } catch (error) {
+                console.error('Failed to load version note:', error);
+            }
+        };
+
+        // Simple markdown to HTML converter
+        const markdownToHtml = (markdown) => {
+            if (!markdown) return '';
+
+            let html = markdown
+                .replace(/^### (.*$)/gim, '<h3>$1</h3>')
+                .replace(/^## (.*$)/gim, '<h2>$1</h2>')
+                .replace(/^# (.*$)/gim, '<h1>$1</h1>')
+                .replace(/\*\*(.*)\*\*/gim, '<strong>$1</strong>')
+                .replace(/\*(.*)\*/gim, '<em>$1</em>')
+                .replace(/^- (.*$)/gim, '<li>$1</li>')
+                .replace(/^(\d+)\. (.*$)/gim, '<li>$2</li>')
+                .replace(/\n\n/g, '</p><p>')
+                .replace(/\n/g, '<br>');
+
+            // Wrap with paragraphs
+            if (!html.startsWith('<h') && !html.startsWith('<p')) {
+                html = '<p>' + html + '</p>';
+            }
+
+            // Handle list items
+            html = html.replace(/(<li>.*<\/li>)/s, '<ul>$1</ul>');
+
+            return html;
+        };
+
+        // Watch help dialog
+        watch(showHelpDialog, (newVal) => {
+            if (newVal && !helpContent.value) {
+                loadSystemHelp();
+            }
+        });
+
+        // Watch version dialog
+        watch(showVersionDialog, (newVal) => {
+            if (newVal && versionList.value.length === 0) {
+                loadVersionList();
+            }
+        });
+
         // Lifecycle
         onMounted(() => {
             checkAuth();
@@ -1151,6 +1268,13 @@ const app = createApp({
             showUserDialog,
             showRoleDialog,
             showMinioKeyDialog,
+            showHelpDialog,
+            showVersionDialog,
+            helpContent,
+            versionList,
+            selectedVersion,
+            versionContent,
+            loadVersionNote,
             minioKeyForm,
             minioKeyList,
             minioKeyLoading,
@@ -1192,6 +1316,7 @@ const app = createApp({
             deleteFile,
             batchShare,
             batchDownload,
+            batchDelete,
             createFolder,
             shareFile,
             createShare,

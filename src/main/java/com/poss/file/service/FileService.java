@@ -270,11 +270,43 @@ public class FileService {
             List<FileInfo> fileList = new ArrayList<>();
             for (Result<Item> result : results) {
                 Item item = result.get();
+                String objectName = item.objectName();
+
+                // 过滤掉当前查询的目录本身
+                if (objectName.equals(folder)) {
+                    log.info("Skipping current folder itself: {}", objectName);
+                    continue;
+                }
+
+                // 判断是否是目录：要么item.isDir()为true，要么objectName以/结尾
+                boolean isFolder = item.isDir() || objectName.endsWith("/");
+
+                // 如果是0字节文件，且文件名在当前目录下存在同名目录，则跳过这个0字节文件
+                if (!isFolder && item.size() == 0) {
+                    // 检查是否有同名目录
+                    boolean hasFolderWithSameName = false;
+                    for (FileInfo fi : fileList) {
+                        if (fi.getIsFolder() != null && fi.getIsFolder()) {
+                            // 获取目录名（不带后缀/）
+                            String folderName = fi.getFileName();
+                            String fileName = getFileName(objectName);
+                            if (folderName.equals(fileName)) {
+                                hasFolderWithSameName = true;
+                                break;
+                            }
+                        }
+                    }
+                    if (hasFolderWithSameName) {
+                        log.info("Skipping 0-byte file that has same name as folder: {}", objectName);
+                        continue;
+                    }
+                }
+
                 FileInfo fileInfo = new FileInfo();
-                fileInfo.setObjectName(item.objectName());
-                fileInfo.setFileName(getFileName(item.objectName()));
+                fileInfo.setObjectName(objectName);
+                fileInfo.setFileName(getFileName(objectName));
                 fileInfo.setSize(item.size());
-                fileInfo.setIsFolder(item.isDir());
+                fileInfo.setIsFolder(isFolder);
                 try {
                     if (item.lastModified() != null) {
                         fileInfo.setUploadTime(LocalDateTime.ofInstant(
@@ -285,12 +317,21 @@ public class FileService {
                 } catch (Exception e) {
                     fileInfo.setUploadTime(LocalDateTime.now());
                 }
-                fileInfo.setUrl(publicUrl + "/" + bucket + "/" + item.objectName());
+                fileInfo.setUrl(publicUrl + "/" + bucket + "/" + objectName);
                 fileList.add(fileInfo);
             }
 
-            // 排序
+            // 排序：默认先显示目录再显示文件
             fileList.sort((f1, f2) -> {
+                // 首先比较是否是目录，目录排在前面
+                boolean f1IsFolder = f1.getIsFolder() != null && f1.getIsFolder();
+                boolean f2IsFolder = f2.getIsFolder() != null && f2.getIsFolder();
+
+                if (f1IsFolder != f2IsFolder) {
+                    return f1IsFolder ? -1 : 1;
+                }
+
+                // 如果都是目录或都是文件，再按指定条件排序
                 int result;
                 switch (sortBy) {
                     case "size":
@@ -793,7 +834,7 @@ public class FileService {
             }
         }
 
-        // 保留原始文件名，只替换非法字符
+        // 保留原始文件名，支持中文，只替换真正的非法字符
         String nameWithoutExt;
         if (StrUtil.isNotEmpty(extension)) {
             nameWithoutExt = originalFilename.substring(0,
@@ -801,7 +842,8 @@ public class FileService {
         } else {
             nameWithoutExt = originalFilename;
         }
-        nameWithoutExt = nameWithoutExt.replaceAll("[^a-zA-Z0-9.-]", "_");
+        // 只替换MinIO/S3中真正非法的字符，保留中文和其他语言字符
+        nameWithoutExt = nameWithoutExt.replaceAll("[\\\\/:*?\"<>|]", "_");
 
         if (StrUtil.isNotEmpty(extension)) {
             sb.append(nameWithoutExt).append(".").append(extension);
