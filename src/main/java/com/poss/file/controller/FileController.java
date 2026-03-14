@@ -232,7 +232,7 @@ public class FileController {
 
         // 检查是否超过配置的大小限制
         Long maxSize = configService.getBatchDownloadMaxSize();
-        if (totalSize > maxSize) {
+        if (maxSize > 0 && totalSize > maxSize) {
             throw new RuntimeException("批量下载压缩后大小超过限制(" + formatSize(maxSize) + ")，无法下载");
         }
 

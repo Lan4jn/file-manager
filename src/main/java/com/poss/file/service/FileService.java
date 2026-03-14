@@ -202,7 +202,7 @@ public class FileService {
 
             // 检查文件大小
             Long maxSize = configService.getMaxFileSize();
-            if (file.getSize() > maxSize) {
+            if (maxSize > 0 && file.getSize() > maxSize) {
                 throw new RuntimeException("文件大小超出限制: 最大 " + formatSize(maxSize));
             }
 

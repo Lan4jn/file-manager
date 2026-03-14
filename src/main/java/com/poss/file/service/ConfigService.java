@@ -86,7 +86,8 @@ public class ConfigService {
     public Long getBatchShareMaxSize() {
         String value = getConfig(KEY_BATCH_SHARE_MAX_SIZE, "2147483648"); // 2GB default
         try {
-            return Long.parseLong(value);
+            long size = Long.parseLong(value);
+            return size < 0 ? -1 : size; // Return -1 for unlimited
         } catch (NumberFormatException e) {
             return 2147483648L;
         }
@@ -95,7 +96,8 @@ public class ConfigService {
     public Long getBatchDownloadMaxSize() {
         String value = getConfig(KEY_BATCH_DOWNLOAD_MAX_SIZE, "2147483648"); // 2GB default
         try {
-            return Long.parseLong(value);
+            long size = Long.parseLong(value);
+            return size < 0 ? -1 : size; // Return -1 for unlimited
         } catch (NumberFormatException e) {
             return 2147483648L;
         }
