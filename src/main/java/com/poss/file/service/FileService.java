@@ -1,6 +1,7 @@
 package com.poss.file.service;
 
 import cn.hutool.core.util.StrUtil;
+import com.poss.file.common.PageResult;
 import com.poss.file.dto.UploadResponse;
 import com.poss.file.model.BucketInfo;
 import com.poss.file.model.FileInfo;
@@ -312,6 +313,36 @@ public class FileService {
     }
 
     /**
+     * 分页获取文件列表
+     */
+    public PageResult<FileInfo> listFiles(String folder, String bucket, String sortBy, String order, int page, int size) {
+        // 参数校验和默认值
+        if (page < 1) page = 1;
+        if (size != 10 && size != 20 && size != 50 && size != 100) {
+            size = 10; // 默认每页10条
+        }
+
+        // 先获取所有文件
+        List<FileInfo> allFiles = listFiles(folder, bucket, sortBy, order);
+
+        // 计算总数
+        long total = allFiles.size();
+
+        // 计算偏移量
+        int offset = (page - 1) * size;
+        if (offset >= total) {
+            // 页码超出范围，返回空列表
+            return new PageResult<>(new ArrayList<>(), total, page, size);
+        }
+
+        // 截取当前页的数据
+        int endIndex = Math.min(offset + size, (int) total);
+        List<FileInfo> pageItems = allFiles.subList(offset, endIndex);
+
+        return new PageResult<>(pageItems, total, page, size);
+    }
+
+    /**
      * 删除文件
      */
     public void deleteFile(String objectName, String bucket) {
@@ -335,8 +366,11 @@ public class FileService {
 
     /**
      * 创建文件夹
+     * @param folderPath 文件夹路径
+     * @param bucket 存储桶
+     * @param createTestFile 是否创建测试文件
      */
-    public void createFolder(String folderPath, String bucket) {
+    public void createFolder(String folderPath, String bucket, boolean createTestFile) {
         if (bucket == null || bucket.isEmpty()) {
             bucket = defaultBucket;
         }
@@ -353,10 +387,33 @@ public class FileService {
                             .build()
             );
             log.info("Folder created: {}", folderPath);
+
+            // 如果需要创建测试文件
+            if (createTestFile) {
+                String testFilePath = folderPath + "test.txt";
+                String testContent = "This is a test file.";
+                ByteArrayInputStream testStream = new ByteArrayInputStream(testContent.getBytes(java.nio.charset.StandardCharsets.UTF_8));
+                minioClient.putObject(
+                        PutObjectArgs.builder()
+                                .bucket(bucket)
+                                .object(testFilePath)
+                                .stream(testStream, testContent.length(), -1)
+                                .contentType("text/plain")
+                                .build()
+                );
+                log.info("Test file created: {}", testFilePath);
+            }
         } catch (Exception e) {
             log.error("Failed to create folder: {}", folderPath, e);
             throw new RuntimeException("创建文件夹失败: " + e.getMessage());
         }
+    }
+
+    /**
+     * 创建文件夹（兼容旧版本，默认不创建测试文件）
+     */
+    public void createFolder(String folderPath, String bucket) {
+        createFolder(folderPath, bucket, false);
     }
 
     /**

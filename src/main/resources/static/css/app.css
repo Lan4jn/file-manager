@@ -146,6 +146,12 @@ body {
     text-decoration: underline;
 }
 
+.pagination-container {
+    display: flex;
+    justify-content: flex-end;
+    padding: 15px 0;
+}
+
 .bucket-name {
     cursor: pointer;
     color: #409eff;

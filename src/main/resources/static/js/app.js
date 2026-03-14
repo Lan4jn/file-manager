@@ -27,9 +27,15 @@ const app = createApp({
         const selectedFiles = ref([]);
         const fileSortBy = ref('name');
         const fileOrder = ref('asc');
+        // 分页相关
+        const filePage = ref(1);
+        const filePageSize = ref(10);
+        const fileTotal = ref(0);
 
         // Dialogs
         const showUploadDialog = ref(false);
+        const uploadRef = ref(null);
+        const uploading = ref(false);
         const showFolderDialog = ref(false);
         const showShareDialog = ref(false);
         const showUserDialog = ref(false);
@@ -38,6 +44,7 @@ const app = createApp({
 
         // Form data
         const newFolderName = ref('');
+        const createTestFile = ref(true);
         const shareForm = ref({ objectName: '', expirationHours: 24, password: '' });
         const userForm = ref({});
         const roleForm = ref({});
@@ -398,17 +405,41 @@ const app = createApp({
                         folder: currentFolder.value,
                         bucket: currentBucket.value,
                         sortBy: fileSortBy.value,
-                        order: fileOrder.value
+                        order: fileOrder.value,
+                        page: filePage.value,
+                        size: filePageSize.value
                     }
                 });
                 if (res.code === 200) {
-                    fileList.value = res.data || [];
+                    // 判断返回的是分页结果还是普通列表
+                    if (res.data.items !== undefined) {
+                        // 分页模式
+                        fileList.value = res.data.items || [];
+                        fileTotal.value = res.data.total || 0;
+                    } else {
+                        // 非分页模式（兼容旧版）
+                        fileList.value = res.data || [];
+                        fileTotal.value = res.data ? res.data.length : 0;
+                    }
                 }
             } catch (error) {
                 ElementPlus.ElMessage.error('加载文件列表失败');
             } finally {
                 fileLoading.value = false;
             }
+        };
+
+        // 分页大小改变
+        const handleFileSizeChange = (val) => {
+            filePageSize.value = val;
+            filePage.value = 1; // 重置到第一页
+            loadFiles();
+        };
+
+        // 页码改变
+        const handleFilePageChange = (val) => {
+            filePage.value = val;
+            loadFiles();
         };
 
         const handleFileSortChange = ({ prop, order }) => {
@@ -426,6 +457,12 @@ const app = createApp({
 
         const refreshFiles = () => {
             loadFiles();
+        };
+
+        // 打开上传对话框时加载配置
+        const openUploadDialog = () => {
+            loadFileConfig();
+            showUploadDialog.value = true;
         };
 
         const navigateToFolder = (path) => {
@@ -590,12 +627,13 @@ const app = createApp({
             try {
                 const path = currentFolder.value + newFolderName.value;
                 const res = await api.post('/file/folder', null, {
-                    params: { path: path, bucket: currentBucket.value }
+                    params: { path: path, bucket: currentBucket.value, createTestFile: createTestFile.value }
                 });
                 if (res.code === 200) {
                     ElementPlus.ElMessage.success('创建成功');
                     showFolderDialog.value = false;
                     newFolderName.value = '';
+                    createTestFile.value = true;
                     loadFiles();
                 }
             } catch (error) {
@@ -640,25 +678,51 @@ const app = createApp({
         };
 
         const submitUpload = () => {
-            const uploadInstance = document.querySelector('.el-upload__input');
-            if (uploadInstance && uploadInstance.files.length > 0) {
-                const formData = new FormData();
-                for (const file of uploadInstance.files) {
-                    formData.append('file', file);
-                }
-                formData.append('folder', currentFolder.value);
-                formData.append('bucket', currentBucket.value);
-                api.post('/file/upload', formData, {
-                    headers: { 'Content-Type': 'multipart/form-data' }
-                }).then(res => {
-                    if (res.code === 200) {
-                        ElementPlus.ElMessage.success('上传成功');
-                        showUploadDialog.value = false;
-                        loadFiles();
-                    }
-                }).catch(() => {
-                    ElementPlus.ElMessage.error('上传失败');
-                });
+            if (uploadRef.value) {
+                uploading.value = true;
+                console.log('Submitting upload, ref:', uploadRef.value);
+                uploadRef.value.submit();
+            } else {
+                console.error('Upload ref not found');
+            }
+        };
+
+        const handleUploadProgress = (event) => {
+            console.log('Upload progress:', event.percent);
+        };
+
+        const handleUploadSuccess = (response) => {
+            console.log('Upload success:', response);
+            uploading.value = false;
+            ElementPlus.ElMessage.success('上传成功');
+            // 重置上传对话框
+            if (uploadRef.value) {
+                uploadRef.value.clearFiles();
+            }
+            showUploadDialog.value = false;
+            loadFiles();
+        };
+
+        const handleUploadError = (err) => {
+            console.error('Upload error:', err);
+            uploading.value = false;
+            // 从错误响应中提取错误信息
+            let errorMsg = '上传失败';
+            if (err.response && err.response.data) {
+                errorMsg = err.response.data.message || errorMsg;
+            }
+            ElementPlus.ElMessage.error(errorMsg);
+            // 重置上传对话框
+            if (uploadRef.value) {
+                uploadRef.value.clearFiles();
+            }
+        };
+
+        const cancelUpload = () => {
+            uploading.value = false;
+            showUploadDialog.value = false;
+            if (uploadRef.value) {
+                uploadRef.value.clearFiles();
             }
         };
 
@@ -896,7 +960,12 @@ const app = createApp({
                 if (res.code === 200) {
                     const extensions = res.data.allowedExtensions || [];
                     fileConfig.value.allowedExtensionsText = extensions.join(',');
-                    fileConfig.value.maxFileSizeMB = Math.floor((res.data.maxFileSize || 104857600) / 1024 / 1024);
+                    // -1 means unlimited
+                    if (res.data.maxFileSize === -1) {
+                        fileConfig.value.maxFileSizeMB = -1;
+                    } else {
+                        fileConfig.value.maxFileSizeMB = Math.floor((res.data.maxFileSize || 104857600) / 1024 / 1024);
+                    }
                 }
             } catch (error) {
                 ElementPlus.ElMessage.error('加载配置失败');
@@ -985,10 +1054,16 @@ const app = createApp({
             fileLoading,
             fileSortBy,
             fileOrder,
+            filePage,
+            filePageSize,
+            fileTotal,
+            handleFileSizeChange,
+            handleFilePageChange,
             currentFolder,
             breadcrumb,
             selectedFiles,
             showUploadDialog,
+            uploadRef,
             showFolderDialog,
             showShareDialog,
             showUserDialog,
@@ -1000,6 +1075,7 @@ const app = createApp({
             addBucketPermission,
             removeBucketPermission,
             newFolderName,
+            createTestFile,
             shareForm,
             userForm,
             roleForm,
@@ -1027,6 +1103,7 @@ const app = createApp({
             loadFiles,
             handleFileSortChange,
             refreshFiles,
+            openUploadDialog,
             navigateToFolder,
             downloadFile,
             previewFile,
@@ -1038,6 +1115,11 @@ const app = createApp({
             createShare,
             handleSelectionChange,
             submitUpload,
+            handleUploadSuccess,
+            handleUploadError,
+            handleUploadProgress,
+            cancelUpload,
+            uploading,
             copyShareLink,
             deleteShare,
             editUser,
