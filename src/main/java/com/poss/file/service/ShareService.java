@@ -107,7 +107,7 @@ public class ShareService {
 
                 // 检查是否超过配置的大小限制
                 long maxSize = configService.getBatchShareMaxSize();
-                if (totalSize > maxSize) {
+                if (maxSize > 0 && totalSize > maxSize) {
                     throw new RuntimeException("目录压缩后大小超过限制(" + formatSize(maxSize) + ")，无法分享");
                 }
 
@@ -484,7 +484,7 @@ public class ShareService {
 
         // 检查是否超过配置的大小限制
         long maxSize = configService.getBatchShareMaxSize();
-        if (totalSize > maxSize) {
+        if (maxSize > 0 && totalSize > maxSize) {
             throw new RuntimeException("批量分享压缩后大小超过限制(" + formatSize(maxSize) + ")，无法分享");
         }
 

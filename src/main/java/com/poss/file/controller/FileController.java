@@ -1,5 +1,6 @@
 package com.poss.file.controller;
 
+import com.poss.file.common.PageResult;
 import com.poss.file.common.Result;
 import com.poss.file.dto.UploadResponse;
 import com.poss.file.model.BucketInfo;
@@ -84,14 +85,24 @@ public class FileController {
     }
 
     @GetMapping("/list")
-    public Result<List<FileInfo>> list(
+    public Result<?> list(
             @RequestParam(value = "folder", required = false, defaultValue = "") String folder,
             @RequestParam(value = "bucket", required = false, defaultValue = "") String bucket,
             @RequestParam(value = "sortBy", required = false, defaultValue = "name") String sortBy,
-            @RequestParam(value = "order", required = false, defaultValue = "asc") String order) {
-        log.info("Listing files, folder: {}, bucket: {}, sortBy: {}, order: {}", folder, bucket, sortBy, order);
-        List<FileInfo> files = fileService.listFiles(folder, bucket, sortBy, order);
-        return Result.success(files);
+            @RequestParam(value = "order", required = false, defaultValue = "asc") String order,
+            @RequestParam(value = "page", required = false, defaultValue = "0") int page,
+            @RequestParam(value = "size", required = false, defaultValue = "0") int size) {
+        log.info("Listing files, folder: {}, bucket: {}, sortBy: {}, order: {}, page: {}, size: {}", folder, bucket, sortBy, order, page, size);
+
+        // 如果没有分页参数，返回原来的格式
+        if (page <= 0 || size <= 0) {
+            List<FileInfo> files = fileService.listFiles(folder, bucket, sortBy, order);
+            return Result.success(files);
+        }
+
+        // 分页模式
+        PageResult<FileInfo> pageResult = fileService.listFiles(folder, bucket, sortBy, order, page, size);
+        return Result.success(pageResult);
     }
 
     @GetMapping("/info")
@@ -111,12 +122,27 @@ public class FileController {
         return Result.success();
     }
 
+    @DeleteMapping("/batch-delete")
+    public Result<Void> batchDelete(
+            @RequestParam("objectNames") String objectNamesStr,
+            @RequestParam(value = "bucket", required = false, defaultValue = "") String bucket) {
+        List<String> objectNames = Arrays.asList(objectNamesStr.split(","));
+        log.info("Batch deleting {} files, bucket: {}", objectNames.size(), bucket);
+        for (String objectName : objectNames) {
+            if (objectName != null && !objectName.isEmpty()) {
+                fileService.deleteFile(objectName, bucket);
+            }
+        }
+        return Result.success();
+    }
+
     @PostMapping("/folder")
     public Result<Void> createFolder(
             @RequestParam("path") String path,
-            @RequestParam(value = "bucket", required = false, defaultValue = "") String bucket) {
-        log.info("Creating folder: {}, bucket: {}", path, bucket);
-        fileService.createFolder(path, bucket);
+            @RequestParam(value = "bucket", required = false, defaultValue = "") String bucket,
+            @RequestParam(value = "createTestFile", required = false, defaultValue = "true") boolean createTestFile) {
+        log.info("Creating folder: {}, bucket: {}, createTestFile: {}", path, bucket, createTestFile);
+        fileService.createFolder(path, bucket, createTestFile);
         return Result.success();
     }
 
@@ -220,7 +246,7 @@ public class FileController {
 
         // 检查是否超过配置的大小限制
         Long maxSize = configService.getBatchDownloadMaxSize();
-        if (totalSize > maxSize) {
+        if (maxSize > 0 && totalSize > maxSize) {
             throw new RuntimeException("批量下载压缩后大小超过限制(" + formatSize(maxSize) + ")，无法下载");
         }
 

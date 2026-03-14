@@ -1,4 +1,4 @@
-const { createApp, ref, computed, onMounted } = Vue;
+const { createApp, ref, computed, onMounted, watch } = Vue;
 
 const app = createApp({
     setup() {
@@ -27,17 +27,30 @@ const app = createApp({
         const selectedFiles = ref([]);
         const fileSortBy = ref('name');
         const fileOrder = ref('asc');
+        // 分页相关
+        const filePage = ref(1);
+        const filePageSize = ref(10);
+        const fileTotal = ref(0);
 
         // Dialogs
         const showUploadDialog = ref(false);
+        const uploadRef = ref(null);
+        const uploading = ref(false);
         const showFolderDialog = ref(false);
         const showShareDialog = ref(false);
         const showUserDialog = ref(false);
         const showRoleDialog = ref(false);
         const showMinioKeyDialog = ref(false);
+        const showHelpDialog = ref(false);
+        const showVersionDialog = ref(false);
+        const helpContent = ref('');
+        const versionList = ref([]);
+        const selectedVersion = ref('');
+        const versionContent = ref('');
 
         // Form data
         const newFolderName = ref('');
+        const createTestFile = ref(false);
         const shareForm = ref({ objectName: '', expirationHours: 24, password: '' });
         const userForm = ref({});
         const roleForm = ref({});
@@ -398,17 +411,41 @@ const app = createApp({
                         folder: currentFolder.value,
                         bucket: currentBucket.value,
                         sortBy: fileSortBy.value,
-                        order: fileOrder.value
+                        order: fileOrder.value,
+                        page: filePage.value,
+                        size: filePageSize.value
                     }
                 });
                 if (res.code === 200) {
-                    fileList.value = res.data || [];
+                    // 判断返回的是分页结果还是普通列表
+                    if (res.data.items !== undefined) {
+                        // 分页模式
+                        fileList.value = res.data.items || [];
+                        fileTotal.value = res.data.total || 0;
+                    } else {
+                        // 非分页模式（兼容旧版）
+                        fileList.value = res.data || [];
+                        fileTotal.value = res.data ? res.data.length : 0;
+                    }
                 }
             } catch (error) {
                 ElementPlus.ElMessage.error('加载文件列表失败');
             } finally {
                 fileLoading.value = false;
             }
+        };
+
+        // 分页大小改变
+        const handleFileSizeChange = (val) => {
+            filePageSize.value = val;
+            filePage.value = 1; // 重置到第一页
+            loadFiles();
+        };
+
+        // 页码改变
+        const handleFilePageChange = (val) => {
+            filePage.value = val;
+            loadFiles();
         };
 
         const handleFileSortChange = ({ prop, order }) => {
@@ -426,6 +463,12 @@ const app = createApp({
 
         const refreshFiles = () => {
             loadFiles();
+        };
+
+        // 打开上传对话框时加载配置
+        const openUploadDialog = () => {
+            loadFileConfig();
+            showUploadDialog.value = true;
         };
 
         const navigateToFolder = (path) => {
@@ -582,6 +625,35 @@ const app = createApp({
             }
         };
 
+        // Batch delete
+        const batchDelete = async () => {
+            if (selectedFiles.value.length === 0) {
+                ElementPlus.ElMessage.warning('请先选择要删除的文件');
+                return;
+            }
+            try {
+                await ElementPlus.ElMessageBox.confirm(
+                    '确定要删除选中的 ' + selectedFiles.value.length + ' 个文件/文件夹吗？此操作不可恢复！',
+                    '确认删除',
+                    {
+                        confirmButtonText: '确定',
+                        cancelButtonText: '取消',
+                        type: 'warning'
+                    }
+                );
+                const objectNames = selectedFiles.value.map(f => f.objectName).join(',');
+                await api.delete('/file/batch-delete', {
+                    params: { objectNames: objectNames, bucket: currentBucket.value }
+                });
+                ElementPlus.ElMessage.success('删除成功');
+                loadFiles();
+            } catch (error) {
+                if (error !== 'cancel') {
+                    ElementPlus.ElMessage.error('删除失败: ' + (error.response?.data?.message || error.message));
+                }
+            }
+        };
+
         const createFolder = async () => {
             if (!newFolderName.value) {
                 ElementPlus.ElMessage.warning('请输入文件夹名称');
@@ -590,12 +662,13 @@ const app = createApp({
             try {
                 const path = currentFolder.value + newFolderName.value;
                 const res = await api.post('/file/folder', null, {
-                    params: { path: path, bucket: currentBucket.value }
+                    params: { path: path, bucket: currentBucket.value, createTestFile: createTestFile.value }
                 });
                 if (res.code === 200) {
                     ElementPlus.ElMessage.success('创建成功');
                     showFolderDialog.value = false;
                     newFolderName.value = '';
+                    createTestFile.value = false;
                     loadFiles();
                 }
             } catch (error) {
@@ -640,25 +713,133 @@ const app = createApp({
         };
 
         const submitUpload = () => {
-            const uploadInstance = document.querySelector('.el-upload__input');
-            if (uploadInstance && uploadInstance.files.length > 0) {
-                const formData = new FormData();
-                for (const file of uploadInstance.files) {
-                    formData.append('file', file);
+            if (uploadRef.value) {
+                uploading.value = true;
+                console.log('Submitting upload, ref:', uploadRef.value);
+                uploadRef.value.submit();
+            } else {
+                console.error('Upload ref not found');
+            }
+        };
+
+        const handleUploadProgress = (event) => {
+            console.log('Upload progress:', event.percent);
+        };
+
+        // 自定义上传请求，使用XMLHttpRequest获取真实进度
+        const customUploadRequest = (options) => {
+            const { file, action, headers, data, onProgress, onSuccess, onError } = options;
+
+            const xhr = new XMLHttpRequest();
+            xhr.open('POST', action, true);
+
+            // 设置请求头
+            if (headers) {
+                for (const key in headers) {
+                    xhr.setRequestHeader(key, headers[key]);
                 }
-                formData.append('folder', currentFolder.value);
-                formData.append('bucket', currentBucket.value);
-                api.post('/file/upload', formData, {
-                    headers: { 'Content-Type': 'multipart/form-data' }
-                }).then(res => {
-                    if (res.code === 200) {
-                        ElementPlus.ElMessage.success('上传成功');
-                        showUploadDialog.value = false;
-                        loadFiles();
+            }
+
+            // 上传进度事件
+            xhr.upload.onprogress = (event) => {
+                if (event.lengthComputable) {
+                    const percent = (event.loaded / event.total) * 100;
+                    onProgress({ percent });
+                }
+            };
+
+            // 请求完成
+            xhr.onload = () => {
+                uploading.value = false;
+                if (xhr.status >= 200 && xhr.status < 300) {
+                    try {
+                        const response = JSON.parse(xhr.responseText);
+                        if (response.code === 200) {
+                            onSuccess(response);
+                        } else {
+                            onError(new Error(response.message || '上传失败'));
+                        }
+                    } catch (e) {
+                        onError(e);
                     }
-                }).catch(() => {
-                    ElementPlus.ElMessage.error('上传失败');
-                });
+                } else {
+                    try {
+                        const response = JSON.parse(xhr.responseText);
+                        onError(new Error(response.message || '上传失败'));
+                    } catch (e) {
+                        onError(new Error('上传失败'));
+                    }
+                }
+            };
+
+            xhr.onerror = () => {
+                uploading.value = false;
+                onError(new Error('网络错误'));
+            };
+
+            // 构建FormData
+            const formData = new FormData();
+            formData.append('file', file);
+            if (data) {
+                for (const key in data) {
+                    formData.append(key, data[key]);
+                }
+            }
+
+            xhr.send(formData);
+
+            // 保存xhr引用以便取消
+            options.xhr = xhr;
+        };
+
+        const handleUploadSuccess = (response) => {
+            console.log('Upload success:', response);
+            uploading.value = false;
+            ElementPlus.ElMessage.success('上传成功');
+            // 重置上传对话框
+            if (uploadRef.value) {
+                uploadRef.value.clearFiles();
+            }
+            showUploadDialog.value = false;
+            loadFiles();
+        };
+
+        const handleUploadError = (err) => {
+            console.error('Upload error:', err);
+            uploading.value = false;
+            // 从错误响应中提取错误信息
+            let errorMsg = '上传失败';
+            if (err.response && err.response.data) {
+                errorMsg = err.response.data.message || errorMsg;
+            }
+            ElementPlus.ElMessage.error(errorMsg);
+            // 重置上传对话框
+            if (uploadRef.value) {
+                uploadRef.value.clearFiles();
+            }
+        };
+
+        const cancelUpload = async () => {
+            if (uploading.value) {
+                try {
+                    await ElementPlus.ElMessageBox.confirm(
+                        '是否取消上传，这将终止进行中的上传任务和取消还未进行的任务',
+                        '取消上传',
+                        { confirmButtonText: '确定取消', cancelButtonText: '继续上传', type: 'warning' }
+                    );
+                    uploading.value = false;
+                    showUploadDialog.value = false;
+                    if (uploadRef.value) {
+                        uploadRef.value.clearFiles();
+                    }
+                } catch (e) {
+                    // 用户点击继续上传，不做任何操作
+                }
+            } else {
+                showUploadDialog.value = false;
+                if (uploadRef.value) {
+                    uploadRef.value.clearFiles();
+                }
             }
         };
 
@@ -896,7 +1077,12 @@ const app = createApp({
                 if (res.code === 200) {
                     const extensions = res.data.allowedExtensions || [];
                     fileConfig.value.allowedExtensionsText = extensions.join(',');
-                    fileConfig.value.maxFileSizeMB = Math.floor((res.data.maxFileSize || 104857600) / 1024 / 1024);
+                    // -1 means unlimited
+                    if (res.data.maxFileSize === -1) {
+                        fileConfig.value.maxFileSizeMB = -1;
+                    } else {
+                        fileConfig.value.maxFileSizeMB = Math.floor((res.data.maxFileSize || 104857600) / 1024 / 1024);
+                    }
                 }
             } catch (error) {
                 ElementPlus.ElMessage.error('加载配置失败');
@@ -962,6 +1148,88 @@ const app = createApp({
             return bytes.toFixed(2) + ' ' + units[i];
         };
 
+        // Load system help
+        const loadSystemHelp = async () => {
+            try {
+                const res = await api.get('/help/system');
+                if (res.code === 200) {
+                    helpContent.value = markdownToHtml(res.data);
+                }
+            } catch (error) {
+                console.error('Failed to load system help:', error);
+            }
+        };
+
+        // Load version list
+        const loadVersionList = async () => {
+            try {
+                const res = await api.get('/help/versions');
+                if (res.code === 200) {
+                    versionList.value = res.data;
+                    if (versionList.value.length > 0) {
+                        loadVersionNote(versionList.value[0]);
+                    }
+                }
+            } catch (error) {
+                console.error('Failed to load version list:', error);
+            }
+        };
+
+        // Load version note
+        const loadVersionNote = async (versionInfo) => {
+            selectedVersion.value = versionInfo.version;
+            try {
+                const res = await api.get('/help/version', {
+                    params: { fileName: versionInfo.fileName }
+                });
+                if (res.code === 200) {
+                    versionContent.value = markdownToHtml(res.data);
+                }
+            } catch (error) {
+                console.error('Failed to load version note:', error);
+            }
+        };
+
+        // Simple markdown to HTML converter
+        const markdownToHtml = (markdown) => {
+            if (!markdown) return '';
+
+            let html = markdown
+                .replace(/^### (.*$)/gim, '<h3>$1</h3>')
+                .replace(/^## (.*$)/gim, '<h2>$1</h2>')
+                .replace(/^# (.*$)/gim, '<h1>$1</h1>')
+                .replace(/\*\*(.*)\*\*/gim, '<strong>$1</strong>')
+                .replace(/\*(.*)\*/gim, '<em>$1</em>')
+                .replace(/^- (.*$)/gim, '<li>$1</li>')
+                .replace(/^(\d+)\. (.*$)/gim, '<li>$2</li>')
+                .replace(/\n\n/g, '</p><p>')
+                .replace(/\n/g, '<br>');
+
+            // Wrap with paragraphs
+            if (!html.startsWith('<h') && !html.startsWith('<p')) {
+                html = '<p>' + html + '</p>';
+            }
+
+            // Handle list items
+            html = html.replace(/(<li>.*<\/li>)/s, '<ul>$1</ul>');
+
+            return html;
+        };
+
+        // Watch help dialog
+        watch(showHelpDialog, (newVal) => {
+            if (newVal && !helpContent.value) {
+                loadSystemHelp();
+            }
+        });
+
+        // Watch version dialog
+        watch(showVersionDialog, (newVal) => {
+            if (newVal && versionList.value.length === 0) {
+                loadVersionList();
+            }
+        });
+
         // Lifecycle
         onMounted(() => {
             checkAuth();
@@ -985,21 +1253,35 @@ const app = createApp({
             fileLoading,
             fileSortBy,
             fileOrder,
+            filePage,
+            filePageSize,
+            fileTotal,
+            handleFileSizeChange,
+            handleFilePageChange,
             currentFolder,
             breadcrumb,
             selectedFiles,
             showUploadDialog,
+            uploadRef,
             showFolderDialog,
             showShareDialog,
             showUserDialog,
             showRoleDialog,
             showMinioKeyDialog,
+            showHelpDialog,
+            showVersionDialog,
+            helpContent,
+            versionList,
+            selectedVersion,
+            versionContent,
+            loadVersionNote,
             minioKeyForm,
             minioKeyList,
             minioKeyLoading,
             addBucketPermission,
             removeBucketPermission,
             newFolderName,
+            createTestFile,
             shareForm,
             userForm,
             roleForm,
@@ -1027,17 +1309,25 @@ const app = createApp({
             loadFiles,
             handleFileSortChange,
             refreshFiles,
+            openUploadDialog,
             navigateToFolder,
             downloadFile,
             previewFile,
             deleteFile,
             batchShare,
             batchDownload,
+            batchDelete,
             createFolder,
             shareFile,
             createShare,
             handleSelectionChange,
             submitUpload,
+            handleUploadSuccess,
+            handleUploadError,
+            handleUploadProgress,
+            customUploadRequest,
+            cancelUpload,
+            uploading,
             copyShareLink,
             deleteShare,
             editUser,

@@ -4,6 +4,7 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>文件管理器</title>
+    <link rel="icon" type="image/x-icon" href="/favicon.ico">
     <link rel="stylesheet" href="/css/element-plus.css">
     <link rel="stylesheet" href="/css/app.css">
 </head>
@@ -13,7 +14,7 @@
         <div v-if="!isLoggedIn" class="login-container">
             <el-card class="login-card">
                 <template #header>
-                    <h2>文件管理器 <span style="font-size: 12px; color: #999; font-weight: normal;">v1.0</span></h2>
+                    <h2>文件管理器 <span style="font-size: 12px; color: #999; font-weight: normal;">v1.1</span></h2>
                 </template>
                 <el-form :model="loginForm" @submit.prevent="handleLogin">
                     <el-form-item>
@@ -34,9 +35,10 @@
             <!-- Header -->
             <div class="header">
                 <div class="header-left">
-                    <h2>文件管理器 <span style="font-size: 12px; color: #999; font-weight: normal;">v1.0</span></h2>
+                    <h2>文件管理器 <span style="font-size: 12px; color: #999; font-weight: normal; cursor: pointer;" @click="showVersionDialog = true">v1.1</span></h2>
                 </div>
                 <div class="header-right">
+                    <el-button class="help-text-button" @click="showHelpDialog = true">系统帮助</el-button>
                     <el-dropdown @command="handleCommand">
                         <span class="user-info">
                             <el-icon><User /></el-icon>
@@ -154,7 +156,7 @@
                                 <el-select v-model="currentBucket" placeholder="选择存储桶" @change="loadFiles" style="width: 200px; margin-right: 10px;">
                                     <el-option v-for="b in bucketList" :key="b.name" :label="b.name" :value="b.name"></el-option>
                                 </el-select>
-                                <el-button type="primary" @click="showUploadDialog = true">
+                                <el-button type="primary" @click="openUploadDialog">
                                     <el-icon><Upload /></el-icon>
                                     上传文件
                                     <el-tooltip content="将本地文件上传到当前存储桶的指定目录" placement="top" effect="light">
@@ -179,6 +181,10 @@
                                 <el-button type="warning" @click="batchDownload">
                                     <el-icon><Download /></el-icon>
                                     批量下载
+                                </el-button>
+                                <el-button type="danger" @click="batchDelete">
+                                    <el-icon><Delete /></el-icon>
+                                    批量删除
                                 </el-button>
                             </div>
                         </div>
@@ -230,6 +236,19 @@
                                 </template>
                             </el-table-column>
                         </el-table>
+
+                        <!-- 分页组件 -->
+                        <div class="pagination-container">
+                            <el-pagination
+                                v-model:current-page="filePage"
+                                v-model:page-size="filePageSize"
+                                :page-sizes="[10, 20, 50, 100]"
+                                :total="fileTotal"
+                                layout="total, sizes, prev, pager, next, jumper"
+                                @size-change="handleFileSizeChange"
+                                @current-change="handleFilePageChange"
+                            />
+                        </div>
                     </div>
 
                     <!-- Shares -->
@@ -479,19 +498,26 @@
         </el-dialog>
 
         <!-- Upload Dialog -->
-        <el-dialog v-model="showUploadDialog" title="上传文件" width="500px">
+        <el-dialog v-model="showUploadDialog" title="上传文件" width="500px" :close-on-click-modal="false" :close-on-press-escape="false" :show-close="!uploading">
             <el-alert type="info" :closable="false" style="margin-bottom: 15px">
-                上传到存储桶: <strong>{{ currentBucket }}</strong>
+                上传到: <strong>{{ currentBucket }}</strong><span v-if="currentFolder"> / <strong>{{ currentFolder }}</strong></span>
+            </el-alert>
+            <el-alert type="info" :closable="false" style="margin-bottom: 15px">
+                <el-tooltip :content="fileConfig.allowedExtensionsText || '无限制'" placement="top" effect="light">
+                    <span style="cursor: pointer; text-decoration: underline;">查看支持的文件类型</span>
+                </el-tooltip>
             </el-alert>
             <el-upload
-                ref="upload"
+                ref="uploadRef"
                 class="upload-demo"
                 :action="uploadUrl"
                 :headers="uploadHeaders"
                 :data="uploadData"
                 :on-success="handleUploadSuccess"
                 :on-error="handleUploadError"
+                :on-progress="handleUploadProgress"
                 :auto-upload="false"
+                :http-request="customUploadRequest"
                 drag
                 multiple
             >
@@ -499,13 +525,14 @@
                 <div class="el-upload__text">将文件拖到此处，或<em>点击上传</em></div>
                 <template #tip>
                     <div class="el-upload__tip">
-                        支持任意文件类型，单个文件最大 {{ fileConfig.maxFileSizeMB }}MB
+                        <span v-if="fileConfig.maxFileSizeMB !== -1">单个文件最大: {{ fileConfig.maxFileSizeMB }}MB</span>
+                        <span v-else>单个文件最大: 无限制</span>
                     </div>
                 </template>
             </el-upload>
             <template #footer>
-                <el-button @click="showUploadDialog = false">取消</el-button>
-                <el-button type="primary" @click="submitUpload">上传</el-button>
+                <el-button @click="cancelUpload">取消</el-button>
+                <el-button type="primary" @click="submitUpload" :loading="uploading">上传</el-button>
             </template>
         </el-dialog>
 
@@ -515,6 +542,7 @@
             <el-alert type="info" :closable="false" style="margin-top: 15px">
                 在 <strong>{{ currentBucket }}</strong> / <strong>{{ currentFolder || '根目录' }}</strong> 下创建
             </el-alert>
+            <el-checkbox v-model="createTestFile" style="margin-top: 15px">创建测试文件 (test.txt)</el-checkbox>
             <template #footer>
                 <el-button @click="showFolderDialog = false">取消</el-button>
                 <el-button type="primary" @click="createFolder">创建</el-button>
@@ -584,6 +612,39 @@
             <template #footer>
                 <el-button @click="showUserDialog = false">取消</el-button>
                 <el-button type="primary" @click="saveUser">保存</el-button>
+            </template>
+        </el-dialog>
+
+        <!-- Help Dialog -->
+        <el-dialog v-model="showHelpDialog" title="系统功能和用法" width="800px">
+            <div class="help-content" v-html="helpContent"></div>
+            <template #footer>
+                <el-button @click="showHelpDialog = false">关闭</el-button>
+            </template>
+        </el-dialog>
+
+        <!-- Version Dialog -->
+        <el-dialog v-model="showVersionDialog" title="版本更新内容" width="900px">
+            <el-row :gutter="20">
+                <el-col :span="6">
+                    <div class="version-list">
+                        <div
+                            v-for="v in versionList"
+                            :key="v.version"
+                            class="version-item"
+                            :class="{ active: selectedVersion === v.version }"
+                            @click="loadVersionNote(v)"
+                        >
+                            {{ v.version }}
+                        </div>
+                    </div>
+                </el-col>
+                <el-col :span="18">
+                    <div class="version-content" v-html="versionContent"></div>
+                </el-col>
+            </el-row>
+            <template #footer>
+                <el-button @click="showVersionDialog = false">关闭</el-button>
             </template>
         </el-dialog>
     </div>

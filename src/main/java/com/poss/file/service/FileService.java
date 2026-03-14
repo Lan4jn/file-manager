@@ -1,6 +1,7 @@
 package com.poss.file.service;
 
 import cn.hutool.core.util.StrUtil;
+import com.poss.file.common.PageResult;
 import com.poss.file.dto.UploadResponse;
 import com.poss.file.model.BucketInfo;
 import com.poss.file.model.FileInfo;
@@ -201,12 +202,12 @@ public class FileService {
 
             // 检查文件大小
             Long maxSize = configService.getMaxFileSize();
-            if (file.getSize() > maxSize) {
+            if (maxSize > 0 && file.getSize() > maxSize) {
                 throw new RuntimeException("文件大小超出限制: 最大 " + formatSize(maxSize));
             }
 
             // 生成唯一文件名
-            String objectName = generateObjectName(folder, originalFilename);
+            String objectName = generateObjectName(folder, originalFilename, bucket);
 
             // 上传到 MinIO
             minioClient.putObject(
@@ -269,11 +270,43 @@ public class FileService {
             List<FileInfo> fileList = new ArrayList<>();
             for (Result<Item> result : results) {
                 Item item = result.get();
+                String objectName = item.objectName();
+
+                // 过滤掉当前查询的目录本身
+                if (objectName.equals(folder)) {
+                    log.info("Skipping current folder itself: {}", objectName);
+                    continue;
+                }
+
+                // 判断是否是目录：要么item.isDir()为true，要么objectName以/结尾
+                boolean isFolder = item.isDir() || objectName.endsWith("/");
+
+                // 如果是0字节文件，且文件名在当前目录下存在同名目录，则跳过这个0字节文件
+                if (!isFolder && item.size() == 0) {
+                    // 检查是否有同名目录
+                    boolean hasFolderWithSameName = false;
+                    for (FileInfo fi : fileList) {
+                        if (fi.getIsFolder() != null && fi.getIsFolder()) {
+                            // 获取目录名（不带后缀/）
+                            String folderName = fi.getFileName();
+                            String fileName = getFileName(objectName);
+                            if (folderName.equals(fileName)) {
+                                hasFolderWithSameName = true;
+                                break;
+                            }
+                        }
+                    }
+                    if (hasFolderWithSameName) {
+                        log.info("Skipping 0-byte file that has same name as folder: {}", objectName);
+                        continue;
+                    }
+                }
+
                 FileInfo fileInfo = new FileInfo();
-                fileInfo.setObjectName(item.objectName());
-                fileInfo.setFileName(getFileName(item.objectName()));
+                fileInfo.setObjectName(objectName);
+                fileInfo.setFileName(getFileName(objectName));
                 fileInfo.setSize(item.size());
-                fileInfo.setIsFolder(item.isDir());
+                fileInfo.setIsFolder(isFolder);
                 try {
                     if (item.lastModified() != null) {
                         fileInfo.setUploadTime(LocalDateTime.ofInstant(
@@ -284,12 +317,21 @@ public class FileService {
                 } catch (Exception e) {
                     fileInfo.setUploadTime(LocalDateTime.now());
                 }
-                fileInfo.setUrl(publicUrl + "/" + bucket + "/" + item.objectName());
+                fileInfo.setUrl(publicUrl + "/" + bucket + "/" + objectName);
                 fileList.add(fileInfo);
             }
 
-            // 排序
+            // 排序：默认先显示目录再显示文件
             fileList.sort((f1, f2) -> {
+                // 首先比较是否是目录，目录排在前面
+                boolean f1IsFolder = f1.getIsFolder() != null && f1.getIsFolder();
+                boolean f2IsFolder = f2.getIsFolder() != null && f2.getIsFolder();
+
+                if (f1IsFolder != f2IsFolder) {
+                    return f1IsFolder ? -1 : 1;
+                }
+
+                // 如果都是目录或都是文件，再按指定条件排序
                 int result;
                 switch (sortBy) {
                     case "size":
@@ -312,6 +354,36 @@ public class FileService {
     }
 
     /**
+     * 分页获取文件列表
+     */
+    public PageResult<FileInfo> listFiles(String folder, String bucket, String sortBy, String order, int page, int size) {
+        // 参数校验和默认值
+        if (page < 1) page = 1;
+        if (size != 10 && size != 20 && size != 50 && size != 100) {
+            size = 10; // 默认每页10条
+        }
+
+        // 先获取所有文件
+        List<FileInfo> allFiles = listFiles(folder, bucket, sortBy, order);
+
+        // 计算总数
+        long total = allFiles.size();
+
+        // 计算偏移量
+        int offset = (page - 1) * size;
+        if (offset >= total) {
+            // 页码超出范围，返回空列表
+            return new PageResult<>(new ArrayList<>(), total, page, size);
+        }
+
+        // 截取当前页的数据
+        int endIndex = Math.min(offset + size, (int) total);
+        List<FileInfo> pageItems = allFiles.subList(offset, endIndex);
+
+        return new PageResult<>(pageItems, total, page, size);
+    }
+
+    /**
      * 删除文件
      */
     public void deleteFile(String objectName, String bucket) {
@@ -320,12 +392,46 @@ public class FileService {
         }
 
         try {
-            minioClient.removeObject(
-                    RemoveObjectArgs.builder()
-                            .bucket(bucket)
-                            .object(objectName)
-                            .build()
-            );
+            // 检查是否是文件夹（以/结尾）
+            boolean isFolder = objectName.endsWith("/");
+
+            // 如果是文件夹，删除文件夹内的所有文件
+            if (isFolder) {
+                // 列出文件夹下所有对象并删除
+                Iterable<Result<Item>> results = minioClient.listObjects(
+                        ListObjectsArgs.builder()
+                                .bucket(bucket)
+                                .prefix(objectName)
+                                .recursive(true)
+                                .build()
+                );
+                for (Result<Item> result : results) {
+                    Item item = result.get();
+                    if (!item.isDir()) {
+                        minioClient.removeObject(
+                                RemoveObjectArgs.builder()
+                                        .bucket(bucket)
+                                        .object(item.objectName())
+                                        .build()
+                        );
+                    }
+                }
+                // 最后删除文件夹本身
+                minioClient.removeObject(
+                        RemoveObjectArgs.builder()
+                                .bucket(bucket)
+                                .object(objectName)
+                                .build()
+                );
+            } else {
+                // 普通文件直接删除
+                minioClient.removeObject(
+                        RemoveObjectArgs.builder()
+                                .bucket(bucket)
+                                .object(objectName)
+                                .build()
+                );
+            }
             log.info("File deleted: {}", objectName);
         } catch (Exception e) {
             log.error("Failed to delete file: {}", objectName, e);
@@ -335,8 +441,11 @@ public class FileService {
 
     /**
      * 创建文件夹
+     * @param folderPath 文件夹路径
+     * @param bucket 存储桶
+     * @param createTestFile 是否创建测试文件
      */
-    public void createFolder(String folderPath, String bucket) {
+    public void createFolder(String folderPath, String bucket, boolean createTestFile) {
         if (bucket == null || bucket.isEmpty()) {
             bucket = defaultBucket;
         }
@@ -353,10 +462,33 @@ public class FileService {
                             .build()
             );
             log.info("Folder created: {}", folderPath);
+
+            // 如果需要创建测试文件
+            if (createTestFile) {
+                String testFilePath = folderPath + "test.txt";
+                String testContent = "This is a test file.";
+                ByteArrayInputStream testStream = new ByteArrayInputStream(testContent.getBytes(java.nio.charset.StandardCharsets.UTF_8));
+                minioClient.putObject(
+                        PutObjectArgs.builder()
+                                .bucket(bucket)
+                                .object(testFilePath)
+                                .stream(testStream, testContent.length(), -1)
+                                .contentType("text/plain")
+                                .build()
+                );
+                log.info("Test file created: {}", testFilePath);
+            }
         } catch (Exception e) {
             log.error("Failed to create folder: {}", folderPath, e);
             throw new RuntimeException("创建文件夹失败: " + e.getMessage());
         }
+    }
+
+    /**
+     * 创建文件夹（兼容旧版本，默认不创建测试文件）
+     */
+    public void createFolder(String folderPath, String bucket) {
+        createFolder(folderPath, bucket, false);
     }
 
     /**
@@ -690,9 +822,7 @@ public class FileService {
 
     // ===== 私有方法 =====
 
-    private String generateObjectName(String folder, String originalFilename) {
-        String timestamp = LocalDateTime.now().format(DateTimeFormatter.ofPattern("yyyyMMddHHmmss"));
-        String uuid = UUID.randomUUID().toString().substring(0, 8);
+    private String generateObjectName(String folder, String originalFilename, String bucket) {
         String extension = getFileExtension(originalFilename);
 
         StringBuilder sb = new StringBuilder();
@@ -704,21 +834,57 @@ public class FileService {
             }
         }
 
-        String nameWithoutExt = originalFilename.substring(0,
-                Math.max(0, originalFilename.length() - extension.length() - 1));
-        nameWithoutExt = nameWithoutExt.replaceAll("[^a-zA-Z0-9.-]", "_");
-
-        sb.append(nameWithoutExt)
-                .append("_")
-                .append(timestamp)
-                .append("_")
-                .append(uuid);
+        // 保留原始文件名，支持中文，只替换真正的非法字符
+        String nameWithoutExt;
+        if (StrUtil.isNotEmpty(extension)) {
+            nameWithoutExt = originalFilename.substring(0,
+                    Math.max(0, originalFilename.length() - extension.length() - 1));
+        } else {
+            nameWithoutExt = originalFilename;
+        }
+        // 只替换MinIO/S3中真正非法的字符，保留中文和其他语言字符
+        nameWithoutExt = nameWithoutExt.replaceAll("[\\\\/:*?\"<>|]", "_");
 
         if (StrUtil.isNotEmpty(extension)) {
-            sb.append(".").append(extension);
+            sb.append(nameWithoutExt).append(".").append(extension);
+        } else {
+            sb.append(nameWithoutExt);
         }
 
-        return sb.toString();
+        String objectName = sb.toString();
+
+        // 检查文件是否已存在，如存在则添加数字后缀
+        if (fileExists(objectName, bucket)) {
+            int counter = 2;
+            String baseName = nameWithoutExt;
+            while (true) {
+                String newObjectName;
+                if (StrUtil.isNotEmpty(extension)) {
+                    newObjectName = sb.toString().replace(baseName + "." + extension, baseName + "_" + counter + "." + extension);
+                } else {
+                    newObjectName = sb.toString().replace(baseName, baseName + "_" + counter);
+                }
+                if (!fileExists(newObjectName, bucket)) {
+                    return newObjectName;
+                }
+                counter++;
+                if (counter > 1000) {
+                    throw new RuntimeException("文件命名冲突，无法创建唯一文件名");
+                }
+            }
+        }
+
+        return objectName;
+    }
+
+    // 检查文件是否已存在
+    private boolean fileExists(String objectName, String bucket) {
+        try {
+            minioClient.statObject(StatObjectArgs.builder().bucket(bucket).object(objectName).build());
+            return true;
+        } catch (Exception e) {
+            return false;
+        }
     }
 
     private String getFileExtension(String filename) {
