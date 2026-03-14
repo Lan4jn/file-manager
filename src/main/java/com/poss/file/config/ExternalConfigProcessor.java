@@ -4,12 +4,16 @@ import org.springframework.boot.SpringApplication;
 import org.springframework.boot.env.EnvironmentPostProcessor;
 import org.springframework.core.env.ConfigurableEnvironment;
 import org.springframework.core.env.MapPropertySource;
+import org.yaml.snakeyaml.Yaml;
 
 import java.io.File;
+import java.io.FileInputStream;
 import java.io.FileReader;
 import java.io.IOException;
+import java.io.InputStream;
 import java.net.URL;
 import java.util.HashMap;
+import java.util.LinkedHashMap;
 import java.util.Map;
 import java.util.Properties;
 
@@ -36,44 +40,73 @@ public class ExternalConfigProcessor implements EnvironmentPostProcessor {
 
         Map<String, Object> properties = new HashMap<>();
 
-        // 1. 先加载默认配置（application.properties），优先级低
-        String defaultConfigPath = jarPath + "/config/application.properties";
-        File defaultConfigFile = new File(defaultConfigPath);
-        if (defaultConfigFile.exists()) {
-            try {
-                Properties props = new Properties();
-                props.load(new FileReader(defaultConfigFile));
-                for (String key : props.stringPropertyNames()) {
-                    properties.put(key, props.getProperty(key));
-                }
-                System.out.println("[ExternalConfig] Loaded default config from: " + defaultConfigPath);
-            } catch (IOException e) {
-                System.err.println("[ExternalConfig] Failed to load default config: " + e.getMessage());
-            }
-        }
+        // 1. 先加载默认配置（优先 yml，然后 properties），优先级低
+        loadConfigFile(properties, jarPath + "/config/application.yml", false);
+        loadConfigFile(properties, jarPath + "/config/application.properties", false);
 
-        // 2. 再加载环境特定配置（application-{env}.properties），覆盖默认配置
+        // 2. 再加载环境特定配置，覆盖默认配置
         if (envFile != null && !envFile.isEmpty()) {
-            String envConfigPath = jarPath + "/config/application-" + envFile + ".properties";
-            File envConfigFile = new File(envConfigPath);
-            if (envConfigFile.exists()) {
-                try {
-                    Properties props = new Properties();
-                    props.load(new FileReader(envConfigFile));
-                    for (String key : props.stringPropertyNames()) {
-                        properties.put(key, props.getProperty(key));
-                    }
-                    System.out.println("[ExternalConfig] Loaded env config from: " + envConfigPath);
-                } catch (IOException e) {
-                    System.err.println("[ExternalConfig] Failed to load env config: " + e.getMessage());
-                }
-            } else {
-                System.out.println("[ExternalConfig] Env config file not found: " + envConfigPath + " (using default)");
-            }
+            loadConfigFile(properties, jarPath + "/config/application-" + envFile + ".yml", true);
+            loadConfigFile(properties, jarPath + "/config/application-" + envFile + ".properties", true);
         }
 
         if (!properties.isEmpty()) {
             environment.getPropertySources().addLast(new MapPropertySource("externalProperties", properties));
+        }
+    }
+
+    private void loadConfigFile(Map<String, Object> result, String filePath, boolean isEnvConfig) {
+        File configFile = new File(filePath);
+        if (!configFile.exists()) {
+            return;
+        }
+
+        String fileName = configFile.getName().toLowerCase();
+        try {
+            if (fileName.endsWith(".yml") || fileName.endsWith(".yaml")) {
+                loadYamlFile(result, configFile);
+                System.out.println("[ExternalConfig] Loaded " + (isEnvConfig ? "env" : "default") + " config from: " + filePath);
+            } else if (fileName.endsWith(".properties")) {
+                loadPropertiesFile(result, configFile);
+                System.out.println("[ExternalConfig] Loaded " + (isEnvConfig ? "env" : "default") + " config from: " + filePath);
+            }
+        } catch (IOException e) {
+            System.err.println("[ExternalConfig] Failed to load config from " + filePath + ": " + e.getMessage());
+        }
+    }
+
+    private void loadYamlFile(Map<String, Object> result, File file) throws IOException {
+        Yaml yaml = new Yaml();
+        try (InputStream is = new FileInputStream(file)) {
+            Map<String, Object> yamlMap = yaml.load(is);
+            if (yamlMap != null) {
+                flattenMap("", yamlMap, result);
+            }
+        }
+    }
+
+    private void loadPropertiesFile(Map<String, Object> result, File file) throws IOException {
+        Properties props = new Properties();
+        try (FileReader reader = new FileReader(file)) {
+            props.load(reader);
+            for (String key : props.stringPropertyNames()) {
+                result.put(key, props.getProperty(key));
+            }
+        }
+    }
+
+    private void flattenMap(String prefix, Map<String, Object> source, Map<String, Object> result) {
+        for (Map.Entry<String, Object> entry : source.entrySet()) {
+            String key = prefix.isEmpty() ? entry.getKey() : prefix + "." + entry.getKey();
+            Object value = entry.getValue();
+
+            if (value instanceof Map) {
+                @SuppressWarnings("unchecked")
+                Map<String, Object> nestedMap = (Map<String, Object>) value;
+                flattenMap(key, nestedMap, result);
+            } else if (value != null) {
+                result.put(key, value.toString());
+            }
         }
     }
 
