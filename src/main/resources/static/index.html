@@ -1,4 +1,4 @@
-<!DOCTYPE html>
+﻿<!DOCTYPE html>
 <html lang="zh-CN">
 <head>
     <meta charset="UTF-8">
@@ -12,37 +12,71 @@
     <div id="app">
         <!-- Login Page -->
         <div v-if="!isLoggedIn" class="login-container">
-            <el-card class="login-card">
-                <template #header>
-                    <h2>文件管理器 <span style="font-size: 12px; color: #999; font-weight: normal;">v1.2dev</span></h2>
-                </template>
-                <el-form :model="loginForm" @submit.prevent="handleLogin">
-                    <el-form-item>
-                        <el-input v-model="loginForm.username" placeholder="用户名" prefix-icon="User"></el-input>
-                    </el-form-item>
-                    <el-form-item>
-                        <el-input v-model="loginForm.password" type="password" placeholder="密码" prefix-icon="Lock"></el-input>
-                    </el-form-item>
-                    <el-form-item>
-                        <el-button type="primary" style="width: 100%" @click="handleLogin" :loading="loginLoading">登录</el-button>
-                    </el-form-item>
-                </el-form>
-            </el-card>
+            <div class="login-shell">
+                <section class="login-hero">
+                    <div class="brand-badge">Poss Drive</div>
+                    <h1>MINIO管理工作台</h1>
+                    <p>把对象存储、文件目录、分享外链和权限控制放进一个统一界面。</p>
+                    <div class="hero-grid">
+                        <article class="hero-card">
+                            <span>多桶管理</span>
+                            <strong>统一入口</strong>
+                        </article>
+                        <article class="hero-card">
+                            <span>文件协作</span>
+                            <strong>即传即管</strong>
+                        </article>
+                        <article class="hero-card">
+                            <span>外链分发</span>
+                            <strong>安全分享</strong>
+                        </article>
+                    </div>
+                </section>
+                <el-card class="login-card">
+                    <div class="login-card-header">
+                        <div>
+                            <p class="eyebrow">Secure Access</p>
+                            <h2>登录文件管理器</h2>
+                        </div>
+                        <span class="version-chip">v1.2dev</span>
+                    </div>
+                    <el-form :model="loginForm" @submit.prevent="handleLogin">
+                        <el-form-item>
+                            <el-input v-model="loginForm.username" placeholder="用户名" prefix-icon="User"></el-input>
+                        </el-form-item>
+                        <el-form-item>
+                            <el-input v-model="loginForm.password" type="password" placeholder="密码" prefix-icon="Lock"></el-input>
+                        </el-form-item>
+                        <el-form-item>
+                            <el-button type="primary" class="login-submit" @click="handleLogin" :loading="loginLoading">进入工作台</el-button>
+                        </el-form-item>
+                    </el-form>
+                </el-card>
+            </div>
         </div>
 
         <!-- Main App -->
         <div v-else class="main-container">
+            <div class="app-backdrop"></div>
             <!-- Header -->
             <div class="header">
                 <div class="header-left">
-                    <h2>文件管理器 <span style="font-size: 12px; color: #999; font-weight: normal; cursor: pointer;" @click="showVersionDialog = true">v1.2dev</span></h2>
+                    <p class="eyebrow">Workspace</p>
+                    <div>
+                        <h2>{{ currentViewTitle }}</h2>
+                        <p class="header-subtitle">{{ currentViewDescription }}</p>
+                    </div>
                 </div>
                 <div class="header-right">
+                    <button class="ghost-action" @click="showVersionDialog = true">v1.2dev</button>
                     <el-button class="help-text-button" @click="showHelpDialog = true">系统帮助</el-button>
                     <el-dropdown @command="handleCommand">
                         <span class="user-info">
-                            <el-icon><User /></el-icon>
-                            {{ userInfo.nickname || userInfo.username }}
+                            <span class="user-avatar">{{ (userInfo.nickname || userInfo.username || 'U').slice(0, 1).toUpperCase() }}</span>
+                            <span class="user-meta">
+                                <strong>{{ userInfo.nickname || userInfo.username }}</strong>
+                                <small>{{ isAdmin ? '管理员' : '普通用户' }}</small>
+                            </span>
                             <el-icon><ArrowDown /></el-icon>
                         </span>
                         <template #dropdown>
@@ -59,6 +93,20 @@
             <div class="content">
                 <!-- Sidebar -->
                 <div class="sidebar">
+                    <div class="sidebar-top">
+                        <div class="sidebar-brand">
+                            <div class="brand-mark">P</div>
+                            <div>
+                                <strong>Poss Drive</strong>
+                                <p>对象存储工作台</p>
+                            </div>
+                        </div>
+                        <div class="sidebar-card">
+                            <span>存储桶</span>
+                            <strong>{{ bucketCount }}</strong>
+                            <small>{{ currentPathLabel }}</small>
+                        </div>
+                    </div>
                     <el-menu :default-active="currentMenu" @select="handleMenuSelect">
                         <el-menu-item index="buckets">
                             <el-icon><Box /></el-icon>
@@ -150,53 +198,94 @@
 
                     <!-- File Manager -->
                     <div v-if="currentMenu === 'files'" class="page-content">
-                        <div class="page-header">
-                            <h3>文件管理</h3>
-                            <div class="header-actions">
-                                <el-select v-model="currentBucket" placeholder="选择存储桶" @change="loadFiles" style="width: 200px; margin-right: 10px;">
+                        <div class="drive-overview">
+                            <article class="overview-card">
+                                <span>当前存储桶</span>
+                                <el-select v-model="currentBucket" @change="onBucketSelect" class="bucket-select-full" popper-class="bucket-select-popper">
                                     <el-option v-for="b in bucketList" :key="b.name" :label="b.name" :value="b.name"></el-option>
                                 </el-select>
-                                <el-button type="primary" @click="openUploadDialog">
-                                    <el-icon><Upload /></el-icon>
-                                    上传文件
-                                    <el-tooltip content="将本地文件上传到当前存储桶的指定目录" placement="top" effect="light">
-                                        <el-icon class="inline-help"><QuestionFilled /></el-icon>
-                                    </el-tooltip>
-                                </el-button>
-                                <el-button @click="showFolderDialog = true">
-                                    <el-icon><FolderAdd /></el-icon>
-                                    新建文件夹
-                                    <el-tooltip content="在当前目录创建新的文件夹用于分类存储文件" placement="top" effect="light">
-                                        <el-icon class="inline-help"><QuestionFilled /></el-icon>
-                                    </el-tooltip>
-                                </el-button>
-                                <el-button @click="refreshFiles" :loading="fileLoading">
-                                    <el-icon><Refresh /></el-icon>
-                                    刷新
-                                </el-button>
-                                <el-button type="success" @click="batchShare">
-                                    <el-icon><Share /></el-icon>
-                                    批量分享
-                                </el-button>
-                                <el-button type="warning" @click="batchDownload">
-                                    <el-icon><Download /></el-icon>
-                                    批量下载
-                                </el-button>
-                                <el-button type="danger" @click="batchDelete">
-                                    <el-icon><Delete /></el-icon>
-                                    批量删除
-                                </el-button>
-                            </div>
+                            </article>
+                            <article class="overview-card">
+                                <span>目录数量</span>
+                                <strong>{{ folderCount }}</strong>
+                            </article>
+                            <article class="overview-card">
+                                <span>文件数量</span>
+                                <strong>{{ currentFileCount }}</strong>
+                            </article>
+                            <article class="overview-card">
+                                <span>已展示容量</span>
+                                <div class="capacity-info">
+                                    <strong>{{ formatSize(currentPageSize) }}</strong>
+                                    <small class="capacity-note">不含文件夹占位</small>
+                                </div>
+                            </article>
                         </div>
 
-                        <el-breadcrumb separator="/" style="margin: 15px 0">
-                            <el-breadcrumb-item @click="navigateToFolder('')">
-                                <el-icon><HomeFilled /></el-icon> 根目录
-                            </el-breadcrumb-item>
-                            <el-breadcrumb-item v-for="(folder, index) in breadcrumb" :key="index" @click="navigateToFolder(folder.path)">
-                                {{ folder.name }}
-                            </el-breadcrumb-item>
-                        </el-breadcrumb>
+                        <div class="path-strip">
+                            <div class="explorer-nav">
+                                <div class="nav-buttons">
+                                    <el-tooltip content="后退" placement="top">
+                                        <el-button class="nav-btn" size="small" :disabled="!canGoBack" @click="goBack">
+                                            <span class="nav-symbol" aria-hidden="true">&larr;</span>
+                                        </el-button>
+                                    </el-tooltip>
+                                    <el-tooltip content="前进" placement="top">
+                                        <el-button class="nav-btn" size="small" :disabled="!canGoForward" @click="goForward">
+                                            <span class="nav-symbol" aria-hidden="true">&rarr;</span>
+                                        </el-button>
+                                    </el-tooltip>
+                                    <el-tooltip content="向上" placement="top">
+                                        <el-button class="nav-btn" size="small" @click="goUp">
+                                            <el-icon><Top /></el-icon>
+                                        </el-button>
+                                    </el-tooltip>
+                                </div>
+                                <div class="path-input-wrapper">
+                                    <el-input class="path-input" v-model="currentPathInput" @keyup.enter="navigateFromInput">
+                                        <template #prepend>
+                                            <el-tooltip content="刷新" placement="top">
+                                                <el-button class="nav-btn path-prepend-btn" @click="refreshFiles">
+                                                    <el-icon><Refresh /></el-icon>
+                                                </el-button>
+                                            </el-tooltip>
+                                        </template>
+                                    </el-input>
+                                </div>
+                                <div class="action-buttons">
+                                    <el-tooltip content="上传文件" placement="top">
+                                        <el-button type="primary" size="small" @click="openUploadDialog">
+                                            <el-icon><Upload /></el-icon>
+                                            上传
+                                        </el-button>
+                                    </el-tooltip>
+                                    <el-tooltip content="新建文件夹" placement="top">
+                                        <el-button size="small" @click="showFolderDialog = true">
+                                            <el-icon><FolderAdd /></el-icon>
+                                            新建
+                                        </el-button>
+                                    </el-tooltip>
+                                    <el-tooltip content="批量分享" placement="top">
+                                        <el-button type="success" size="small" @click="batchShare">
+                                            <el-icon><Share /></el-icon>
+                                            分享
+                                        </el-button>
+                                    </el-tooltip>
+                                    <el-tooltip content="批量下载" placement="top">
+                                        <el-button type="warning" size="small" @click="batchDownload">
+                                            <el-icon><Download /></el-icon>
+                                            下载
+                                        </el-button>
+                                    </el-tooltip>
+                                    <el-tooltip content="批量删除" placement="top">
+                                        <el-button type="danger" size="small" @click="batchDelete">
+                                            <el-icon><Delete /></el-icon>
+                                            删除
+                                        </el-button>
+                                    </el-tooltip>
+                                </div>
+                            </div>
+                        </div>
 
                         <el-table :data="fileList" v-loading="fileLoading" @selection-change="handleSelectionChange" @sort-change="handleFileSortChange">
                             <el-table-column type="selection" width="55"></el-table-column>
@@ -616,17 +705,47 @@
         </el-dialog>
 
         <!-- Help Dialog -->
-        <el-dialog v-model="showHelpDialog" title="系统功能和用法" width="800px">
-            <div class="help-content" v-html="helpContent"></div>
+        <el-dialog v-model="showHelpDialog" width="860px" class="knowledge-dialog">
+            <template #header>
+                <div class="dialog-hero">
+                    <div>
+                        <p class="eyebrow">Guide Center</p>
+                        <h3>系统功能和用法</h3>
+                    </div>
+                    <span>查看功能说明、使用方式和操作约定</span>
+                </div>
+            </template>
+            <div class="dialog-shell">
+                <div class="dialog-panel dialog-panel--single">
+                    <div class="dialog-section-intro">
+                        <strong>帮助导航</strong>
+                        <p>这里汇总了系统功能、文件操作和管理说明，内容会随着版本持续更新。</p>
+                    </div>
+                    <div class="help-content" v-html="helpContent"></div>
+                </div>
+            </div>
             <template #footer>
                 <el-button @click="showHelpDialog = false">关闭</el-button>
             </template>
         </el-dialog>
 
         <!-- Version Dialog -->
-        <el-dialog v-model="showVersionDialog" title="版本更新内容" width="900px">
-            <el-row :gutter="20">
-                <el-col :span="6">
+        <el-dialog v-model="showVersionDialog" width="960px" class="knowledge-dialog">
+            <template #header>
+                <div class="dialog-hero">
+                    <div>
+                        <p class="eyebrow">Release Notes</p>
+                        <h3>版本更新内容</h3>
+                    </div>
+                    <span>按版本查看功能迭代、修复记录与变更摘要</span>
+                </div>
+            </template>
+            <div class="dialog-shell dialog-shell--split">
+                <aside class="dialog-panel dialog-panel--sidebar">
+                    <div class="dialog-section-intro">
+                        <strong>版本目录</strong>
+                        <p>点击左侧版本号切换更新说明。</p>
+                    </div>
                     <div class="version-list">
                         <div
                             v-for="v in versionList"
@@ -638,11 +757,15 @@
                             {{ v.version }}
                         </div>
                     </div>
-                </el-col>
-                <el-col :span="18">
+                </aside>
+                <section class="dialog-panel dialog-panel--content">
+                    <div class="dialog-section-intro">
+                        <strong>更新摘要</strong>
+                        <p>展示当前版本的新增能力、兼容性说明和修复项。</p>
+                    </div>
                     <div class="version-content" v-html="versionContent"></div>
-                </el-col>
-            </el-row>
+                </section>
+            </div>
             <template #footer>
                 <el-button @click="showVersionDialog = false">关闭</el-button>
             </template>

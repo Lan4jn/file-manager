@@ -1,5 +1,23 @@
 const { createApp, ref, computed, onMounted, watch } = Vue;
 
+const zhCnLocale = {
+    name: 'zh-cn',
+    el: {
+        pagination: {
+            goto: '前往',
+            pagesize: '条/页',
+            total: '共 {total} 条',
+            pageClassifier: '页',
+            prev: '上一页',
+            next: '下一页',
+            currentPage: '第 {pager} 页',
+            prevPages: '向前 {pager} 页',
+            nextPages: '向后 {pager} 页',
+            deprecationWarning: '已检测到已废弃的用法，请参考 el-pagination 文档'
+        }
+    }
+};
+
 const app = createApp({
     setup() {
         // State
@@ -31,6 +49,10 @@ const app = createApp({
         const filePage = ref(1);
         const filePageSize = ref(10);
         const fileTotal = ref(0);
+        // 导航历史
+        const folderHistory = ref([]);
+        const historyIndex = ref(-1);
+        const showPathDropdown = ref(false);
 
         // Dialogs
         const showUploadDialog = ref(false);
@@ -136,6 +158,48 @@ const app = createApp({
         // Computed
         const isAdmin = computed(() => {
             return userInfo.value.roles && userInfo.value.roles.includes('ADMIN');
+        });
+
+        const currentViewTitle = computed(() => {
+            const titles = {
+                buckets: '存储空间',
+                files: '我的文件',
+                shares: '共享中心',
+                users: '团队成员',
+                roles: '权限角色',
+                'minio-keys': '访问密钥',
+                config: '系统设置'
+            };
+            return titles[currentMenu.value] || '文件管理';
+        });
+
+        const currentViewDescription = computed(() => {
+            const descriptions = {
+                buckets: '统一管理对象存储桶与容量分布。',
+                files: '按目录组织文件，上传、分享、下载一体化处理。',
+                shares: '集中查看外链、提取码与访问记录。',
+                users: '维护系统用户、启停状态与角色分配。',
+                roles: '定义可复用的权限集合。',
+                'minio-keys': '发放受限访问凭据并控制桶级权限。',
+                config: '收口上传、分享和下载策略。'
+            };
+            return descriptions[currentMenu.value] || '现代化文件工作台。';
+        });
+
+        const bucketCount = computed(() => bucketList.value.length);
+        const folderCount = computed(() => fileList.value.filter(item => item.isFolder).length);
+        const currentFileCount = computed(() => fileList.value.filter(item => !item.isFolder).length);
+        const currentPageSize = computed(() => {
+            return fileList.value.reduce((total, item) => total + (item.isFolder ? 0 : (item.size || 0)), 0);
+        });
+        const currentPathLabel = computed(() => {
+            if (!currentBucket.value) {
+                return '未选择存储桶';
+            }
+            if (!currentFolder.value) {
+                return currentBucket.value + ' / 根目录';
+            }
+            return currentBucket.value + ' / ' + currentFolder.value;
         });
 
         const uploadUrl = computed(() => '/api/file/upload');
@@ -364,6 +428,15 @@ const app = createApp({
             loadFiles();
         };
 
+        const onBucketSelect = () => {
+            // 清空历史重新开始
+            folderHistory.value = [];
+            historyIndex.value = -1;
+            currentFolder.value = '';
+            updateBreadcrumb();
+            loadFiles();
+        };
+
         const createBucket = async () => {
             if (!newBucketName.value) {
                 ElementPlus.ElMessage.warning('请输入存储桶名称');
@@ -471,8 +544,89 @@ const app = createApp({
             showUploadDialog.value = true;
         };
 
+        // 导航输入路径（计算属性）
+        const currentPathInput = computed({
+            get: () => {
+                if (!currentBucket.value) return '';
+                if (!currentFolder.value) return `/${currentBucket.value}/`;
+                return `/${currentBucket.value}/${currentFolder.value}`;
+            },
+            set: (val) => {}
+        });
+
+        // 从输入框导航
+        const navigateFromInput = () => {
+            const path = currentPathInput.value.trim();
+            if (!path) return;
+
+            // 解析输入路径，格式：/bucket/folder1/folder2/
+            const parts = path.split('/').filter(p => p);
+            if (parts.length === 0) return;
+
+            const bucket = parts[0];
+            if (bucket) {
+                currentBucket.value = bucket;
+            }
+
+            if (parts.length > 1) {
+                currentFolder.value = parts.slice(1).join('/') + '/';
+            } else {
+                currentFolder.value = '';
+            }
+
+            // 清空历史重新开始
+            folderHistory.value = [];
+            historyIndex.value = -1;
+
+            updateBreadcrumb();
+            loadFiles();
+            loadBuckets();
+        };
+
+        // 后退
+        const canGoBack = computed(() => historyIndex.value > 0);
+        const goBack = () => {
+            if (!canGoBack.value) return;
+            historyIndex.value--;
+            currentFolder.value = folderHistory.value[historyIndex.value];
+            updateBreadcrumb();
+            loadFiles();
+        };
+
+        // 前进
+        const canGoForward = computed(() => historyIndex.value < folderHistory.value.length - 1);
+        const goForward = () => {
+            if (!canGoForward.value) return;
+            historyIndex.value++;
+            currentFolder.value = folderHistory.value[historyIndex.value];
+            updateBreadcrumb();
+            loadFiles();
+        };
+
+        // 向上
+        const goUp = () => {
+            if (!currentFolder.value) return;
+            const parts = currentFolder.value.split('/').filter(p => p);
+            if (parts.length === 0) {
+                navigateToFolder('');
+            } else {
+                parts.pop();
+                navigateToFolder(parts.length > 0 ? parts.join('/') + '/' : '');
+            }
+        };
+
         const navigateToFolder = (path) => {
+            const oldPath = currentFolder.value;
             currentFolder.value = path || '';
+
+            // 记录历史
+            if (historyIndex.value < folderHistory.value.length - 1) {
+                // 如果在历史中间，截断后面的历史
+                folderHistory.value = folderHistory.value.slice(0, historyIndex.value + 1);
+            }
+            folderHistory.value.push(currentFolder.value);
+            historyIndex.value = folderHistory.value.length - 1;
+
             updateBreadcrumb();
             loadFiles();
         };
@@ -1294,6 +1448,21 @@ const app = createApp({
             fileConfig,
             shareConfig,
             isAdmin,
+            currentViewTitle,
+            currentViewDescription,
+            bucketCount,
+            folderCount,
+            currentFileCount,
+            currentPageSize,
+            currentPathLabel,
+            currentPathInput,
+            showPathDropdown,
+            canGoBack,
+            canGoForward,
+            goBack,
+            goForward,
+            goUp,
+            navigateFromInput,
             uploadUrl,
             uploadHeaders,
             uploadData,
@@ -1303,6 +1472,7 @@ const app = createApp({
             handleMenuSelect,
             loadBuckets,
             selectBucket,
+            onBucketSelect,
             createBucket,
             deleteBucket,
             handleBucketSortChange,
@@ -1352,5 +1522,5 @@ for (const [key, component] of Object.entries(ElementPlusIconsVue)) {
     app.component(key, component);
 }
 
-app.use(ElementPlus);
+app.use(ElementPlus, { locale: zhCnLocale });
 app.mount('#app');

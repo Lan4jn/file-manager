@@ -35,8 +35,9 @@ public class HelpController {
 
         // 版本列表，按倒序排列（最新版本在前）
         String[] versionFiles = {
-                "v1.1.0.md",
-                "v1.0.0.md"
+                "v1.2.md",
+                "v1.1.md",
+                "v1.0.md"
         };
 
         for (String fileName : versionFiles) {
