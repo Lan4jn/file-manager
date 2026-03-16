@@ -1,0 +1,544 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>分享空间</title>
+    <style>
+        :root {
+            --bg-1: #f3eadc;
+            --bg-2: #efe6da;
+            --panel: rgba(255, 252, 246, 0.9);
+            --text: #1f2937;
+            --muted: #6b7280;
+            --accent: #9a3412;
+            --accent-soft: #f6d7bf;
+            --border: #e7d3bc;
+            --danger: #b91c1c;
+            --shadow: rgba(120, 53, 15, 0.14);
+        }
+
+        * {
+            box-sizing: border-box;
+        }
+
+        body {
+            margin: 0;
+            min-height: 100vh;
+            font-family: "PingFang SC", "Hiragino Sans GB", "Microsoft YaHei", sans-serif;
+            color: var(--text);
+            background:
+                radial-gradient(circle at top left, rgba(154, 52, 18, 0.18), transparent 30%),
+                radial-gradient(circle at bottom right, rgba(249, 115, 22, 0.12), transparent 24%),
+                linear-gradient(140deg, var(--bg-1), var(--bg-2));
+            padding: 28px;
+        }
+
+        .shell {
+            max-width: 980px;
+            margin: 0 auto;
+        }
+
+        .hero {
+            background: linear-gradient(135deg, rgba(255, 249, 240, 0.94), rgba(255, 252, 246, 0.78));
+            border: 1px solid var(--border);
+            border-radius: 28px;
+            padding: 28px;
+            box-shadow: 0 30px 80px var(--shadow);
+            backdrop-filter: blur(12px);
+        }
+
+        .eyebrow {
+            font-size: 12px;
+            letter-spacing: 0.16em;
+            text-transform: uppercase;
+            color: var(--accent);
+            margin-bottom: 10px;
+        }
+
+        .hero-head {
+            display: flex;
+            gap: 20px;
+            justify-content: space-between;
+            align-items: flex-start;
+            flex-wrap: wrap;
+        }
+
+        h1 {
+            margin: 0;
+            font-size: 34px;
+            line-height: 1.15;
+        }
+
+        .meta,
+        .hint,
+        .error {
+            margin-top: 10px;
+            font-size: 14px;
+            line-height: 1.7;
+        }
+
+        .meta {
+            color: var(--muted);
+        }
+
+        .hint {
+            color: var(--accent);
+        }
+
+        .error {
+            color: var(--danger);
+        }
+
+        .stats {
+            display: flex;
+            gap: 12px;
+            flex-wrap: wrap;
+        }
+
+        .badge {
+            padding: 10px 14px;
+            border-radius: 999px;
+            background: var(--accent-soft);
+            color: var(--accent);
+            font-size: 13px;
+        }
+
+        .verify {
+            margin-top: 22px;
+            display: flex;
+            gap: 12px;
+            flex-wrap: wrap;
+        }
+
+        input {
+            min-width: 220px;
+            flex: 1;
+            border: 1px solid var(--border);
+            border-radius: 14px;
+            padding: 12px 14px;
+            font-size: 15px;
+            background: rgba(255, 255, 255, 0.92);
+        }
+
+        button {
+            border: 0;
+            border-radius: 14px;
+            padding: 12px 18px;
+            background: var(--accent);
+            color: #fff;
+            font-size: 15px;
+            cursor: pointer;
+        }
+
+        button.secondary {
+            background: transparent;
+            border: 1px solid var(--border);
+            color: var(--accent);
+        }
+
+        .hidden {
+            display: none !important;
+        }
+
+        .panel {
+            margin-top: 20px;
+            border: 1px solid var(--border);
+            border-radius: 22px;
+            background: rgba(255, 255, 255, 0.72);
+            overflow: hidden;
+        }
+
+        .panel-head {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            gap: 12px;
+            padding: 18px 22px;
+            border-bottom: 1px solid rgba(231, 211, 188, 0.8);
+            background: rgba(255, 247, 238, 0.9);
+            flex-wrap: wrap;
+        }
+
+        .panel-title {
+            font-size: 16px;
+            font-weight: 600;
+        }
+
+        .crumb {
+            color: var(--muted);
+            font-size: 13px;
+        }
+
+        .list {
+            padding: 8px 0;
+        }
+
+        .item {
+            display: grid;
+            grid-template-columns: minmax(0, 1fr) auto auto;
+            gap: 16px;
+            align-items: center;
+            padding: 14px 22px;
+            border-top: 1px solid rgba(231, 211, 188, 0.55);
+        }
+
+        .item:first-child {
+            border-top: 0;
+        }
+
+        .item-main {
+            min-width: 0;
+        }
+
+        .item-name {
+            font-size: 15px;
+            font-weight: 600;
+            white-space: nowrap;
+            overflow: hidden;
+            text-overflow: ellipsis;
+        }
+
+        .item-sub {
+            margin-top: 4px;
+            color: var(--muted);
+            font-size: 13px;
+        }
+
+        .item-kind {
+            font-size: 13px;
+            color: var(--accent);
+            background: var(--accent-soft);
+            border-radius: 999px;
+            padding: 8px 12px;
+        }
+
+        .item-actions {
+            display: flex;
+            gap: 10px;
+        }
+
+        .empty {
+            padding: 40px 22px;
+            color: var(--muted);
+            text-align: center;
+        }
+
+        @media (max-width: 720px) {
+            body {
+                padding: 16px;
+            }
+
+            .hero {
+                padding: 22px;
+                border-radius: 22px;
+            }
+
+            h1 {
+                font-size: 28px;
+            }
+
+            .item {
+                grid-template-columns: 1fr;
+            }
+
+            .item-actions {
+                justify-content: flex-start;
+            }
+        }
+    </style>
+</head>
+<body>
+<div class="shell">
+    <div class="hero">
+        <div class="eyebrow">Shared Space</div>
+        <div class="hero-head">
+            <div>
+                <h1 id="title">正在加载分享内容</h1>
+                <div class="meta" id="meta"></div>
+                <div class="hint" id="hint"></div>
+                <div class="error" id="error"></div>
+            </div>
+            <div class="stats">
+                <div class="badge" id="typeBadge">分享</div>
+                <div class="badge" id="countBadge">等待验证</div>
+            </div>
+        </div>
+
+        <div id="verifyBlock" class="verify hidden">
+            <input id="password" type="password" placeholder="请输入提取码">
+            <button id="verifyBtn">验证并进入</button>
+        </div>
+
+        <div id="singleActions" class="verify hidden">
+            <button id="downloadBtn">下载文件</button>
+            <button id="refreshBtn" class="secondary">重新验证</button>
+        </div>
+
+        <div id="browserPanel" class="panel hidden">
+            <div class="panel-head">
+                <div>
+                    <div class="panel-title">共享文件</div>
+                    <div class="crumb" id="crumb">根目录</div>
+                </div>
+                <div style="display: flex; gap: 10px; flex-wrap: wrap;">
+                    <button id="downloadAllBtn">全部下载</button>
+                    <button id="backBtn" class="secondary hidden">返回上级</button>
+                </div>
+            </div>
+            <div class="list" id="itemList"></div>
+            <div class="empty hidden" id="emptyState">当前目录没有内容</div>
+        </div>
+    </div>
+</div>
+
+<script src="/js/axios.min.js"></script>
+<script>
+    (function () {
+        var params = new URLSearchParams(window.location.search);
+        var shareCode = params.get('code');
+        var password = params.get('password') || '';
+        var shareInfo = null;
+        var currentPath = '';
+        var historyStack = [];
+
+        var titleEl = document.getElementById('title');
+        var metaEl = document.getElementById('meta');
+        var hintEl = document.getElementById('hint');
+        var errorEl = document.getElementById('error');
+        var typeBadge = document.getElementById('typeBadge');
+        var countBadge = document.getElementById('countBadge');
+        var verifyBlock = document.getElementById('verifyBlock');
+        var passwordInput = document.getElementById('password');
+        var verifyBtn = document.getElementById('verifyBtn');
+        var singleActions = document.getElementById('singleActions');
+        var downloadBtn = document.getElementById('downloadBtn');
+        var refreshBtn = document.getElementById('refreshBtn');
+        var browserPanel = document.getElementById('browserPanel');
+        var crumbEl = document.getElementById('crumb');
+        var itemListEl = document.getElementById('itemList');
+        var emptyStateEl = document.getElementById('emptyState');
+        var downloadAllBtn = document.getElementById('downloadAllBtn');
+        var backBtn = document.getElementById('backBtn');
+
+        if (!shareCode) {
+            renderError('分享码缺失');
+            return;
+        }
+
+        passwordInput.value = password;
+        bindEvents();
+        loadAccessInfo();
+
+        function bindEvents() {
+            verifyBtn.addEventListener('click', verifyShare);
+            refreshBtn.addEventListener('click', verifyShare);
+            backBtn.addEventListener('click', goBack);
+            downloadAllBtn.addEventListener('click', function () {
+                if (!shareInfo || !shareInfo.isFolder) {
+                    return;
+                }
+                window.location.href = buildUrl('/api/share/download-all', {
+                    shareCode: shareCode,
+                    password: passwordInput.value
+                });
+            });
+            downloadBtn.addEventListener('click', function () {
+                if (!shareInfo || shareInfo.isFolder) {
+                    return;
+                }
+                window.location.href = buildUrl('/api/share/download', {
+                    shareCode: shareCode,
+                    password: passwordInput.value
+                });
+            });
+            passwordInput.addEventListener('keydown', function (event) {
+                if (event.key === 'Enter') {
+                    verifyShare();
+                }
+            });
+        }
+
+        function loadAccessInfo() {
+            axios.get('/api/share/access-info', { params: { shareCode: shareCode } })
+                .then(function (response) {
+                    if (response.data.code !== 200) {
+                        throw new Error(response.data.message || '加载分享失败');
+                    }
+                    shareInfo = response.data.data;
+                    renderMeta();
+                    if (shareInfo.hasPassword) {
+                        verifyBlock.classList.remove('hidden');
+                        hintEl.textContent = '该分享已设置提取码，验证后即可访问。';
+                    } else {
+                        verifyShare();
+                    }
+                })
+                .catch(function (error) {
+                    renderError(extractMessage(error));
+                });
+        }
+
+        function verifyShare() {
+            clearError();
+            var requestParams = { shareCode: shareCode };
+            if (passwordInput.value) {
+                requestParams.password = passwordInput.value;
+            }
+
+            axios.get('/api/share/info', { params: requestParams })
+                .then(function (response) {
+                    if (response.data.code !== 200) {
+                        throw new Error(response.data.message || '验证失败');
+                    }
+                    shareInfo = response.data.data;
+                    renderMeta();
+                    hintEl.textContent = shareInfo.isFolder
+                        ? '验证通过，可以像网盘一样浏览内容。'
+                        : '验证通过，可以直接下载文件。';
+                    if (shareInfo.hasPassword) {
+                        verifyBlock.classList.remove('hidden');
+                    }
+                    if (shareInfo.isFolder) {
+                        singleActions.classList.add('hidden');
+                        browserPanel.classList.remove('hidden');
+                        historyStack = [];
+                        loadItems('');
+                    } else {
+                        browserPanel.classList.add('hidden');
+                        singleActions.classList.remove('hidden');
+                    }
+                })
+                .catch(function (error) {
+                    singleActions.classList.add('hidden');
+                    browserPanel.classList.add('hidden');
+                    verifyBlock.classList.remove('hidden');
+                    renderError(extractMessage(error));
+                });
+        }
+
+        function loadItems(path) {
+            clearError();
+            axios.get('/api/share/items', {
+                params: {
+                    shareCode: shareCode,
+                    password: passwordInput.value,
+                    path: path || ''
+                }
+            }).then(function (response) {
+                if (response.data.code !== 200) {
+                    throw new Error(response.data.message || '加载列表失败');
+                }
+                currentPath = path || '';
+                renderItems(response.data.data || []);
+            }).catch(function (error) {
+                renderError(extractMessage(error));
+            });
+        }
+
+        function renderMeta() {
+            titleEl.textContent = shareInfo.fileName || '未命名分享';
+            metaEl.textContent = (shareInfo.isFolder ? '目录 / 批量分享' : '单文件分享') +
+                ' · 过期时间: ' + (shareInfo.expireTime || '未知');
+            typeBadge.textContent = shareInfo.isFolder ? '浏览式分享' : '文件直链';
+        }
+
+        function renderItems(items) {
+            itemListEl.innerHTML = '';
+            countBadge.textContent = '共 ' + items.length + ' 项';
+            emptyStateEl.classList.toggle('hidden', items.length > 0);
+            crumbEl.textContent = currentPath ? '当前位置: ' + readableName(currentPath) : '当前位置: 根目录';
+            backBtn.classList.toggle('hidden', historyStack.length === 0);
+
+            items.forEach(function (item) {
+                var row = document.createElement('div');
+                row.className = 'item';
+
+                var main = document.createElement('div');
+                main.className = 'item-main';
+                var name = document.createElement('div');
+                name.className = 'item-name';
+                name.textContent = item.fileName;
+                var sub = document.createElement('div');
+                sub.className = 'item-sub';
+                sub.textContent = item.isFolder ? '目录' : formatSize(item.size || 0);
+                main.appendChild(name);
+                main.appendChild(sub);
+
+                var kind = document.createElement('div');
+                kind.className = 'item-kind';
+                kind.textContent = item.isFolder ? '文件夹' : '文件';
+
+                var actions = document.createElement('div');
+                actions.className = 'item-actions';
+                var primaryBtn = document.createElement('button');
+                primaryBtn.textContent = item.isFolder ? '打开' : '下载';
+                primaryBtn.addEventListener('click', function () {
+                    if (item.isFolder) {
+                        historyStack.push({ path: currentPath, label: currentPath ? readableName(currentPath) : '根目录' });
+                        loadItems(item.objectName);
+                    } else {
+                        window.location.href = buildUrl('/api/share/download-item', {
+                            shareCode: shareCode,
+                            password: passwordInput.value,
+                            objectName: item.objectName
+                        });
+                    }
+                });
+                actions.appendChild(primaryBtn);
+
+                row.appendChild(main);
+                row.appendChild(kind);
+                row.appendChild(actions);
+                itemListEl.appendChild(row);
+            });
+        }
+
+        function goBack() {
+            if (historyStack.length === 0) {
+                return;
+            }
+            var previous = historyStack.pop();
+            loadItems(previous.path);
+        }
+
+        function buildUrl(base, query) {
+            var search = new URLSearchParams();
+            Object.keys(query).forEach(function (key) {
+                if (query[key]) {
+                    search.set(key, query[key]);
+                }
+            });
+            return base + '?' + search.toString();
+        }
+
+        function readableName(path) {
+            var normalized = path.endsWith('/') ? path.slice(0, -1) : path;
+            var index = normalized.lastIndexOf('/');
+            return index >= 0 ? normalized.slice(index + 1) : normalized;
+        }
+
+        function formatSize(bytes) {
+            if (bytes < 1024) return bytes + ' B';
+            if (bytes < 1024 * 1024) return (bytes / 1024).toFixed(2) + ' KB';
+            if (bytes < 1024 * 1024 * 1024) return (bytes / 1024 / 1024).toFixed(2) + ' MB';
+            return (bytes / 1024 / 1024 / 1024).toFixed(2) + ' GB';
+        }
+
+        function renderError(message) {
+            errorEl.textContent = message;
+        }
+
+        function clearError() {
+            errorEl.textContent = '';
+        }
+
+        function extractMessage(error) {
+            return error && error.response && error.response.data
+                ? (error.response.data.message || '请求失败')
+                : (error.message || '请求失败');
+        }
+    })();
+</script>
+</body>
+</html>

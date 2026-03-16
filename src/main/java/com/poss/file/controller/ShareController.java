@@ -3,6 +3,7 @@ package com.poss.file.controller;
 import com.poss.file.common.Result;
 import com.poss.file.dto.CreateShareRequest;
 import com.poss.file.model.FileInfo;
+import com.poss.file.model.ShareAccessInfo;
 import com.poss.file.model.ShareLink;
 import com.poss.file.service.FileService;
 import com.poss.file.service.ShareService;
@@ -12,14 +13,12 @@ import org.springframework.core.io.InputStreamResource;
 import org.springframework.http.HttpHeaders;
 import org.springframework.http.MediaType;
 import org.springframework.http.ResponseEntity;
+import org.springframework.security.core.Authentication;
 import org.springframework.web.bind.annotation.*;
 
-import java.io.File;
-import java.io.FileInputStream;
 import java.io.InputStream;
 import java.io.UnsupportedEncodingException;
 import java.net.URLEncoder;
-import java.nio.charset.StandardCharsets;
 import java.util.List;
 import java.util.Map;
 
@@ -44,9 +43,9 @@ public class ShareController {
     @PostMapping("/create")
     public Result<ShareLink> createShare(
             @RequestBody CreateShareRequest request,
-            @RequestParam(value = "createBy", required = false, defaultValue = "anonymous") String createBy) {
+            Authentication authentication) {
         log.info("Creating share link for: {}", request.getObjectName());
-        ShareLink shareLink = shareService.createShareLink(request, createBy);
+        ShareLink shareLink = shareService.createShareLink(request, authentication.getName());
         return Result.success(shareLink);
     }
 
@@ -56,16 +55,24 @@ public class ShareController {
     @PostMapping("/batch-create")
     public Result<ShareLink> createBatchShare(
             @RequestBody Map<String, Object> params,
-            @RequestParam(value = "createBy", required = false, defaultValue = "anonymous") String createBy) {
+            Authentication authentication) {
         log.info("Creating batch share");
         List<String> objectNames = (List<String>) params.get("objectNames");
         String bucket = (String) params.get("bucket");
         Integer expirationHours = params.get("expirationHours") != null
             ? Integer.valueOf(params.get("expirationHours").toString())
             : null;
+        String password = params.get("password") != null
+            ? params.get("password").toString()
+            : null;
 
-        ShareLink shareLink = shareService.createBatchShareLink(objectNames, bucket, createBy, expirationHours);
+        ShareLink shareLink = shareService.createBatchShareLink(objectNames, bucket, authentication.getName(), expirationHours, password);
         return Result.success(shareLink);
+    }
+
+    @GetMapping("/access-info")
+    public Result<ShareAccessInfo> getShareAccessInfo(@RequestParam("shareCode") String shareCode) {
+        return Result.success(shareService.getShareAccessInfo(shareCode));
     }
 
     /**
@@ -83,29 +90,84 @@ public class ShareController {
      * 通过分享链接获取文件信息
      */
     @GetMapping("/file")
-    public Result<FileInfo> getFileByShareCode(@RequestParam("shareCode") String shareCode) {
-        FileInfo fileInfo = shareService.getFileByShareCode(shareCode);
+    public Result<FileInfo> getFileByShareCode(
+            @RequestParam("shareCode") String shareCode,
+            @RequestParam(value = "password", required = false) String password) {
+        FileInfo fileInfo = shareService.getFileByShareCode(shareCode, password);
         return Result.success(fileInfo);
+    }
+
+    @GetMapping("/items")
+    public Result<List<FileInfo>> listSharedItems(
+            @RequestParam("shareCode") String shareCode,
+            @RequestParam(value = "password", required = false) String password,
+            @RequestParam(value = "path", required = false) String path) {
+        return Result.success(shareService.listSharedItems(shareCode, password, path));
+    }
+
+    @GetMapping("/download-item")
+    public ResponseEntity<InputStreamResource> downloadSharedItem(
+            @RequestParam("shareCode") String shareCode,
+            @RequestParam("objectName") String objectName,
+            @RequestParam(value = "password", required = false) String password) throws UnsupportedEncodingException {
+        FileInfo fileInfo = shareService.getSharedItemInfo(shareCode, password, objectName);
+        if (Boolean.TRUE.equals(fileInfo.getIsFolder())) {
+            throw new RuntimeException("目录请进入后下载文件");
+        }
+
+        InputStream stream = fileService.getFileStream(fileInfo.getObjectName(), shareService.getShareInfo(shareCode, password).getBucket());
+        String filename = URLEncoder.encode(fileInfo.getFileName(), "UTF-8");
+
+        return ResponseEntity.ok()
+                .header(HttpHeaders.CONTENT_DISPOSITION, "attachment; filename=\"" + filename + "\"")
+                .contentType(MediaType.parseMediaType(fileInfo.getContentType()))
+                .contentLength(fileInfo.getSize())
+                .body(new InputStreamResource(stream));
+    }
+
+    @GetMapping("/download-all")
+    public ResponseEntity<InputStreamResource> downloadAllSharedItems(
+            @RequestParam("shareCode") String shareCode,
+            @RequestParam(value = "password", required = false) String password) throws Exception {
+        ShareLink shareLink = shareService.getShareInfo(shareCode, password);
+        if (!Boolean.TRUE.equals(shareLink.getIsFolder())) {
+            throw new RuntimeException("当前分享不是目录或批量分享");
+        }
+
+        java.io.PipedInputStream stream = new java.io.PipedInputStream();
+        java.io.PipedOutputStream outputStream = new java.io.PipedOutputStream(stream);
+        new Thread(() -> {
+            try {
+                shareService.downloadShareAsZip(shareCode, password, outputStream);
+            } catch (Exception e) {
+                log.error("Failed to stream share archive: {}", shareCode, e);
+            } finally {
+                try {
+                    outputStream.close();
+                } catch (Exception ignored) {
+                }
+            }
+        }).start();
+
+        String filename = URLEncoder.encode(shareService.getShareArchiveName(shareCode, password), "UTF-8");
+        return ResponseEntity.ok()
+                .header(HttpHeaders.CONTENT_DISPOSITION, "attachment; filename=\"" + filename + "\"")
+                .contentType(MediaType.parseMediaType("application/zip"))
+                .body(new InputStreamResource(stream));
     }
 
     /**
      * 通过分享链接下载文件
      */
     @GetMapping("/download")
-    public ResponseEntity<InputStreamResource> downloadByShareCode(@RequestParam("shareCode") String shareCode) throws UnsupportedEncodingException {
+    public ResponseEntity<InputStreamResource> downloadByShareCode(
+            @RequestParam("shareCode") String shareCode,
+            @RequestParam(value = "password", required = false) String password) throws UnsupportedEncodingException {
         log.info("Processing download request for share: {}", shareCode);
-        ShareLink link = shareService.getShareInfo(shareCode, null);
+        ShareLink link = shareService.getShareInfo(shareCode, password);
 
-        // 如果是目录分享，下载ZIP压缩包
-        Boolean isFolder = link.getIsFolder();
-        if (isFolder != null && isFolder) {
-            log.info("Share {} is a folder, redirecting to download-folder", shareCode);
-            try {
-                ResponseEntity<InputStreamResource> result = downloadFolderShareLink(shareCode);
-                return result;
-            } catch (Exception e) {
-                throw new RuntimeException(e.getMessage());
-            }
+        if (Boolean.TRUE.equals(link.getIsFolder())) {
+            throw new RuntimeException("目录或批量分享请在分享页中浏览后单独下载文件");
         }
 
         // 文件分享
@@ -123,43 +185,13 @@ public class ShareController {
     }
 
     /**
-     * 通过分享链接下载目录（ZIP压缩包）
+     * 保留旧接口，显式提示使用新的浏览式分享页
      */
     @GetMapping("/download-folder")
     public ResponseEntity<InputStreamResource> downloadFolderShareLink(
-            @RequestParam("shareCode") String shareCode) throws Exception {
-
-        log.info("Processing folder download request for share: {}", shareCode);
-        ShareLink link = shareService.getShareInfo(shareCode, null);
-
-        if (!Boolean.TRUE.equals(link.getIsFolder())) {
-            throw new RuntimeException("不是目录分享");
-        }
-
-        File zipFile;
-
-        // 检查压缩包是否存在，不存在则重新压缩
-        if (!shareService.isZipFileExists(shareCode)) {
-            log.info("ZIP file not found for share {}, recompressing", shareCode);
-            // 重新压缩
-            shareService.recompressShareFolder(shareCode);
-        }
-        zipFile = shareService.getZipFile(shareCode);
-
-        if (zipFile == null || !zipFile.exists()) {
-            log.error("ZIP file not found for share {} after recompression", shareCode);
-            throw new RuntimeException("分享文件不存在");
-        }
-
-        log.info("Serving ZIP file {} for share {}", zipFile.getAbsolutePath(), shareCode);
-        InputStream stream = new FileInputStream(zipFile);
-        String filename = URLEncoder.encode(link.getFileName() + ".zip", "UTF-8");
-
-        return ResponseEntity.ok()
-                .header(HttpHeaders.CONTENT_DISPOSITION, "attachment; filename=\"" + filename + "\"")
-                .contentType(MediaType.parseMediaType("application/zip"))
-                .contentLength(zipFile.length())
-                .body(new InputStreamResource(stream));
+            @RequestParam("shareCode") String shareCode,
+            @RequestParam(value = "password", required = false) String password) throws Exception {
+        throw new RuntimeException("目录分享已升级为在线浏览模式，请在分享页中选择文件下载");
     }
 
     /**
@@ -175,9 +207,9 @@ public class ShareController {
      * 删除分享链接
      */
     @DeleteMapping("/delete")
-    public Result<Void> deleteShare(@RequestParam("shareCode") String shareCode) {
+    public Result<Void> deleteShare(@RequestParam("shareCode") String shareCode, Authentication authentication) {
         log.info("Deleting share link: {}", shareCode);
-        shareService.deleteShareLink(shareCode);
+        shareService.deleteShareLink(shareCode, authentication.getName());
         return Result.success();
     }
 
@@ -185,9 +217,8 @@ public class ShareController {
      * 获取用户的所有分享链接
      */
     @GetMapping("/list")
-    public Result<List<ShareLink>> getShareLinks(
-            @RequestParam(value = "createBy", required = false, defaultValue = "anonymous") String createBy) {
-        List<ShareLink> shareLinks = shareService.getShareLinksByUser(createBy);
+    public Result<List<ShareLink>> getShareLinks(Authentication authentication) {
+        List<ShareLink> shareLinks = shareService.getShareLinksByUser(authentication.getName());
         return Result.success(shareLinks);
     }
 }

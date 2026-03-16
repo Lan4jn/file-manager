@@ -10,6 +10,6 @@ import java.util.Optional;
 @Repository
 public interface ShareLinkRepository extends JpaRepository<ShareLink, Long> {
     Optional<ShareLink> findByShareCode(String shareCode);
-    List<ShareLink> findByCreateBy(String createBy);
+    List<ShareLink> findByCreateByOrderByCreateTimeDesc(String createBy);
     void deleteByShareCode(String shareCode);
 }

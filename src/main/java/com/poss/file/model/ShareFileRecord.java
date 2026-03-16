@@ -17,6 +17,9 @@ public class ShareFileRecord {
     private String fileName;  // 文件名（相对路径）
 
     @Column(nullable = false)
+    private String objectName;  // MinIO对象名
+
+    @Column(nullable = false)
     private String md5;  // 文件MD5码
 
     private Long fileSize;  // 文件大小
@@ -45,6 +48,14 @@ public class ShareFileRecord {
 
     public void setFileName(String fileName) {
         this.fileName = fileName;
+    }
+
+    public String getObjectName() {
+        return objectName;
+    }
+
+    public void setObjectName(String objectName) {
+        this.objectName = objectName;
     }
 
     public String getMd5() {

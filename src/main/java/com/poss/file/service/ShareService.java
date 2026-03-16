@@ -2,9 +2,10 @@ package com.poss.file.service;
 
 import cn.hutool.core.util.IdUtil;
 import cn.hutool.core.util.StrUtil;
+import cn.hutool.json.JSONUtil;
 import com.poss.file.dto.CreateShareRequest;
 import com.poss.file.model.FileInfo;
-import com.poss.file.model.ShareFileRecord;
+import com.poss.file.model.ShareAccessInfo;
 import com.poss.file.model.ShareLink;
 import com.poss.file.repository.ShareFileRecordRepository;
 import com.poss.file.repository.ShareLinkRepository;
@@ -13,14 +14,17 @@ import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Service;
 
-import java.io.*;
-import java.nio.file.Files;
-import java.nio.file.Path;
-import java.nio.file.Paths;
-import java.security.MessageDigest;
+import java.io.InputStream;
+import java.io.OutputStream;
 import java.time.LocalDateTime;
-import java.util.*;
-import java.util.stream.Collectors;
+import java.util.ArrayList;
+import java.util.Comparator;
+import java.util.HashMap;
+import java.util.LinkedHashMap;
+import java.util.List;
+import java.util.Map;
+import java.util.Objects;
+import java.util.Optional;
 import java.util.zip.ZipEntry;
 import java.util.zip.ZipOutputStream;
 
@@ -28,6 +32,8 @@ import java.util.zip.ZipOutputStream;
 public class ShareService {
 
     private static final Logger log = LoggerFactory.getLogger(ShareService.class);
+    private static final String BATCH_PREFIX = "batchjson:";
+    private static final String LEGACY_BATCH_PREFIX = "batch:";
 
     private final FileService fileService;
     private final ShareLinkRepository shareLinkRepository;
@@ -37,9 +43,6 @@ public class ShareService {
     @Value("${share.default-expiration: 24}")
     private Integer defaultExpiration;
 
-    @Value("${share.directory:./share}")
-    private String shareDirectory;
-
     public ShareService(FileService fileService, ShareLinkRepository shareLinkRepository,
                         ShareFileRecordRepository shareFileRecordRepository, ConfigService configService) {
         this.fileService = fileService;
@@ -48,9 +51,6 @@ public class ShareService {
         this.configService = configService;
     }
 
-    /**
-     * 创建分享链接
-     */
     public ShareLink createShareLink(CreateShareRequest request, String createBy) {
         String shareCode = generateShareCode();
         Integer expirationHours = request.getExpirationHours();
@@ -60,31 +60,13 @@ public class ShareService {
 
         String bucket = request.getBucket();
         String objectName = request.getObjectName();
-
-        // 判断是否是目录分享
         boolean isFolder = objectName.endsWith("/");
 
         ShareLink shareLink = new ShareLink();
         shareLink.setShareCode(shareCode);
         shareLink.setObjectName(objectName);
         shareLink.setBucket(bucket);
-
-        // 处理目录名
-        String folderName;
-        if (isFolder) {
-            // 目录：去掉末尾的斜杠，获取目录名
-            folderName = objectName;
-            if (folderName.endsWith("/")) {
-                folderName = folderName.substring(0, folderName.length() - 1);
-            }
-            int lastSlash = folderName.lastIndexOf('/');
-            if (lastSlash >= 0) {
-                folderName = folderName.substring(lastSlash + 1);
-            }
-        } else {
-            folderName = fileService.getFileInfo(objectName, bucket).getFileName();
-        }
-        shareLink.setFileName(folderName);
+        shareLink.setFileName(isFolder ? extractFolderName(objectName) : fileService.getFileInfo(objectName, bucket).getFileName());
         shareLink.setExpireTime(LocalDateTime.now().plusHours(expirationHours));
         shareLink.setCreateTime(LocalDateTime.now());
         shareLink.setCreateBy(createBy);
@@ -92,378 +74,15 @@ public class ShareService {
         shareLink.setHasPassword(StrUtil.isNotEmpty(request.getPassword()));
         shareLink.setPassword(request.getPassword());
         shareLink.setIsFolder(isFolder);
+        shareLink.setZipFileName(null);
 
-        // 如果是目录分享，需要先压缩并保存
-        if (isFolder) {
-            try {
-                // 获取目录下的所有文件
-                List<FileInfo> files = fileService.listFilesRecursive(objectName, bucket);
-
-                // 计算总大小
-                long totalSize = 0;
-                for (FileInfo file : files) {
-                    totalSize += file.getSize() != null ? file.getSize() : 0;
-                }
-
-                // 检查是否超过配置的大小限制
-                long maxSize = configService.getBatchShareMaxSize();
-                if (maxSize > 0 && totalSize > maxSize) {
-                    throw new RuntimeException("目录压缩后大小超过限制(" + formatSize(maxSize) + ")，无法分享");
-                }
-
-                // 确保share目录存在
-                File shareDir = new File(shareDirectory);
-                if (!shareDir.exists()) {
-                    shareDir.mkdirs();
-                }
-
-                // 生成压缩包文件名
-                String zipFileName = shareCode + ".zip";
-                String zipFilePath = shareDirectory + "/" + zipFileName;
-                shareLink.setZipFileName(zipFileName);
-
-                // 保存文件记录（包含MD5）
-                List<ShareFileRecord> records = new ArrayList<>();
-                LocalDateTime now = LocalDateTime.now();
-
-                // 创建压缩包
-                try (ZipOutputStream zos = new ZipOutputStream(new FileOutputStream(zipFilePath))) {
-                    byte[] buffer = new byte[8192];
-
-                    for (FileInfo file : files) {
-                        // 获取文件流
-                        InputStream is = fileService.getFileStream(file.getObjectName(), bucket);
-
-                        // 计算MD5
-                        String md5 = calculateMD5(is);
-                        is.close();
-
-                        // 重新获取流用于压缩
-                        is = fileService.getFileStream(file.getObjectName(), bucket);
-
-                        // 创建ZIP条目
-                        String entryName = file.getFileName();
-                        ZipEntry zipEntry = new ZipEntry(entryName);
-                        zos.putNextEntry(zipEntry);
-
-                        // 复制文件内容
-                        int len;
-                        while ((len = is.read(buffer)) > 0) {
-                            zos.write(buffer, 0, len);
-                        }
-
-                        zos.closeEntry();
-                        is.close();
-
-                        // 保存文件记录
-                        ShareFileRecord record = new ShareFileRecord();
-                        record.setShareCode(shareCode);
-                        record.setFileName(entryName);
-                        record.setMd5(md5);
-                        record.setFileSize(file.getSize());
-                        record.setRecordTime(now);
-                        records.add(record);
-                    }
-                }
-
-                // 保存文件记录到数据库
-                shareFileRecordRepository.saveAll(records);
-
-                log.info("Folder compressed and saved: {}", zipFilePath);
-            } catch (Exception e) {
-                log.error("Failed to compress folder: {}", objectName, e);
-                throw new RuntimeException("目录压缩失败: " + e.getMessage());
-            }
-        }
-
-        shareLink = shareLinkRepository.save(shareLink);
-
+        ShareLink saved = shareLinkRepository.save(shareLink);
         log.info("Share link created: {}", shareCode);
-        return shareLink;
+        return saved;
     }
 
-    /**
-     * 计算输入流的MD5值
-     */
-    private String calculateMD5(InputStream inputStream) throws Exception {
-        MessageDigest md = MessageDigest.getInstance("MD5");
-        byte[] buffer = new byte[8192];
-        int len;
-
-        while ((len = inputStream.read(buffer)) > 0) {
-            md.update(buffer, 0, len);
-        }
-
-        byte[] digest = md.digest();
-        StringBuilder sb = new StringBuilder();
-        for (byte b : digest) {
-            sb.append(String.format("%02x", b));
-        }
-        return sb.toString();
-    }
-
-    /**
-     * 获取share目录的路径
-     */
-    public String getShareDirectory() {
-        return shareDirectory;
-    }
-
-    /**
-     * 检查分享的压缩包是否存在
-     */
-    public boolean isZipFileExists(String shareCode) {
-        String zipFilePath = shareDirectory + "/" + shareCode + ".zip";
-        return new File(zipFilePath).exists();
-    }
-
-    /**
-     * 获取分享的压缩包文件
-     */
-    public File getZipFile(String shareCode) {
-        String zipFilePath = shareDirectory + "/" + shareCode + ".zip";
-        File zipFile = new File(zipFilePath);
-        if (zipFile.exists()) {
-            return zipFile;
-        }
-        return null;
-    }
-
-    /**
-     * 重新压缩分享目录（当压缩包不存在时）
-     * 返回是否有文件变化的警告
-     */
-    public String recompressShareFolder(String shareCode) {
-        Optional<ShareLink> optLink = shareLinkRepository.findByShareCode(shareCode);
-        if (!optLink.isPresent()) {
-            throw new RuntimeException("分享链接不存在");
-        }
-
-        ShareLink shareLink = optLink.get();
-        if (!shareLink.getIsFolder()) {
-            throw new RuntimeException("不是目录分享");
-        }
-
-        String objectName = shareLink.getObjectName();
-        String bucket = shareLink.getBucket();
-
-        // 如果是批量分享，直接从数据库记录重新压缩
-        if (objectName != null && objectName.startsWith("batch:")) {
-            return recompressBatchShare(shareCode, shareLink);
-        }
-
-        try {
-            // 获取当前目录下的所有文件
-            List<FileInfo> currentFiles = fileService.listFilesRecursive(objectName, bucket);
-            Map<String, FileInfo> currentFileMap = currentFiles.stream()
-                    .collect(Collectors.toMap(FileInfo::getFileName, f -> f));
-
-            // 获取数据库中记录的文件
-            List<ShareFileRecord> records = shareFileRecordRepository.findByShareCode(shareCode);
-            Map<String, ShareFileRecord> recordMap = records.stream()
-                    .collect(Collectors.toMap(ShareFileRecord::getFileName, r -> r));
-
-            // 检查文件变化
-            List<String> warnings = new ArrayList<>();
-
-            // 检查被删除或修改的文件
-            for (Map.Entry<String, ShareFileRecord> entry : recordMap.entrySet()) {
-                String fileName = entry.getKey();
-                ShareFileRecord record = entry.getValue();
-
-                if (!currentFileMap.containsKey(fileName)) {
-                    warnings.add("文件已删除: " + fileName);
-                } else {
-                    // 重新计算MD5比对
-                    FileInfo currentFile = currentFileMap.get(fileName);
-                    if (!Objects.equals(record.getFileSize(), currentFile.getSize())) {
-                        warnings.add("文件已修改: " + fileName);
-                    }
-                }
-            }
-
-            // 检查新增的文件
-            for (String fileName : currentFileMap.keySet()) {
-                if (!recordMap.containsKey(fileName)) {
-                    warnings.add("新增文件: " + fileName);
-                }
-            }
-
-            // 如果有警告，生成说明文件
-            boolean hasWarnings = !warnings.isEmpty();
-            String noteFileName = null;
-
-            // 确保share目录存在
-            File shareDir = new File(shareDirectory);
-            if (!shareDir.exists()) {
-                shareDir.mkdirs();
-            }
-
-            // 生成新的压缩包
-            String zipFileName = shareCode + ".zip";
-            String zipFilePath = shareDirectory + "/" + zipFileName;
-
-            // 更新文件记录
-            List<ShareFileRecord> newRecords = new ArrayList<>();
-            LocalDateTime now = LocalDateTime.now();
-
-            try (ZipOutputStream zos = new ZipOutputStream(new FileOutputStream(zipFilePath))) {
-                byte[] buffer = new byte[8192];
-
-                // 如果有警告，先添加说明文件
-                if (hasWarnings) {
-                    StringBuilder noteContent = new StringBuilder();
-                    noteContent.append("⚠️ 警告：此压缩包为重新生成，原分享的部分文件可能已变化\n");
-                    noteContent.append("====================================\n");
-                    noteContent.append("变化详情：\n");
-                    for (String warning : warnings) {
-                        noteContent.append("- ").append(warning).append("\n");
-                    }
-                    noteContent.append("====================================\n");
-                    noteContent.append("请重新获取分享链接以获取最新文件\n");
-
-                    noteFileName = "_share_warning.txt";
-                    ZipEntry noteEntry = new ZipEntry(noteFileName);
-                    zos.putNextEntry(noteEntry);
-                    zos.write(noteContent.toString().getBytes("UTF-8"));
-                    zos.closeEntry();
-                }
-
-                // 添加所有当前文件
-                for (FileInfo file : currentFiles) {
-                    InputStream is = fileService.getFileStream(file.getObjectName(), bucket);
-
-                    String entryName = file.getFileName();
-                    ZipEntry zipEntry = new ZipEntry(entryName);
-                    zos.putNextEntry(zipEntry);
-
-                    int len;
-                    while ((len = is.read(buffer)) > 0) {
-                        zos.write(buffer, 0, len);
-                    }
-
-                    zos.closeEntry();
-                    is.close();
-
-                    // 计算并保存新的MD5记录
-                    is = fileService.getFileStream(file.getObjectName(), bucket);
-                    String md5 = calculateMD5(is);
-                    is.close();
-
-                    ShareFileRecord record = new ShareFileRecord();
-                    record.setShareCode(shareCode);
-                    record.setFileName(entryName);
-                    record.setMd5(md5);
-                    record.setFileSize(file.getSize());
-                    record.setRecordTime(now);
-                    newRecords.add(record);
-                }
-            }
-
-            // 更新数据库记录
-            shareFileRecordRepository.deleteByShareCode(shareCode);
-            shareFileRecordRepository.saveAll(newRecords);
-
-            // 更新分享链接的压缩包文件名
-            shareLink.setZipFileName(zipFileName);
-            shareLinkRepository.save(shareLink);
-
-            log.info("Folder recompressed: {}", shareCode);
-
-            return hasWarnings ? String.join("\n", warnings) : null;
-        } catch (Exception e) {
-            log.error("Failed to recompress folder: {}", shareCode, e);
-            throw new RuntimeException("重新压缩失败: " + e.getMessage());
-        }
-    }
-
-    /**
-     * 重新压缩批量分享
-     */
-    private String recompressBatchShare(String shareCode, ShareLink shareLink) {
-        String bucket = shareLink.getBucket();
-
-        try {
-            // 获取数据库中记录的文件列表
-            List<ShareFileRecord> records = shareFileRecordRepository.findByShareCode(shareCode);
-
-            // 确保share目录存在
-            File shareDir = new File(shareDirectory);
-            if (!shareDir.exists()) {
-                shareDir.mkdirs();
-            }
-
-            // 生成新的压缩包
-            String zipFileName = shareCode + ".zip";
-            String zipFilePath = shareDirectory + "/" + zipFileName;
-
-            List<ShareFileRecord> newRecords = new ArrayList<>();
-            LocalDateTime now = LocalDateTime.now();
-            List<String> warnings = new ArrayList<>();
-
-            try (ZipOutputStream zos = new ZipOutputStream(new FileOutputStream(zipFilePath))) {
-                byte[] buffer = new byte[8192];
-
-                // 遍历记录中的文件，尝试添加到ZIP
-                for (ShareFileRecord record : records) {
-                    try {
-                        // 尝试从MinIO获取文件
-                        FileInfo fileInfo = fileService.getFileInfo(record.getFileName(), bucket);
-                        InputStream is = fileService.getFileStream(record.getFileName(), bucket);
-
-                        String entryName = record.getFileName();
-                        ZipEntry zipEntry = new ZipEntry(entryName);
-                        zos.putNextEntry(zipEntry);
-
-                        int len;
-                        while ((len = is.read(buffer)) > 0) {
-                            zos.write(buffer, 0, len);
-                        }
-
-                        zos.closeEntry();
-                        is.close();
-
-                        // 计算新的MD5
-                        is = fileService.getFileStream(record.getFileName(), bucket);
-                        String md5 = calculateMD5(is);
-                        is.close();
-
-                        // 更新记录
-                        ShareFileRecord newRecord = new ShareFileRecord();
-                        newRecord.setShareCode(shareCode);
-                        newRecord.setFileName(entryName);
-                        newRecord.setMd5(md5);
-                        newRecord.setFileSize(record.getFileSize());
-                        newRecord.setRecordTime(now);
-                        newRecords.add(newRecord);
-                    } catch (Exception e) {
-                        // 文件不存在，添加警告
-                        warnings.add("文件已删除或无法访问: " + record.getFileName());
-                    }
-                }
-            }
-
-            // 更新数据库记录
-            shareFileRecordRepository.deleteByShareCode(shareCode);
-            shareFileRecordRepository.saveAll(newRecords);
-
-            // 更新分享链接的压缩包文件名
-            shareLink.setZipFileName(zipFileName);
-            shareLinkRepository.save(shareLink);
-
-            log.info("Batch share recompressed: {}", shareCode);
-
-            return warnings.isEmpty() ? null : String.join("\n", warnings);
-        } catch (Exception e) {
-            log.error("Failed to recompress batch share: {}", shareCode, e);
-            throw new RuntimeException("重新压缩失败: " + e.getMessage());
-        }
-    }
-
-    /**
-     * 创建批量分享链接
-     */
-    public ShareLink createBatchShareLink(List<String> objectNames, String bucket, String createBy, Integer expirationHours) {
+    public ShareLink createBatchShareLink(List<String> objectNames, String bucket, String createBy,
+                                          Integer expirationHours, String password) {
         if (objectNames == null || objectNames.isEmpty()) {
             throw new RuntimeException("请选择要分享的文件");
         }
@@ -473,209 +92,371 @@ public class ShareService {
             expirationHours = defaultExpiration;
         }
 
-        // 获取所有文件信息并计算总大小
-        List<FileInfo> files = new ArrayList<>();
-        long totalSize = 0;
-        for (String objectName : objectNames) {
-            FileInfo fileInfo = fileService.getFileInfo(objectName, bucket);
-            files.add(fileInfo);
-            totalSize += fileInfo.getSize() != null ? fileInfo.getSize() : 0;
-        }
-
-        // 检查是否超过配置的大小限制
-        long maxSize = configService.getBatchShareMaxSize();
-        if (maxSize > 0 && totalSize > maxSize) {
-            throw new RuntimeException("批量分享压缩后大小超过限制(" + formatSize(maxSize) + ")，无法分享");
-        }
-
-        // 确保share目录存在
-        File shareDir = new File(shareDirectory);
-        if (!shareDir.exists()) {
-            shareDir.mkdirs();
-        }
-
-        // 生成压缩包文件名
-        String zipFileName = shareCode + ".zip";
-        String zipFilePath = shareDirectory + "/" + zipFileName;
-
-        // 保存文件记录（包含MD5）
-        List<ShareFileRecord> records = new ArrayList<>();
-        LocalDateTime now = LocalDateTime.now();
-
-        // 创建压缩包
-        try (ZipOutputStream zos = new ZipOutputStream(new FileOutputStream(zipFilePath))) {
-            byte[] buffer = new byte[8192];
-
-            for (FileInfo file : files) {
-                if (file.getIsFolder()) {
-                    // 如果是目录，递归获取目录下所有文件
-                    List<FileInfo> folderFiles = fileService.listFilesRecursive(file.getObjectName(), bucket);
-                    for (FileInfo subFile : folderFiles) {
-                        addFileToZip(zos, subFile, bucket, records, shareCode, now);
-                    }
-                } else {
-                    addFileToZip(zos, file, bucket, records, shareCode, now);
-                }
-            }
-        } catch (Exception e) {
-            log.error("Failed to create batch share ZIP", e);
-            throw new RuntimeException("批量分享压缩失败: " + e.getMessage());
-        }
-
-        // 保存文件记录到数据库
-        shareFileRecordRepository.saveAll(records);
-
-        // 创建分享链接
         ShareLink shareLink = new ShareLink();
         shareLink.setShareCode(shareCode);
-        shareLink.setObjectName("batch:" + String.join(",", objectNames));
+        shareLink.setObjectName(BATCH_PREFIX + JSONUtil.toJsonStr(objectNames));
         shareLink.setBucket(bucket);
-        shareLink.setFileName("批量分享_" + files.size() + "个文件");
+        shareLink.setFileName("批量分享_" + objectNames.size() + "个项目");
         shareLink.setExpireTime(LocalDateTime.now().plusHours(expirationHours));
         shareLink.setCreateTime(LocalDateTime.now());
         shareLink.setCreateBy(createBy);
         shareLink.setViewCount(0L);
-        shareLink.setIsFolder(true);  // 批量分享也视为目录类型
-        shareLink.setZipFileName(zipFileName);
+        shareLink.setHasPassword(StrUtil.isNotEmpty(password));
+        shareLink.setPassword(password);
+        shareLink.setIsFolder(true);
+        shareLink.setZipFileName(null);
 
-        shareLink = shareLinkRepository.save(shareLink);
-
+        ShareLink saved = shareLinkRepository.save(shareLink);
         log.info("Batch share link created: {}", shareCode);
-        return shareLink;
+        return saved;
     }
 
-    private void addFileToZip(ZipOutputStream zos, FileInfo file, String bucket,
-                             List<ShareFileRecord> records, String shareCode, LocalDateTime now) throws Exception {
-        InputStream is = fileService.getFileStream(file.getObjectName(), bucket);
-        String md5 = calculateMD5(is);
-        is.close();
-
-        is = fileService.getFileStream(file.getObjectName(), bucket);
-
-        String entryName = file.getFileName();
-        ZipEntry zipEntry = new ZipEntry(entryName);
-        zos.putNextEntry(zipEntry);
-
-        byte[] buffer = new byte[8192];
-        int len;
-        while ((len = is.read(buffer)) > 0) {
-            zos.write(buffer, 0, len);
-        }
-
-        zos.closeEntry();
-        is.close();
-
-        ShareFileRecord record = new ShareFileRecord();
-        record.setShareCode(shareCode);
-        record.setFileName(entryName);
-        record.setMd5(md5);
-        record.setFileSize(file.getSize());
-        record.setRecordTime(now);
-        records.add(record);
+    public ShareAccessInfo getShareAccessInfo(String shareCode) {
+        ShareLink shareLink = findValidShare(shareCode);
+        ShareAccessInfo info = new ShareAccessInfo();
+        info.setShareCode(shareLink.getShareCode());
+        info.setFileName(shareLink.getFileName());
+        info.setHasPassword(Boolean.TRUE.equals(shareLink.getHasPassword()));
+        info.setIsFolder(Boolean.TRUE.equals(shareLink.getIsFolder()));
+        info.setExpireTime(shareLink.getExpireTime());
+        return info;
     }
 
-    private String formatSize(long bytes) {
-        if (bytes < 1024) return bytes + " B";
-        if (bytes < 1024 * 1024) return String.format("%.2f KB", bytes / 1024.0);
-        if (bytes < 1024 * 1024 * 1024) return String.format("%.2f MB", bytes / (1024.0 * 1024));
-        return String.format("%.2f GB", bytes / (1024.0 * 1024 * 1024));
-    }
-
-    /**
-     * 清理过期的分享压缩包
-     */
-    public void cleanupExpiredShares() {
-        try {
-            List<ShareLink> allShares = shareLinkRepository.findAll();
-            LocalDateTime now = LocalDateTime.now();
-
-            for (ShareLink share : allShares) {
-                if (now.isAfter(share.getExpireTime()) && share.getIsFolder()) {
-                    // 删除压缩包文件
-                    if (share.getZipFileName() != null) {
-                        String zipFilePath = shareDirectory + "/" + share.getZipFileName();
-                        File zipFile = new File(zipFilePath);
-                        if (zipFile.exists()) {
-                            zipFile.delete();
-                        }
-                    }
-                    // 删除文件记录
-                    shareFileRecordRepository.deleteByShareCode(share.getShareCode());
-                }
-            }
-
-            log.info("Expired shares cleaned up");
-        } catch (Exception e) {
-            log.error("Failed to cleanup expired shares", e);
-        }
-    }
-
-    /**
-     * 获取分享信息
-     */
     public ShareLink getShareInfo(String shareCode, String password) {
-        ShareLink shareLink = shareLinkRepository.findByShareCode(shareCode)
-                .orElseThrow(() -> new RuntimeException("分享链接不存在"));
-
-        // 检查是否过期
-        if (LocalDateTime.now().isAfter(shareLink.getExpireTime())) {
-            throw new RuntimeException("分享链接已过期");
-        }
-
-        // 检查密码
-        if (shareLink.getHasPassword()) {
-            String storedPwd = shareLink.getPassword();
-            if (!password.equals(storedPwd)) {
-                throw new RuntimeException("密码错误");
-            }
-        }
-
-        // 更新浏览次数
-        shareLink.setViewCount(shareLink.getViewCount() + 1);
-        shareLinkRepository.save(shareLink);
-
-        return shareLink;
+        return resolveShare(shareCode, password, true);
     }
 
-    /**
-     * 通过分享链接获取文件信息
-     */
-    public FileInfo getFileByShareCode(String shareCode) {
-        ShareLink shareLink = shareLinkRepository.findByShareCode(shareCode)
-                .orElseThrow(() -> new RuntimeException("分享链接不存在"));
-
-        if (LocalDateTime.now().isAfter(shareLink.getExpireTime())) {
-            throw new RuntimeException("分享链接已过期");
+    public FileInfo getFileByShareCode(String shareCode, String password) {
+        ShareLink shareLink = resolveShare(shareCode, password, false);
+        if (isCollectionShare(shareLink)) {
+            FileInfo info = new FileInfo();
+            info.setObjectName(shareLink.getObjectName());
+            info.setFileName(shareLink.getFileName());
+            info.setIsFolder(true);
+            info.setSize(0L);
+            return info;
         }
-
         return fileService.getFileInfo(shareLink.getObjectName(), shareLink.getBucket());
     }
 
-    /**
-     * 验证分享链接是否有效
-     */
+    public List<FileInfo> listSharedItems(String shareCode, String password, String path) {
+        ShareLink shareLink = resolveShare(shareCode, password, false);
+        if (!isCollectionShare(shareLink)) {
+            return new ArrayList<>();
+        }
+
+        String currentPath = normalizePath(path);
+        if (isBatchShare(shareLink)) {
+            return listBatchShareItems(shareLink, currentPath);
+        }
+        return listFolderShareItems(shareLink, currentPath);
+    }
+
+    public FileInfo getSharedItemInfo(String shareCode, String password, String objectName) {
+        ShareLink shareLink = resolveShare(shareCode, password, false);
+        if (StrUtil.isBlank(objectName)) {
+            throw new RuntimeException("缺少文件路径");
+        }
+        validateObjectAccess(shareLink, objectName);
+        if (objectName.endsWith("/")) {
+            FileInfo folderInfo = new FileInfo();
+            folderInfo.setObjectName(objectName);
+            folderInfo.setFileName(extractFolderName(objectName));
+            folderInfo.setIsFolder(true);
+            folderInfo.setSize(0L);
+            return folderInfo;
+        }
+        return fileService.getFileInfo(objectName, shareLink.getBucket());
+    }
+
+    public void downloadShareAsZip(String shareCode, String password, OutputStream outputStream) {
+        ShareLink shareLink = resolveShare(shareCode, password, false);
+        if (!isCollectionShare(shareLink)) {
+            throw new RuntimeException("当前分享不是目录或批量分享");
+        }
+
+        try {
+            Map<String, FileInfo> entries = collectShareDownloadEntries(shareLink);
+            long totalSize = 0L;
+            for (FileInfo fileInfo : entries.values()) {
+                totalSize += fileInfo.getSize() != null ? fileInfo.getSize() : 0L;
+            }
+
+            long maxSize = configService.getBatchDownloadMaxSize();
+            if (maxSize > 0 && totalSize > maxSize) {
+                throw new RuntimeException("分享内容压缩后大小超过限制(" + formatSize(maxSize) + ")，无法下载");
+            }
+
+            try (ZipOutputStream zos = new ZipOutputStream(outputStream)) {
+                byte[] buffer = new byte[8192];
+                for (Map.Entry<String, FileInfo> entry : entries.entrySet()) {
+                    try (InputStream inputStream = fileService.getFileStream(entry.getValue().getObjectName(), shareLink.getBucket())) {
+                        zos.putNextEntry(new ZipEntry(entry.getKey()));
+                        int len;
+                        while ((len = inputStream.read(buffer)) > 0) {
+                            zos.write(buffer, 0, len);
+                        }
+                        zos.closeEntry();
+                    }
+                }
+                zos.finish();
+            }
+        } catch (RuntimeException e) {
+            throw e;
+        } catch (Exception e) {
+            log.error("Failed to download share as zip: {}", shareCode, e);
+            throw new RuntimeException("打包分享内容失败: " + e.getMessage());
+        }
+    }
+
+    public String getShareArchiveName(String shareCode, String password) {
+        ShareLink shareLink = resolveShare(shareCode, password, false);
+        String fileName = StrUtil.blankToDefault(shareLink.getFileName(), "share");
+        return fileName + ".zip";
+    }
+
     public boolean validateShareCode(String shareCode) {
         Optional<ShareLink> shareLink = shareLinkRepository.findByShareCode(shareCode);
         return shareLink.isPresent() && !LocalDateTime.now().isAfter(shareLink.get().getExpireTime());
     }
 
-    /**
-     * 删除分享链接
-     */
-    public void deleteShareLink(String shareCode) {
-        shareLinkRepository.deleteByShareCode(shareCode);
+    public void deleteShareLink(String shareCode, String createBy) {
+        ShareLink shareLink = shareLinkRepository.findByShareCode(shareCode)
+                .orElseThrow(() -> new RuntimeException("分享链接不存在"));
+        if (!Objects.equals(shareLink.getCreateBy(), createBy)) {
+            throw new RuntimeException("无权删除该分享");
+        }
+        shareFileRecordRepository.deleteByShareCode(shareCode);
+        shareLinkRepository.delete(shareLink);
         log.info("Share link deleted: {}", shareCode);
     }
 
-    /**
-     * 获取当前用户的所有分享链接
-     */
     public List<ShareLink> getShareLinksByUser(String createBy) {
-        return shareLinkRepository.findByCreateBy(createBy);
+        return shareLinkRepository.findByCreateByOrderByCreateTimeDesc(createBy);
+    }
+
+    public void cleanupExpiredShares() {
+        log.info("Share cleanup skipped: modern share mode no longer stores ZIP archives");
+    }
+
+    private List<FileInfo> listFolderShareItems(ShareLink shareLink, String path) {
+        String root = ensureTrailingSlash(shareLink.getObjectName());
+        String targetPath = StrUtil.isBlank(path) ? root : ensureTrailingSlash(path);
+        if (!targetPath.startsWith(root)) {
+            throw new RuntimeException("访问路径不合法");
+        }
+        return sortShareItems(fileService.listFiles(targetPath, shareLink.getBucket(), "name", "asc"));
+    }
+
+    private List<FileInfo> listBatchShareItems(ShareLink shareLink, String path) {
+        List<String> roots = parseBatchRoots(shareLink.getObjectName());
+        if (StrUtil.isBlank(path)) {
+            List<FileInfo> rootItems = new ArrayList<>();
+            for (String root : roots) {
+                rootItems.add(buildRootEntry(shareLink.getBucket(), root));
+            }
+            return sortShareItems(rootItems);
+        }
+
+        validateObjectAccess(shareLink, path);
+        if (!path.endsWith("/")) {
+            throw new RuntimeException("当前路径不是目录");
+        }
+        return sortShareItems(fileService.listFiles(path, shareLink.getBucket(), "name", "asc"));
+    }
+
+    private FileInfo buildRootEntry(String bucket, String objectName) {
+        if (objectName.endsWith("/")) {
+            FileInfo fileInfo = new FileInfo();
+            fileInfo.setObjectName(objectName);
+            fileInfo.setFileName(extractFolderName(objectName));
+            fileInfo.setIsFolder(true);
+            fileInfo.setSize(0L);
+            return fileInfo;
+        }
+        return fileService.getFileInfo(objectName, bucket);
+    }
+
+    private void validateObjectAccess(ShareLink shareLink, String objectName) {
+        if (isBatchShare(shareLink)) {
+            for (String root : parseBatchRoots(shareLink.getObjectName())) {
+                if (Objects.equals(root, objectName)) {
+                    return;
+                }
+                if (root.endsWith("/") && objectName.startsWith(root)) {
+                    return;
+                }
+            }
+            throw new RuntimeException("访问路径不在分享范围内");
+        }
+
+        if (!isCollectionShare(shareLink)) {
+            if (!Objects.equals(shareLink.getObjectName(), objectName)) {
+                throw new RuntimeException("访问路径不在分享范围内");
+            }
+            return;
+        }
+
+        String root = ensureTrailingSlash(shareLink.getObjectName());
+        String normalized = objectName.endsWith("/") ? objectName : objectName;
+        if (!normalized.startsWith(root)) {
+            throw new RuntimeException("访问路径不在分享范围内");
+        }
+    }
+
+    private boolean isCollectionShare(ShareLink shareLink) {
+        return Boolean.TRUE.equals(shareLink.getIsFolder());
+    }
+
+    private Map<String, FileInfo> collectShareDownloadEntries(ShareLink shareLink) {
+        Map<String, FileInfo> entries = new LinkedHashMap<>();
+        if (isBatchShare(shareLink)) {
+            for (String root : parseBatchRoots(shareLink.getObjectName())) {
+                if (root.endsWith("/")) {
+                    List<FileInfo> files = fileService.listFilesRecursive(root, shareLink.getBucket());
+                    String rootName = extractFolderName(root);
+                    for (FileInfo fileInfo : files) {
+                        String entryName = rootName + "/" + fileInfo.getFileName();
+                        putUniqueEntry(entries, entryName, fileInfo);
+                    }
+                } else {
+                    FileInfo fileInfo = fileService.getFileInfo(root, shareLink.getBucket());
+                    putUniqueEntry(entries, fileInfo.getFileName(), fileInfo);
+                }
+            }
+            return entries;
+        }
+
+        String root = ensureTrailingSlash(shareLink.getObjectName());
+        List<FileInfo> files = fileService.listFilesRecursive(root, shareLink.getBucket());
+        for (FileInfo fileInfo : files) {
+            putUniqueEntry(entries, fileInfo.getFileName(), fileInfo);
+        }
+        return entries;
+    }
+
+    private void putUniqueEntry(Map<String, FileInfo> entries, String entryName, FileInfo fileInfo) {
+        String candidate = entryName;
+        int index = 1;
+        while (entries.containsKey(candidate)) {
+            candidate = appendSuffix(entryName, index++);
+        }
+        entries.put(candidate, fileInfo);
+    }
+
+    private String appendSuffix(String entryName, int index) {
+        int slash = entryName.lastIndexOf('/');
+        String prefix = slash >= 0 ? entryName.substring(0, slash + 1) : "";
+        String fileName = slash >= 0 ? entryName.substring(slash + 1) : entryName;
+        int dot = fileName.lastIndexOf('.');
+        if (dot <= 0) {
+            return prefix + fileName + " (" + index + ")";
+        }
+        return prefix + fileName.substring(0, dot) + " (" + index + ")" + fileName.substring(dot);
+    }
+
+    private boolean isBatchShare(ShareLink shareLink) {
+        String objectName = shareLink.getObjectName();
+        return objectName != null && (objectName.startsWith(BATCH_PREFIX) || objectName.startsWith(LEGACY_BATCH_PREFIX));
+    }
+
+    private List<String> parseBatchRoots(String storedValue) {
+        if (storedValue == null) {
+            return new ArrayList<>();
+        }
+        if (storedValue.startsWith(BATCH_PREFIX)) {
+            return JSONUtil.toList(storedValue.substring(BATCH_PREFIX.length()), String.class);
+        }
+        if (storedValue.startsWith(LEGACY_BATCH_PREFIX)) {
+            String raw = storedValue.substring(LEGACY_BATCH_PREFIX.length());
+            List<String> result = new ArrayList<>();
+            if (StrUtil.isNotBlank(raw)) {
+                for (String item : raw.split(",")) {
+                    if (StrUtil.isNotBlank(item)) {
+                        result.add(item);
+                    }
+                }
+            }
+            return result;
+        }
+        return new ArrayList<>();
+    }
+
+    private ShareLink resolveShare(String shareCode, String password, boolean incrementView) {
+        ShareLink shareLink = findValidShare(shareCode);
+        if (Boolean.TRUE.equals(shareLink.getHasPassword())) {
+            if (StrUtil.isBlank(password)) {
+                throw new RuntimeException("请输入提取码");
+            }
+            if (!Objects.equals(password, shareLink.getPassword())) {
+                throw new RuntimeException("提取码错误");
+            }
+        }
+
+        if (incrementView) {
+            shareLink.setViewCount((shareLink.getViewCount() == null ? 0L : shareLink.getViewCount()) + 1);
+            shareLinkRepository.save(shareLink);
+        }
+        return shareLink;
+    }
+
+    private ShareLink findValidShare(String shareCode) {
+        ShareLink shareLink = shareLinkRepository.findByShareCode(shareCode)
+                .orElseThrow(() -> new RuntimeException("分享链接不存在"));
+        if (LocalDateTime.now().isAfter(shareLink.getExpireTime())) {
+            throw new RuntimeException("分享链接已过期");
+        }
+        return shareLink;
+    }
+
+    private List<FileInfo> sortShareItems(List<FileInfo> items) {
+        items.sort(new Comparator<FileInfo>() {
+            @Override
+            public int compare(FileInfo a, FileInfo b) {
+                boolean aFolder = Boolean.TRUE.equals(a.getIsFolder());
+                boolean bFolder = Boolean.TRUE.equals(b.getIsFolder());
+                if (aFolder != bFolder) {
+                    return aFolder ? -1 : 1;
+                }
+                String aName = a.getFileName() == null ? "" : a.getFileName();
+                String bName = b.getFileName() == null ? "" : b.getFileName();
+                return aName.compareToIgnoreCase(bName);
+            }
+        });
+        return items;
+    }
+
+    private String normalizePath(String path) {
+        if (StrUtil.isBlank(path)) {
+            return "";
+        }
+        return path.startsWith("/") ? path.substring(1) : path;
+    }
+
+    private String ensureTrailingSlash(String path) {
+        return path.endsWith("/") ? path : path + "/";
+    }
+
+    private String extractFolderName(String objectName) {
+        String normalized = objectName.endsWith("/") ? objectName.substring(0, objectName.length() - 1) : objectName;
+        int lastSlash = normalized.lastIndexOf('/');
+        return lastSlash >= 0 ? normalized.substring(lastSlash + 1) : normalized;
     }
 
     private String generateShareCode() {
-        // 生成8位随机分享码
         return IdUtil.fastSimpleUUID().substring(0, 8).toUpperCase();
+    }
+
+    private String formatSize(long bytes) {
+        if (bytes < 1024) {
+            return bytes + " B";
+        }
+        if (bytes < 1024 * 1024) {
+            return String.format("%.2f KB", bytes / 1024.0);
+        }
+        if (bytes < 1024L * 1024 * 1024) {
+            return String.format("%.2f MB", bytes / (1024.0 * 1024));
+        }
+        return String.format("%.2f GB", bytes / (1024.0 * 1024 * 1024));
     }
 }

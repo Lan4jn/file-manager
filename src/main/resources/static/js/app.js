@@ -60,6 +60,7 @@ const app = createApp({
         const uploading = ref(false);
         const showFolderDialog = ref(false);
         const showShareDialog = ref(false);
+        const showBatchShareDialog = ref(false);
         const showUserDialog = ref(false);
         const showRoleDialog = ref(false);
         const showMinioKeyDialog = ref(false);
@@ -74,6 +75,7 @@ const app = createApp({
         const newFolderName = ref('');
         const createTestFile = ref(false);
         const shareForm = ref({ objectName: '', expirationHours: 24, password: '' });
+        const batchShareForm = ref({ expirationHours: 24, password: '' });
         const userForm = ref({});
         const roleForm = ref({});
         const minioKeyForm = ref({
@@ -201,6 +203,36 @@ const app = createApp({
             }
             return currentBucket.value + ' / ' + currentFolder.value;
         });
+
+        const copyText = async (text) => {
+            if (!text) {
+                throw new Error('复制内容为空');
+            }
+
+            if (navigator.clipboard && window.isSecureContext) {
+                await navigator.clipboard.writeText(text);
+                return;
+            }
+
+            const textarea = document.createElement('textarea');
+            textarea.value = text;
+            textarea.setAttribute('readonly', 'readonly');
+            textarea.style.position = 'fixed';
+            textarea.style.left = '-9999px';
+            textarea.style.top = '0';
+            document.body.appendChild(textarea);
+            textarea.focus();
+            textarea.select();
+
+            try {
+                const copied = document.execCommand('copy');
+                if (!copied) {
+                    throw new Error('当前环境不支持自动复制');
+                }
+            } finally {
+                document.body.removeChild(textarea);
+            }
+        };
 
         const uploadUrl = computed(() => '/api/file/upload');
         const uploadHeaders = computed(() => ({
@@ -728,23 +760,41 @@ const app = createApp({
                 ElementPlus.ElMessage.warning('请先选择要分享的文件');
                 return;
             }
+            batchShareForm.value = {
+                expirationHours: shareConfig.value.expireHours || 24,
+                password: ''
+            };
+            showBatchShareDialog.value = true;
+        };
+
+        const createBatchShare = async () => {
             try {
                 const objectNames = selectedFiles.value.map(f => f.objectName);
                 const res = await api.post('/share/batch-create', {
                     objectNames: objectNames,
                     bucket: currentBucket.value,
-                    expirationHours: 24
+                    expirationHours: batchShareForm.value.expirationHours,
+                    password: batchShareForm.value.password
                 });
                 if (res.code === 200) {
-                    ElementPlus.ElMessage.success('分享创建成功（仅分享当前选择的内容）');
-                    // Copy share link
+                    ElementPlus.ElMessage.success('分享创建成功');
                     const link = window.location.origin + '/share/' + res.data.shareCode;
-                    navigator.clipboard.writeText(link);
-                    ElementPlus.ElMessage.info('分享链接已复制到剪贴板');
+                    try {
+                        await copyText(link);
+                        ElementPlus.ElMessage.info('分享链接已复制到剪贴板');
+                    } catch (copyError) {
+                        ElementPlus.ElMessage.warning('分享已创建，但自动复制失败：' + copyError.message);
+                    }
+                    showBatchShareDialog.value = false;
                 }
             } catch (error) {
                 ElementPlus.ElMessage.error('创建分享失败: ' + (error.response?.data?.message || error.message));
             }
+        };
+
+        const batchDownloadFromDialog = async () => {
+            showBatchShareDialog.value = false;
+            await batchDownload();
         };
 
         // Batch download
@@ -852,9 +902,16 @@ const app = createApp({
                 if (res.code === 200) {
                     let successMsg = '分享创建成功';
                     if (shareForm.value.isFolder) {
-                        successMsg += '（仅分享当前目录的文件状态）';
+                        successMsg += '（支持在线浏览当前目录内容）';
                     }
                     ElementPlus.ElMessage.success(successMsg);
+                    const link = window.location.origin + '/share/' + res.data.shareCode;
+                    try {
+                        await copyText(link);
+                        ElementPlus.ElMessage.info('分享链接已复制到剪贴板');
+                    } catch (copyError) {
+                        ElementPlus.ElMessage.warning('分享已创建，但自动复制失败：' + copyError.message);
+                    }
                     showShareDialog.value = false;
                 }
             } catch (error) {
@@ -1003,7 +1060,16 @@ const app = createApp({
             try {
                 const res = await api.get('/share/list');
                 if (res.code === 200) {
-                    shareList.value = res.data || [];
+                    shareList.value = (res.data || []).map(item => ({
+                        ...item,
+                        createTimeText: formatDateTime(item.createTime),
+                        expireTimeText: formatDateTime(item.expireTime),
+                        hasPasswordText: item.hasPassword ? '有密码' : '公开访问',
+                        shareUrl: window.location.origin + '/share/' + item.shareCode,
+                        shareItems: [],
+                        shareItemsLoaded: false,
+                        shareItemsLoading: false
+                    }));
                 }
             } catch (error) {
                 ElementPlus.ElMessage.error('加载分享列表失败');
@@ -1014,8 +1080,13 @@ const app = createApp({
 
         const copyShareLink = (share) => {
             const link = window.location.origin + '/share/' + share.shareCode;
-            navigator.clipboard.writeText(link);
-            ElementPlus.ElMessage.success('链接已复制到剪贴板');
+            copyText(link)
+                .then(() => {
+                    ElementPlus.ElMessage.success('链接已复制到剪贴板');
+                })
+                .catch((error) => {
+                    ElementPlus.ElMessage.error('复制失败: ' + error.message);
+                });
         };
 
         const deleteShare = async (share) => {
@@ -1032,8 +1103,39 @@ const app = createApp({
                 }
             } catch (error) {
                 if (error !== 'cancel') {
-                    ElementPlus.ElMessage.error('删除失败');
+                    ElementPlus.ElMessage.error('删除失败: ' + (error.response?.data?.message || error.message));
                 }
+            }
+        };
+
+        const loadShareItemsForManage = async (share) => {
+            if (!share || share.shareItemsLoading || share.shareItemsLoaded || !share.isFolder) {
+                return;
+            }
+            share.shareItemsLoading = true;
+            try {
+                const res = await api.get('/share/items', {
+                    params: {
+                        shareCode: share.shareCode,
+                        password: share.password || ''
+                    }
+                });
+                if (res.code === 200) {
+                    share.shareItems = res.data || [];
+                    share.shareItemsLoaded = true;
+                }
+            } catch (error) {
+                share.shareItems = [];
+                ElementPlus.ElMessage.error('加载分享内容失败: ' + (error.response?.data?.message || error.message));
+            } finally {
+                share.shareItemsLoading = false;
+            }
+        };
+
+        const handleShareExpand = (row, expandedRows) => {
+            const expanded = (expandedRows || []).some(item => item.shareCode === row.shareCode);
+            if (expanded) {
+                loadShareItemsForManage(row);
             }
         };
 
@@ -1302,6 +1404,21 @@ const app = createApp({
             return bytes.toFixed(2) + ' ' + units[i];
         };
 
+        const formatDateTime = (value) => {
+            if (!value) return '-';
+            const date = new Date(value);
+            if (Number.isNaN(date.getTime())) {
+                return value;
+            }
+            const pad = (num) => String(num).padStart(2, '0');
+            return date.getFullYear() + '-' +
+                pad(date.getMonth() + 1) + '-' +
+                pad(date.getDate()) + ' ' +
+                pad(date.getHours()) + ':' +
+                pad(date.getMinutes()) + ':' +
+                pad(date.getSeconds());
+        };
+
         // Load system help
         const loadSystemHelp = async () => {
             try {
@@ -1419,6 +1536,7 @@ const app = createApp({
             uploadRef,
             showFolderDialog,
             showShareDialog,
+            showBatchShareDialog,
             showUserDialog,
             showRoleDialog,
             showMinioKeyDialog,
@@ -1437,6 +1555,7 @@ const app = createApp({
             newFolderName,
             createTestFile,
             shareForm,
+            batchShareForm,
             userForm,
             roleForm,
             shareList,
@@ -1485,7 +1604,9 @@ const app = createApp({
             previewFile,
             deleteFile,
             batchShare,
+            createBatchShare,
             batchDownload,
+            batchDownloadFromDialog,
             batchDelete,
             createFolder,
             shareFile,
@@ -1500,6 +1621,7 @@ const app = createApp({
             uploading,
             copyShareLink,
             deleteShare,
+            handleShareExpand,
             editUser,
             saveUser,
             deleteUser,
@@ -1513,7 +1635,8 @@ const app = createApp({
             saveFileConfig,
             loadShareConfig,
             saveShareConfig,
-            formatSize
+            formatSize,
+            formatDateTime
         };
     }
 });

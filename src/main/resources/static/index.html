@@ -348,10 +348,42 @@
                                 <el-icon class="inline-help"><QuestionFilled /></el-icon>
                             </el-tooltip>
                         </div>
-                        <el-table :data="shareList" v-loading="shareLoading">
+                        <el-table :data="shareList" v-loading="shareLoading" @expand-change="handleShareExpand">
+                            <el-table-column type="expand" width="54">
+                                <template #default="{ row }">
+                                    <div style="padding: 8px 16px; display: grid; grid-template-columns: 360px 1fr; gap: 24px; align-items: start;">
+                                        <div style="line-height: 1.9;">
+                                            <div><strong>分享链接：</strong>{{ row.shareUrl }}</div>
+                                            <div><strong>分享时间：</strong>{{ row.createTimeText }}</div>
+                                            <div><strong>过期时间：</strong>{{ row.expireTimeText }}</div>
+                                            <div><strong>访问方式：</strong>{{ row.hasPasswordText }}</div>
+                                            <div><strong>浏览次数：</strong>{{ row.viewCount || 0 }}</div>
+                                        </div>
+                                        <div>
+                                            <div style="font-weight: 600; margin-bottom: 10px;">分享内容</div>
+                                            <div v-if="!row.isFolder" style="color: #606266;">单文件分享，无额外目录结构。</div>
+                                            <div v-else-if="row.shareItemsLoading" style="color: #909399;">正在加载分享内容...</div>
+                                            <div v-else-if="!row.shareItems.length" style="color: #909399;">当前分享没有可展示的根目录内容。</div>
+                                            <div v-else style="display: flex; flex-wrap: wrap; gap: 10px;">
+                                                <el-tag
+                                                    v-for="item in row.shareItems"
+                                                    :key="item.objectName"
+                                                    :type="item.isFolder ? 'warning' : 'info'"
+                                                    effect="plain"
+                                                    size="large"
+                                                >
+                                                    {{ item.isFolder ? '目录' : '文件' }} / {{ item.fileName }}
+                                                </el-tag>
+                                            </div>
+                                        </div>
+                                    </div>
+                                </template>
+                            </el-table-column>
                             <el-table-column prop="fileName" label="文件名"></el-table-column>
                             <el-table-column prop="shareCode" label="分享码"></el-table-column>
-                            <el-table-column prop="expireTime" label="过期时间"></el-table-column>
+                            <el-table-column prop="createTimeText" label="分享时间" width="180"></el-table-column>
+                            <el-table-column prop="expireTimeText" label="过期时间" width="180"></el-table-column>
+                            <el-table-column prop="hasPasswordText" label="访问方式" width="110"></el-table-column>
                             <el-table-column prop="viewCount" label="浏览次数"></el-table-column>
                             <el-table-column label="操作" width="200">
                                 <template #default="{ row }">
@@ -672,6 +704,32 @@
                 <el-button @click="showShareDialog = false">取消</el-button>
                 <el-button type="primary" @click="createShare">创建分享</el-button>
             </template>
+        </el-dialog>
+
+        <el-dialog v-model="showBatchShareDialog" title="批量分享" width="500px">
+            <el-alert
+                :title="'已选中 ' + selectedFiles.length + ' 个文件/文件夹'"
+                type="info"
+                :closable="false"
+                style="margin-bottom: 16px;"
+            />
+            <el-form :model="batchShareForm">
+                <el-form-item label="有效期">
+                    <el-select v-model="batchShareForm.expirationHours" placeholder="选择有效期" style="width: 100%">
+                        <el-option label="24小时" :value="24"></el-option>
+                        <el-option label="7天" :value="168"></el-option>
+                        <el-option label="30天" :value="720"></el-option>
+                    </el-select>
+                </el-form-item>
+                <el-form-item label="密码(可选)">
+                    <el-input v-model="batchShareForm.password" type="password" placeholder="留空则无需密码"></el-input>
+                </el-form-item>
+            </el-form>
+            <div style="display: flex; justify-content: flex-end; gap: 12px; flex-wrap: wrap; margin-top: 20px;">
+                <el-button @click="showBatchShareDialog = false">取消</el-button>
+                <el-button type="success" plain @click="batchDownloadFromDialog">批量下载</el-button>
+                <el-button type="primary" @click="createBatchShare">创建分享</el-button>
+            </div>
         </el-dialog>
 
         <!-- User Dialog -->
