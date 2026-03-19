@@ -10,9 +10,6 @@ import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
-import java.nio.charset.StandardCharsets;
-import java.security.MessageDigest;
-import java.util.ArrayList;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Set;
@@ -29,23 +26,6 @@ public class UserService {
 
     @Autowired
     private PasswordEncoder passwordEncoder;
-
-    // SHA512 加密
-    private String sha512(String input) {
-        try {
-            MessageDigest md = MessageDigest.getInstance("SHA-512");
-            byte[] hash = md.digest(input.getBytes(StandardCharsets.UTF_8));
-            StringBuilder hexString = new StringBuilder();
-            for (byte b : hash) {
-                String hex = Integer.toHexString(0xff & b);
-                if (hex.length() == 1) hexString.append('0');
-                hexString.append(hex);
-            }
-            return hexString.toString();
-        } catch (Exception e) {
-            throw new RuntimeException(e);
-        }
-    }
 
     public List<UserDTO> getAllUsers() {
         List<User> users = userRepository.findAll();
@@ -65,7 +45,7 @@ public class UserService {
 
         User user = new User();
         user.setUsername(userDTO.getUsername());
-        user.setPassword(sha512(userDTO.getNickname())); // 临时密码
+        user.setPassword(passwordEncoder.encode(userDTO.getNickname())); // 临时密码
         user.setNickname(userDTO.getNickname());
         user.setEmail(userDTO.getEmail());
         user.setPhone(userDTO.getPhone());
@@ -125,12 +105,11 @@ public class UserService {
                 .orElseThrow(() -> new RuntimeException("用户不存在"));
 
         // 验证原密码
-        String hashedOld = sha512(oldPassword);
-        if (!hashedOld.equals(user.getPassword())) {
+        if (!passwordEncoder.matches(oldPassword, user.getPassword())) {
             throw new RuntimeException("原密码错误");
         }
 
-        user.setPassword(sha512(newPassword));
+        user.setPassword(passwordEncoder.encode(newPassword));
         userRepository.save(user);
     }
 

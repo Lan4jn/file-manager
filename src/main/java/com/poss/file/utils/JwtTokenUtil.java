@@ -29,10 +29,10 @@ public class JwtTokenUtil {
         claims.put("userId", userId);
         claims.put("roles", roles);
         return Jwts.builder()
-                .setClaims(claims)
-                .setSubject(username)
-                .setIssuedAt(new Date())
-                .setExpiration(new Date(System.currentTimeMillis() + expiration))
+                .claims(claims)
+                .subject(username)
+                .issuedAt(new Date())
+                .expiration(new Date(System.currentTimeMillis() + expiration))
                 .signWith(getSigningKey())
                 .compact();
     }
@@ -42,11 +42,11 @@ public class JwtTokenUtil {
     }
 
     public Long getUserIdFromToken(String token) {
-        return (Long) getClaimsFromToken(token).get("userId");
+        return getClaimsFromToken(token).get("userId", Long.class);
     }
 
     public String getRolesFromToken(String token) {
-        return (String) getClaimsFromToken(token).get("roles");
+        return getClaimsFromToken(token).get("roles", String.class);
     }
 
     public boolean validateToken(String token) {
@@ -59,11 +59,11 @@ public class JwtTokenUtil {
     }
 
     private Claims getClaimsFromToken(String token) {
-        return Jwts.parserBuilder()
-                .setSigningKey(getSigningKey())
+        return Jwts.parser()
+                .verifyWith(getSigningKey())
                 .build()
-                .parseClaimsJws(token)
-                .getBody();
+                .parseSignedClaims(token)
+                .getPayload();
     }
 
     private boolean isTokenExpired(String token) {

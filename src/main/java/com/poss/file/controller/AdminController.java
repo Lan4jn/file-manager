@@ -10,7 +10,6 @@ import com.poss.file.service.PermissionService;
 import com.poss.file.service.RoleService;
 import com.poss.file.service.UserService;
 import org.springframework.beans.factory.annotation.Autowired;
-import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.web.bind.annotation.*;
 
 import java.util.Arrays;
@@ -36,9 +35,6 @@ public class AdminController {
 
     @Autowired
     private ConfigService configService;
-
-    @Autowired
-    private PasswordEncoder passwordEncoder;
 
     // ==================== User Management ====================
 

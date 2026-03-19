@@ -9,9 +9,6 @@ import org.springframework.core.io.FileSystemResource;
 
 import java.io.File;
 import java.io.IOException;
-import java.io.InputStreamReader;
-import java.nio.charset.StandardCharsets;
-import java.nio.file.Files;
 import java.net.URL;
 import java.util.LinkedHashMap;
 import java.util.Map;
@@ -40,7 +37,7 @@ public class ExternalConfigProcessor implements EnvironmentPostProcessor {
 
         Map<String, Object> properties = new LinkedHashMap<>();
 
-        // 1. 先加载默认配置，优先 YAML，不存在时回退到 properties
+        // 1. 先加载默认配置（YAML）
         loadPreferredConfig(properties, jarPath, "application", false);
 
         // 2. 再加载环境特定配置，覆盖默认配置
@@ -57,8 +54,6 @@ public class ExternalConfigProcessor implements EnvironmentPostProcessor {
         File configDir = new File(jarPath, "config");
         File yamlFile = new File(configDir, baseName + ".yml");
         File yamlAltFile = new File(configDir, baseName + ".yaml");
-        File propertiesFile = new File(configDir, baseName + ".properties");
-
         if (yamlFile.exists()) {
             loadConfigFile(result, yamlFile, isEnvConfig);
             return;
@@ -66,11 +61,6 @@ public class ExternalConfigProcessor implements EnvironmentPostProcessor {
 
         if (yamlAltFile.exists()) {
             loadConfigFile(result, yamlAltFile, isEnvConfig);
-            return;
-        }
-
-        if (propertiesFile.exists()) {
-            loadConfigFile(result, propertiesFile, isEnvConfig);
         }
     }
 
@@ -80,9 +70,6 @@ public class ExternalConfigProcessor implements EnvironmentPostProcessor {
             if (fileName.endsWith(".yml") || fileName.endsWith(".yaml")) {
                 loadYamlFile(result, configFile);
                 System.out.println("[ExternalConfig] Loaded " + (isEnvConfig ? "env" : "default") + " YAML config from: " + configFile.getAbsolutePath());
-            } else if (fileName.endsWith(".properties")) {
-                loadPropertiesFile(result, configFile);
-                System.out.println("[ExternalConfig] Loaded " + (isEnvConfig ? "env" : "default") + " properties config from: " + configFile.getAbsolutePath());
             }
         } catch (IOException | RuntimeException e) {
             System.err.println("[ExternalConfig] Failed to load config from " + configFile.getAbsolutePath() + ": " + e.getMessage());
@@ -98,16 +85,6 @@ public class ExternalConfigProcessor implements EnvironmentPostProcessor {
         }
         for (String key : yamlProperties.stringPropertyNames()) {
             result.put(key, yamlProperties.getProperty(key));
-        }
-    }
-
-    private void loadPropertiesFile(Map<String, Object> result, File file) throws IOException {
-        Properties props = new Properties();
-        try (InputStreamReader reader = new InputStreamReader(Files.newInputStream(file.toPath()), StandardCharsets.UTF_8)) {
-            props.load(reader);
-            for (String key : props.stringPropertyNames()) {
-                result.put(key, props.getProperty(key));
-            }
         }
     }
 

@@ -7,15 +7,11 @@ import com.poss.file.utils.JwtTokenUtil;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Autowired;
-import org.springframework.security.authentication.AuthenticationManager;
-import org.springframework.security.authentication.UsernamePasswordAuthenticationToken;
 import org.springframework.security.core.Authentication;
 import org.springframework.security.core.context.SecurityContextHolder;
 import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.web.bind.annotation.*;
 
-import java.nio.charset.StandardCharsets;
-import java.security.MessageDigest;
 import java.util.HashMap;
 import java.util.Map;
 
@@ -26,9 +22,6 @@ public class AuthController {
     private static final Logger log = LoggerFactory.getLogger(AuthController.class);
 
     @Autowired
-    private AuthenticationManager authenticationManager;
-
-    @Autowired
     private JwtTokenUtil jwtTokenUtil;
 
     @Autowired
@@ -36,23 +29,6 @@ public class AuthController {
 
     @Autowired
     private PasswordEncoder passwordEncoder;
-
-    // SHA512 加密
-    private String sha512(String input) {
-        try {
-            MessageDigest md = MessageDigest.getInstance("SHA-512");
-            byte[] hash = md.digest(input.getBytes(StandardCharsets.UTF_8));
-            StringBuilder hexString = new StringBuilder();
-            for (byte b : hash) {
-                String hex = Integer.toHexString(0xff & b);
-                if (hex.length() == 1) hexString.append('0');
-                hexString.append(hex);
-            }
-            return hexString.toString();
-        } catch (Exception e) {
-            throw new RuntimeException(e);
-        }
-    }
 
     @PostMapping("/login")
     public Result<Map<String, Object>> login(@RequestBody Map<String, String> loginRequest) {
@@ -63,8 +39,6 @@ public class AuthController {
         try {
             // 解码 base64 密码
             String decodedPassword = new String(java.util.Base64.getDecoder().decode(encodedPassword), java.nio.charset.StandardCharsets.UTF_8);
-            // 对解码后的密码进行 SHA-512 哈希
-            String hashedPassword = sha512(decodedPassword);
 
             User user = userRepository.findByUsername(username).orElse(null);
             log.info("User found: {}", user != null);
@@ -73,7 +47,7 @@ public class AuthController {
             }
 
             // 验证密码
-            boolean matches = hashedPassword.equals(user.getPassword());
+            boolean matches = passwordEncoder.matches(decodedPassword, user.getPassword());
             log.info("[DEBUG] Password matches: " + matches + " for user: " + username);
             if (!matches) {
                 return Result.error("用户名或密码错误");
@@ -115,11 +89,10 @@ public class AuthController {
         try {
             // 解码 base64 密码并哈希
             String decodedPassword = new String(java.util.Base64.getDecoder().decode(encodedPassword), java.nio.charset.StandardCharsets.UTF_8);
-            String hashedPassword = sha512(decodedPassword);
 
             User user = new User();
             user.setUsername(username);
-            user.setPassword(hashedPassword);
+            user.setPassword(passwordEncoder.encode(decodedPassword));
             user.setNickname(username);
             user.setCreateTime(System.currentTimeMillis());
             user.setEnabled(true);

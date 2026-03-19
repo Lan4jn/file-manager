@@ -4,15 +4,13 @@ import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 import org.springframework.security.authentication.AuthenticationManager;
-import org.springframework.security.config.annotation.authentication.builders.AuthenticationManagerBuilder;
-import org.springframework.security.config.annotation.method.configuration.EnableGlobalMethodSecurity;
+import org.springframework.security.config.annotation.authentication.configuration.AuthenticationConfiguration;
+import org.springframework.security.config.annotation.method.configuration.EnableMethodSecurity;
 import org.springframework.security.config.annotation.web.builders.HttpSecurity;
 import org.springframework.security.config.annotation.web.configuration.EnableWebSecurity;
-import org.springframework.security.config.annotation.web.configuration.WebSecurityConfigurerAdapter;
 import org.springframework.security.config.http.SessionCreationPolicy;
-import org.springframework.security.core.userdetails.UserDetailsService;
-import org.springframework.security.crypto.bcrypt.BCryptPasswordEncoder;
 import org.springframework.security.crypto.password.PasswordEncoder;
+import org.springframework.security.web.SecurityFilterChain;
 import org.springframework.security.web.authentication.UsernamePasswordAuthenticationFilter;
 import org.springframework.web.cors.CorsConfiguration;
 import org.springframework.web.cors.CorsConfigurationSource;
@@ -22,24 +20,23 @@ import java.util.Arrays;
 
 @Configuration
 @EnableWebSecurity
-@EnableGlobalMethodSecurity(prePostEnabled = true)
-public class SecurityConfig extends WebSecurityConfigurerAdapter {
-
-    @Autowired
-    private UserDetailsService userDetailsService;
+@EnableMethodSecurity(prePostEnabled = true)
+public class SecurityConfig {
 
     @Autowired
     private JwtAuthenticationFilter jwtAuthenticationFilter;
 
+    @Autowired
+    private Sha512PasswordEncoder sha512PasswordEncoder;
+
     @Bean
     public PasswordEncoder passwordEncoder() {
-        return new BCryptPasswordEncoder();
+        return sha512PasswordEncoder;
     }
 
     @Bean
-    @Override
-    public AuthenticationManager authenticationManagerBean() throws Exception {
-        return super.authenticationManagerBean();
+    public AuthenticationManager authenticationManager(AuthenticationConfiguration config) throws Exception {
+        return config.getAuthenticationManager();
     }
 
     @Bean
@@ -55,41 +52,38 @@ public class SecurityConfig extends WebSecurityConfigurerAdapter {
         return source;
     }
 
-    @Override
-    protected void configure(AuthenticationManagerBuilder auth) throws Exception {
-        auth.userDetailsService(userDetailsService).passwordEncoder(passwordEncoder());
-    }
-
-    @Override
-    protected void configure(HttpSecurity http) throws Exception {
+    @Bean
+    public SecurityFilterChain securityFilterChain(HttpSecurity http) throws Exception {
         http
-                .csrf().disable()
-                .cors().and()
-                .sessionManagement().sessionCreationPolicy(SessionCreationPolicy.STATELESS)
-                .and()
-                .authorizeRequests()
-                .antMatchers("/").permitAll()
-                .antMatchers("/index.html").permitAll()
-                .antMatchers("/share.html").permitAll()
-                .antMatchers("/css/**").permitAll()
-                .antMatchers("/js/**").permitAll()
-                .antMatchers("/img/**").permitAll()
-                .antMatchers("/share/**").permitAll()
-                .antMatchers("/api/auth/**").permitAll()
-                .antMatchers("/api/file/download/**").permitAll()
-                .antMatchers("/api/file/preview/**").permitAll()
-                .antMatchers("/api/share/info").permitAll()
-                .antMatchers("/api/share/access-info").permitAll()
-                .antMatchers("/api/share/file").permitAll()
-                .antMatchers("/api/share/items").permitAll()
-                .antMatchers("/api/share/download").permitAll()
-                .antMatchers("/api/share/download-all").permitAll()
-                .antMatchers("/api/share/download-item").permitAll()
-                .antMatchers("/api/share/download-folder").permitAll()
-                .antMatchers("/api/share/validate").permitAll()
-                .antMatchers("/api/admin/**").hasRole("ADMIN")
-                .anyRequest().authenticated()
-                .and()
+                .csrf(csrf -> csrf.disable())
+                .cors(cors -> cors.configurationSource(corsConfigurationSource()))
+                .sessionManagement(session ->
+                        session.sessionCreationPolicy(SessionCreationPolicy.STATELESS)
+                )
+                .authorizeHttpRequests(auth -> auth
+                        .requestMatchers("/").permitAll()
+                        .requestMatchers("/index.html").permitAll()
+                        .requestMatchers("/share.html").permitAll()
+                        .requestMatchers("/css/**").permitAll()
+                        .requestMatchers("/js/**").permitAll()
+                        .requestMatchers("/img/**").permitAll()
+                        .requestMatchers("/share/**").permitAll()
+                        .requestMatchers("/api/auth/**").permitAll()
+                        .requestMatchers("/api/file/download/**").permitAll()
+                        .requestMatchers("/api/file/preview/**").permitAll()
+                        .requestMatchers("/api/share/info").permitAll()
+                        .requestMatchers("/api/share/access-info").permitAll()
+                        .requestMatchers("/api/share/file").permitAll()
+                        .requestMatchers("/api/share/items").permitAll()
+                        .requestMatchers("/api/share/download").permitAll()
+                        .requestMatchers("/api/share/download-all").permitAll()
+                        .requestMatchers("/api/share/download-item").permitAll()
+                        .requestMatchers("/api/share/download-folder").permitAll()
+                        .requestMatchers("/api/share/validate").permitAll()
+                        .requestMatchers("/api/admin/**").hasRole("ADMIN")
+                        .anyRequest().authenticated()
+                )
                 .addFilterBefore(jwtAuthenticationFilter, UsernamePasswordAuthenticationFilter.class);
+        return http.build();
     }
 }
