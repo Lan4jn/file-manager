@@ -16,7 +16,7 @@ public class ShareFileRecord {
     @Column(nullable = false)
     private String fileName;  // 文件名（相对路径）
 
-    @Column(nullable = false)
+    @Column(nullable = true)
     private String objectName;  // MinIO对象名
 
     @Column(nullable = false)
