@@ -58,7 +58,7 @@ const app = createApp({
         const isPathEditing = ref(false);
         const editPathValue = ref('');
         const pathEditInputRef = ref(null);
-        const runtimeConfig = ref({ httpPort: null, httpsPort: null, forceHttps: false });
+        const runtimeConfig = ref({ httpPort: null, httpsPort: null, forceHttps: false, appVersion: '' });
         const showHttpsNotice = computed(() => window.location.protocol === 'http:' && runtimeConfig.value.forceHttps);
 
         // Dialogs
@@ -210,6 +210,9 @@ const app = createApp({
             }
 
             return url.toString();
+        });
+        const displayVersionLabel = computed(() => {
+            return runtimeConfig.value.appVersion ? `v${runtimeConfig.value.appVersion}` : '版本';
         });
         const currentPathLabel = computed(() => {
             if (!currentBucket.value) {
@@ -1536,7 +1539,11 @@ const app = createApp({
                 if (res.code === 200) {
                     versionList.value = res.data;
                     if (versionList.value.length > 0) {
-                        loadVersionNote(versionList.value[0]);
+                        const currentVersion = runtimeConfig.value.appVersion
+                            ? `v${runtimeConfig.value.appVersion}`
+                            : '';
+                        const preferredVersion = versionList.value.find(item => item.version === currentVersion);
+                        loadVersionNote(preferredVersion || versionList.value[0]);
                     }
                 }
             } catch (error) {
@@ -1613,7 +1620,7 @@ const app = createApp({
             try {
                 const res = await api.get('/auth/runtime-config');
                 if (res.code === 200) {
-                    runtimeConfig.value = res.data || { httpPort: null, httpsPort: null, forceHttps: false };
+                    runtimeConfig.value = res.data || { httpPort: null, httpsPort: null, forceHttps: false, appVersion: '' };
                 }
             } catch (error) {
                 // Ignore and fallback to current URL scheme replacement.
@@ -1711,6 +1718,7 @@ const app = createApp({
             currentPageSize,
             showHttpsNotice,
             httpsSuggestionUrl,
+            displayVersionLabel,
             currentPathLabel,
             currentPathInput,
             showPathDropdown,

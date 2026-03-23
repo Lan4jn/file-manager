@@ -50,7 +50,7 @@ app:
 
 logging:
   level:
-    com.poss.file: info
+    com.lan4jn.file: info
   config: ./config/log4j2.xml
 
 ui:

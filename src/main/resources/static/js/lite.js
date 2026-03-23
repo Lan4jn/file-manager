@@ -74,7 +74,7 @@ createApp({
         const shareExpireHours = ref(24);
         const sharePassword = ref('');
         const shareLink = ref('');
-        const runtimeConfig = ref({ httpPort: null, httpsPort: null, forceHttps: false });
+        const runtimeConfig = ref({ httpPort: null, httpsPort: null, forceHttps: false, appVersion: '' });
         const showHttpsNotice = computed(() => window.location.protocol === 'http:' && runtimeConfig.value.forceHttps);
 
         // Computed
@@ -96,6 +96,9 @@ createApp({
             }
 
             return url.toString();
+        });
+        const displayVersionLabel = computed(() => {
+            return runtimeConfig.value.appVersion ? `v${runtimeConfig.value.appVersion}` : '版本';
         });
 
         const ensureFolderFirst = (items) => {
@@ -141,7 +144,7 @@ createApp({
             try {
                 const res = await api.get('/auth/runtime-config');
                 if (res.code === 200) {
-                    runtimeConfig.value = res.data || { httpPort: null, httpsPort: null, forceHttps: false };
+                    runtimeConfig.value = res.data || { httpPort: null, httpsPort: null, forceHttps: false, appVersion: '' };
                 }
             } catch (e) {
                 // Ignore and fallback to current URL scheme replacement.
@@ -483,6 +486,7 @@ createApp({
             shareLink,
             showHttpsNotice,
             httpsSuggestionUrl,
+            displayVersionLabel,
             shareFile,
             batchShare,
             createShare,

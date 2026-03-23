@@ -1,1 +1,1 @@
-org.springframework.boot.env.EnvironmentPostProcessor=com.poss.file.config.ExternalConfigProcessor
+org.springframework.boot.env.EnvironmentPostProcessor=com.lan4jn.file.config.ExternalConfigProcessor

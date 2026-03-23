@@ -16,14 +16,14 @@
                     当前正在通过 HTTP 访问，建议切换到 HTTPS，
                     <a :href="httpsSuggestionUrl">点此跳转</a>
                 </div>
-                <h1>POSS DRIVE</h1>
+                <h1>Drive Powered by MinIO</h1>
                 <p class="subtitle">对象存储工作台</p>
                 <form @submit.prevent="handleLogin">
                     <input type="text" v-model="loginForm.username" placeholder="用户名" required>
                     <input type="password" v-model="loginForm.password" placeholder="密码" required>
                     <button type="submit" :disabled="loginLoading">登录</button>
                 </form>
-                <p class="version">v1.3.1</p>
+                <p class="version">{{ displayVersionLabel }}</p>
                 <button type="button" class="switch-button" onclick="window.location.href='/full'">切换到完整型</button>
             </div>
         </div>
@@ -41,7 +41,7 @@
                 </div>
                 <div class="header-right">
                     <button type="button" onclick="window.location.href='/full'">完整型</button>
-                    <span class="version">v1.3.1</span>
+                    <span class="version">{{ displayVersionLabel }}</span>
                     <button @click="handleLogout">退出</button>
                 </div>
             </div>
