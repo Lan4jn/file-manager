@@ -1,4 +1,4 @@
-const { createApp, ref, computed, onMounted, watch } = Vue;
+const { createApp, ref, computed, onMounted, onUnmounted, nextTick, watch } = Vue;
 
 const zhCnLocale = {
     name: 'zh-cn',
@@ -590,12 +590,11 @@ const app = createApp({
             set: (val) => {}
         });
 
-        // 从输入框导航
-        const navigateFromInput = () => {
-            const path = currentPathInput.value.trim();
+        const applyPathNavigation = (rawPath) => {
+            const path = (rawPath || '').trim();
             if (!path) return;
 
-            // 解析输入路径，格式：/bucket/folder1/folder2/
+            // 解析输入路径，格式：/bucket/folder1/folder2/ 或 bucket/folder1/folder2/
             const parts = path.split('/').filter(p => p);
             if (parts.length === 0) return;
 
@@ -619,10 +618,22 @@ const app = createApp({
             loadBuckets();
         };
 
+        // 从输入框导航
+        const navigateFromInput = () => {
+            applyPathNavigation(currentPathInput.value);
+        };
+
         // 触发地址栏编辑模式
         const startPathEdit = () => {
             isPathEditing.value = true;
             editPathValue.value = currentPathInput.value;
+            nextTick(() => {
+                const pathInput = document.querySelector('.path-edit-input');
+                if (pathInput) {
+                    pathInput.focus();
+                    pathInput.select();
+                }
+            });
         };
 
         // 确认编辑路径
@@ -633,37 +644,8 @@ const app = createApp({
                 return;
             }
 
-            // 解析输入路径，格式：/bucket/folder1/folder2/ 或 bucket/folder1/folder2/
-            let parts = path.split('/').filter(p => p);
-            if (parts.length === 0) {
-                cancelPathEdit();
-                return;
-            }
-
-            // 如果没有以/开头，认为第一个是bucket
-            if (!path.startsWith('/')) {
-                parts = path.split('/').filter(p => p);
-            }
-
-            const bucket = parts[0];
-            if (bucket) {
-                currentBucket.value = bucket;
-            }
-
-            if (parts.length > 1) {
-                currentFolder.value = parts.slice(1).join('/') + '/';
-            } else {
-                currentFolder.value = '';
-            }
-
-            // 清空历史重新开始
-            folderHistory.value = [];
-            historyIndex.value = -1;
-
+            applyPathNavigation(path);
             isPathEditing.value = false;
-            updateBreadcrumb();
-            loadFiles();
-            loadBuckets();
         };
 
         // 取消编辑模式
@@ -1590,9 +1572,24 @@ const app = createApp({
             }
         });
 
+        const handleDocumentClick = (e) => {
+            const pathStrip = document.querySelector('.path-strip');
+            const pathInput = document.querySelector('.path-edit-input');
+            if (isPathEditing.value && pathStrip && pathInput) {
+                if (!pathStrip.contains(e.target) && e.target !== pathInput) {
+                    cancelPathEdit();
+                }
+            }
+        };
+
         // Lifecycle
         onMounted(() => {
             checkAuth();
+            document.addEventListener('click', handleDocumentClick);
+        });
+
+        onUnmounted(() => {
+            document.removeEventListener('click', handleDocumentClick);
         });
 
         return {
@@ -1671,6 +1668,12 @@ const app = createApp({
             goForward,
             goUp,
             navigateFromInput,
+            navigateToNode,
+            isPathEditing,
+            editPathValue,
+            startPathEdit,
+            confirmPathEdit,
+            cancelPathEdit,
             uploadUrl,
             uploadHeaders,
             uploadData,
@@ -1727,17 +1730,6 @@ const app = createApp({
             formatSize,
             formatDateTime
         };
-
-        // 全局点击事件：地址栏外部点击取消编辑
-        document.addEventListener('click', (e) => {
-            const pathStrip = document.querySelector('.path-strip');
-            const pathInput = document.querySelector('.path-edit-input');
-            if (isPathEditing.value && pathStrip && pathInput) {
-                if (!pathStrip.contains(e.target) && e.target !== pathInput) {
-                    cancelPathEdit();
-                }
-            }
-        });
     }
 });
 

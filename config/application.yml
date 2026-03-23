@@ -3,6 +3,7 @@
 
 server:
   port: 9080
+  forward-headers-strategy: framework
   # HTTPS 配置（已启用，使用自签名证书）
   ssl:
     enabled: true
@@ -36,6 +37,10 @@ minio:
 jwt:
   secret: default-jwt-secret-key-must-be-at-least-32-characters-long
   expiration: 86400000
+
+app:
+  security:
+    force-https: true
 
 logging:
   level:
