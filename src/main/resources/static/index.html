@@ -38,7 +38,10 @@
                             <p class="eyebrow">Secure Access</p>
                             <h2>登录文件管理器</h2>
                         </div>
-                        <span class="version-chip">v1.3-dev</span>
+                        <div class="login-card-actions">
+                            <span class="version-chip">v1.3</span>
+                            <button type="button" class="ghost-action" onclick="window.location.href='/lite'">轻量版</button>
+                        </div>
                     </div>
                     <el-form :model="loginForm" @submit.prevent="handleLogin">
                         <el-form-item>
@@ -68,7 +71,8 @@
                     </div>
                 </div>
                 <div class="header-right">
-                    <button class="ghost-action" @click="showVersionDialog = true">v1.3-dev</button>
+                    <button class="ghost-action" type="button" onclick="window.location.href='/lite'">轻量版</button>
+                    <button class="ghost-action" @click="showVersionDialog = true">v1.3</button>
                     <el-button class="help-text-button" @click="showHelpDialog = true">系统帮助</el-button>
                     <el-dropdown @command="handleCommand">
                         <span class="user-info">

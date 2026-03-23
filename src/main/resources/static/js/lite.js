@@ -51,6 +51,7 @@ createApp({
         const filePageSize = ref(10);
         const fileSortBy = ref('name');
         const fileOrder = ref('asc');
+        const currentFolder = ref('');
 
         // Selection
         const selectedFiles = ref([]);
@@ -76,7 +77,14 @@ createApp({
 
         // Computed
         const totalPages = computed(() => Math.ceil(fileTotal.value / filePageSize.value) || 1);
-        const currentPath = computed(() => `/${currentBucket.value} /`);
+        const currentPath = computed(() => {
+            if (!currentBucket.value) {
+                return '/';
+            }
+            return currentFolder.value
+                ? `/${currentBucket.value}/${currentFolder.value}`
+                : `/${currentBucket.value}/`;
+        });
 
         // Methods
         const handleLogin = async () => {
@@ -113,6 +121,7 @@ createApp({
                     bucketList.value = res.data || [];
                     if (bucketList.value.length > 0) {
                         currentBucket.value = bucketList.value[0].name;
+                        currentFolder.value = '';
                         loadFiles();
                     }
                 }
@@ -126,7 +135,7 @@ createApp({
                 const res = await api.get('/file/list', {
                     params: {
                         bucket: currentBucket.value,
-                        folder: '',
+                        folder: currentFolder.value,
                         sortBy: fileSortBy.value,
                         order: fileOrder.value,
                         page: filePage.value,
@@ -152,11 +161,13 @@ createApp({
 
         const onBucketChange = () => {
             filePage.value = 1;
+            currentFolder.value = '';
             loadFiles();
         };
 
         const navigateToFolder = (folderPath) => {
-            // 对于lite版本，简单刷新文件列表
+            currentFolder.value = folderPath || '';
+            filePage.value = 1;
             loadFiles();
         };
 
@@ -235,10 +246,13 @@ createApp({
         const createFolder = async () => {
             if (!newFolderName.value) return;
             try {
-                await api.post('/file/folder', {
-                    path: newFolderName.value,
-                    bucket: currentBucket.value,
-                    createTestFile: false
+                const path = `${currentFolder.value}${newFolderName.value}`;
+                await api.post('/file/folder', null, {
+                    params: {
+                        path,
+                        bucket: currentBucket.value,
+                        createTestFile: false
+                    }
                 });
                 newFolderName.value = '';
                 showFolderDialog.value = false;
@@ -271,23 +285,51 @@ createApp({
 
         const createShare = async () => {
             try {
-                const res = await api.post('/share/create', {
-                    objectNames: shareObjectName.value,
-                    bucket: currentBucket.value,
-                    expireHours: shareExpireHours.value,
-                    password: sharePassword.value
-                });
+                const isBatchShare = selectedFiles.value.length > 1
+                    && shareObjectName.value === selectedFiles.value.join(',');
+                const payload = isBatchShare
+                    ? {
+                        objectNames: [...selectedFiles.value],
+                        bucket: currentBucket.value,
+                        expirationHours: shareExpireHours.value,
+                        password: sharePassword.value
+                    }
+                    : {
+                        objectName: shareObjectName.value,
+                        bucket: currentBucket.value,
+                        expirationHours: shareExpireHours.value,
+                        password: sharePassword.value
+                    };
+                const apiPath = isBatchShare ? '/share/batch-create' : '/share/create';
+                const res = await api.post(apiPath, payload);
                 if (res.code === 200) {
-                    shareLink.value = `${window.location.origin}/share.html?id=${res.data.id}`;
+                    shareLink.value = `${window.location.origin}/share/${res.data.shareCode}`;
                 }
             } catch (e) {
                 alert('创建分享失败');
             }
         };
 
-        const copyShareLink = () => {
-            navigator.clipboard.writeText(shareLink.value);
-            alert('链接已复制');
+        const copyShareLink = async () => {
+            if (!shareLink.value) return;
+            try {
+                if (navigator.clipboard && window.isSecureContext) {
+                    await navigator.clipboard.writeText(shareLink.value);
+                } else {
+                    const textarea = document.createElement('textarea');
+                    textarea.value = shareLink.value;
+                    textarea.setAttribute('readonly', 'readonly');
+                    textarea.style.position = 'fixed';
+                    textarea.style.left = '-9999px';
+                    document.body.appendChild(textarea);
+                    textarea.select();
+                    document.execCommand('copy');
+                    document.body.removeChild(textarea);
+                }
+                alert('链接已复制');
+            } catch (e) {
+                alert('复制失败，请手动复制链接');
+            }
         };
 
         // Download
@@ -299,7 +341,8 @@ createApp({
             if (selectedFiles.value.length === 1) {
                 downloadFile({ objectName: selectedFiles.value[0] });
             } else if (selectedFiles.value.length > 1) {
-                window.location.href = `/api/file/batch-download?objectNames=${selectedFiles.value.join(',')}&bucket=${currentBucket.value}`;
+                const objectNames = selectedFiles.value.map(name => encodeURIComponent(name)).join(',');
+                window.location.href = `/api/file/batch-download?objectNames=${objectNames}&bucket=${encodeURIComponent(currentBucket.value)}`;
             }
         };
 
@@ -380,6 +423,7 @@ createApp({
             filePageSize,
             fileSortBy,
             fileOrder,
+            currentFolder,
             // Selection
             selectedFiles,
             toggleSelect,

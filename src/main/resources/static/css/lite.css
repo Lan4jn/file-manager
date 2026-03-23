@@ -75,6 +75,18 @@ body {
     font-size: 12px;
 }
 
+.login-box .switch-button {
+    width: 100%;
+    margin-top: 12px;
+    padding: 10px;
+    background: #f0f0f0;
+    color: #333;
+    border: 1px solid #ddd;
+    border-radius: 4px;
+    cursor: pointer;
+    font-size: 14px;
+}
+
 /* Main Container */
 .main-container {
     max-width: 1200px;
