@@ -1174,11 +1174,16 @@ public class FileService {
         if (objectName == null) {
             return "";
         }
-        int lastSlash = objectName.lastIndexOf("/");
-        if (lastSlash >= 0 && lastSlash < objectName.length() - 1) {
-            return objectName.substring(lastSlash + 1);
+        String normalizedObjectName = objectName;
+        if (normalizedObjectName.endsWith("/") && normalizedObjectName.length() > 1) {
+            normalizedObjectName = normalizedObjectName.substring(0, normalizedObjectName.length() - 1);
         }
-        return objectName;
+
+        int lastSlash = normalizedObjectName.lastIndexOf("/");
+        if (lastSlash >= 0 && lastSlash < normalizedObjectName.length() - 1) {
+            return normalizedObjectName.substring(lastSlash + 1);
+        }
+        return normalizedObjectName;
     }
 
     private String formatSize(long bytes) {

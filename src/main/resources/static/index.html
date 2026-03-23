@@ -14,6 +14,18 @@
         <div v-if="!isLoggedIn" class="login-container">
             <div class="login-shell">
                 <section class="login-hero">
+                    <el-alert
+                        v-if="showHttpsNotice"
+                        class="https-notice"
+                        type="warning"
+                        :closable="false"
+                        show-icon
+                    >
+                        <template #title>当前使用的是 HTTP 访问，建议切换到 HTTPS</template>
+                        <template #default>
+                            <a :href="httpsSuggestionUrl" class="https-notice-link">打开 HTTPS 地址</a>
+                        </template>
+                    </el-alert>
                     <div class="brand-badge">Poss Drive</div>
                     <h1>MINIO管理工作台</h1>
                     <p>把对象存储、文件目录、分享外链和权限控制放进一个统一界面。</p>
@@ -40,7 +52,7 @@
                         </div>
                         <div class="login-card-actions">
                             <span class="version-chip">v1.3.1</span>
-                            <button type="button" class="ghost-action" onclick="window.location.href='/lite'">轻量版</button>
+                            <button type="button" class="mode-switch-button" onclick="window.location.href='/lite'">切换到轻量版</button>
                         </div>
                     </div>
                     <el-form :model="loginForm" @submit.prevent="handleLogin">
@@ -61,6 +73,18 @@
         <!-- Main App -->
         <div v-else class="main-container">
             <div class="app-backdrop"></div>
+            <el-alert
+                v-if="showHttpsNotice"
+                class="https-notice https-notice--app"
+                type="warning"
+                :closable="false"
+                show-icon
+            >
+                <template #title>当前使用的是 HTTP 访问，建议切换到 HTTPS</template>
+                <template #default>
+                    <a :href="httpsSuggestionUrl" class="https-notice-link">打开 HTTPS 地址</a>
+                </template>
+            </el-alert>
             <!-- Header -->
             <div class="header">
                 <div class="header-left">
@@ -71,7 +95,7 @@
                     </div>
                 </div>
                 <div class="header-right">
-                    <button class="ghost-action" type="button" onclick="window.location.href='/lite'">轻量版</button>
+                    <button class="mode-switch-button" type="button" onclick="window.location.href='/lite'">切换到轻量版</button>
                     <button class="ghost-action" @click="showVersionDialog = true">v1.3.1</button>
                     <el-button class="help-text-button" @click="showHelpDialog = true">系统帮助</el-button>
                     <el-dropdown @command="handleCommand">
@@ -263,16 +287,17 @@
                                         </div>
                                     </div>
                                     <!-- 编辑模式 -->
-                                    <el-input
+                                    <input
                                         v-else
-                                        class="path-edit-input"
+                                        ref="pathEditInputRef"
+                                        class="path-edit-input-native"
                                         v-model="editPathValue"
-                                        @keyup.enter="confirmPathEdit"
-                                        @keyup.esc="cancelPathEdit"
+                                        @keydown.enter="confirmPathEdit"
+                                        @keydown.esc="cancelPathEdit"
+                                        @blur="confirmPathEdit"
                                         @click.stop
-                                        autofocus
                                         placeholder="输入路径后回车，如 /bucket/folder1/"
-                                    ></el-input>
+                                    />
                                 </div>
                                 <div class="action-buttons">
                                     <el-tooltip content="上传文件" placement="top">

@@ -30,9 +30,6 @@ public class SecurityConfig {
     @Autowired
     private Sha512PasswordEncoder sha512PasswordEncoder;
 
-    @Autowired
-    private HttpsRedirectFilter httpsRedirectFilter;
-
     @Bean
     public PasswordEncoder passwordEncoder() {
         return sha512PasswordEncoder;
@@ -95,7 +92,6 @@ public class SecurityConfig {
                         .requestMatchers("/api/admin/**").hasRole("ADMIN")
                         .anyRequest().authenticated()
                 )
-                .addFilterBefore(httpsRedirectFilter, JwtAuthenticationFilter.class)
                 .addFilterBefore(jwtAuthenticationFilter, UsernamePasswordAuthenticationFilter.class);
         return http.build();
     }

@@ -74,6 +74,7 @@ createApp({
         const shareExpireHours = ref(24);
         const sharePassword = ref('');
         const shareLink = ref('');
+        const showHttpsNotice = ref(window.location.protocol === 'http:');
 
         // Computed
         const totalPages = computed(() => Math.ceil(fileTotal.value / filePageSize.value) || 1);
@@ -85,6 +86,7 @@ createApp({
                 ? `/${currentBucket.value}/${currentFolder.value}`
                 : `/${currentBucket.value}/`;
         });
+        const httpsSuggestionUrl = computed(() => window.location.href.replace(/^http:/, 'https:'));
 
         // Methods
         const handleLogin = async () => {
@@ -446,6 +448,8 @@ createApp({
             shareExpireHours,
             sharePassword,
             shareLink,
+            showHttpsNotice,
+            httpsSuggestionUrl,
             shareFile,
             batchShare,
             createShare,

@@ -613,6 +613,23 @@ body {
     --el-input-height: 40px;
 }
 
+.path-edit-input-native {
+    width: 100%;
+    height: 40px;
+    border: 1px solid #7ea7de;
+    border-radius: 10px;
+    padding: 0 14px;
+    background: #ffffff;
+    color: var(--text);
+    font-size: 14px;
+    outline: none;
+    box-shadow: 0 0 0 3px rgba(57, 117, 231, 0.14);
+}
+
+.path-edit-input-native::placeholder {
+    color: var(--text-secondary);
+}
+
 .path-input :deep(.el-input-group__prepend),
 .path-input :deep(.el-input-group__append) {
     padding: 0 8px;
@@ -635,6 +652,39 @@ body {
 .path-prepend-btn:hover {
     background: var(--primary-soft) !important;
     border-color: #cddfff !important;
+}
+
+.mode-switch-button {
+    border: 1px solid #c96d10;
+    background: linear-gradient(135deg, #fff7e8 0%, #ffd8a8 100%);
+    color: #8f4300;
+    font-weight: 700;
+    padding: 10px 14px;
+    border-radius: 999px;
+    cursor: pointer;
+    box-shadow: 0 10px 24px rgba(201, 109, 16, 0.18);
+    transition: transform 0.18s ease, box-shadow 0.18s ease, filter 0.18s ease;
+}
+
+.mode-switch-button:hover {
+    transform: translateY(-1px);
+    box-shadow: 0 14px 28px rgba(201, 109, 16, 0.24);
+    filter: saturate(1.05);
+}
+
+.https-notice {
+    margin-bottom: 18px;
+    border-radius: 16px;
+}
+
+.https-notice--app {
+    margin: 0 0 18px;
+}
+
+.https-notice-link {
+    color: #9a4a00;
+    font-weight: 700;
+    text-decoration: underline;
 }
 
 .action-buttons {

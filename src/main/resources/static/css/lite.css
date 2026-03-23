@@ -15,6 +15,25 @@ body {
     background: #f5f5f5;
 }
 
+.lite-https-notice {
+    margin-bottom: 12px;
+    padding: 10px 12px;
+    border: 1px solid #f3c16c;
+    background: #fff7e6;
+    color: #9a5400;
+    border-radius: 10px;
+    font-size: 14px;
+}
+
+.lite-https-notice--app {
+    margin: 16px;
+}
+
+.lite-https-notice a {
+    color: #8b4200;
+    font-weight: 700;
+}
+
 /* Login */
 .login-container {
     display: flex;

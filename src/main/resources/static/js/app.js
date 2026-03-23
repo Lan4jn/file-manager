@@ -57,6 +57,8 @@ const app = createApp({
         // 地址栏编辑相关
         const isPathEditing = ref(false);
         const editPathValue = ref('');
+        const pathEditInputRef = ref(null);
+        const showHttpsNotice = ref(window.location.protocol === 'http:');
 
         // Dialogs
         const showUploadDialog = ref(false);
@@ -198,6 +200,7 @@ const app = createApp({
         const currentPageSize = computed(() => {
             return fileList.value.reduce((total, item) => total + (item.isFolder ? 0 : (item.size || 0)), 0);
         });
+        const httpsSuggestionUrl = computed(() => window.location.href.replace(/^http:/, 'https:'));
         const currentPathLabel = computed(() => {
             if (!currentBucket.value) {
                 return '未选择存储桶';
@@ -628,7 +631,7 @@ const app = createApp({
             isPathEditing.value = true;
             editPathValue.value = currentPathInput.value;
             nextTick(() => {
-                const pathInput = document.querySelector('.path-edit-input');
+                const pathInput = pathEditInputRef.value;
                 if (pathInput) {
                     pathInput.focus();
                     pathInput.select();
@@ -1574,7 +1577,7 @@ const app = createApp({
 
         const handleDocumentClick = (e) => {
             const pathStrip = document.querySelector('.path-strip');
-            const pathInput = document.querySelector('.path-edit-input');
+            const pathInput = pathEditInputRef.value;
             if (isPathEditing.value && pathStrip && pathInput) {
                 if (!pathStrip.contains(e.target) && e.target !== pathInput) {
                     cancelPathEdit();
@@ -1582,14 +1585,25 @@ const app = createApp({
             }
         };
 
+        const handleDocumentKeydown = (e) => {
+            const isPathShortcut = (e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'l';
+            if (!isPathShortcut || currentMenu.value !== 'files') {
+                return;
+            }
+            e.preventDefault();
+            startPathEdit();
+        };
+
         // Lifecycle
         onMounted(() => {
             checkAuth();
             document.addEventListener('click', handleDocumentClick);
+            document.addEventListener('keydown', handleDocumentKeydown);
         });
 
         onUnmounted(() => {
             document.removeEventListener('click', handleDocumentClick);
+            document.removeEventListener('keydown', handleDocumentKeydown);
         });
 
         return {
@@ -1659,6 +1673,8 @@ const app = createApp({
             folderCount,
             currentFileCount,
             currentPageSize,
+            showHttpsNotice,
+            httpsSuggestionUrl,
             currentPathLabel,
             currentPathInput,
             showPathDropdown,
@@ -1671,6 +1687,7 @@ const app = createApp({
             navigateToNode,
             isPathEditing,
             editPathValue,
+            pathEditInputRef,
             startPathEdit,
             confirmPathEdit,
             cancelPathEdit,
