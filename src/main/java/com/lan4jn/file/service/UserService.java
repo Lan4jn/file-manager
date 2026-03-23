@@ -3,9 +3,7 @@ package com.lan4jn.file.service;
 import com.lan4jn.file.dto.UserDTO;
 import com.lan4jn.file.entity.Role;
 import com.lan4jn.file.entity.User;
-import com.lan4jn.file.repository.RoleRepository;
 import com.lan4jn.file.repository.UserRepository;
-import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -18,14 +16,17 @@ import java.util.stream.Collectors;
 @Service
 public class UserService {
 
-    @Autowired
-    private UserRepository userRepository;
+    private final UserRepository userRepository;
+    private final PasswordEncoder passwordEncoder;
+    private final AuthorizationService authorizationService;
 
-    @Autowired
-    private RoleRepository roleRepository;
-
-    @Autowired
-    private PasswordEncoder passwordEncoder;
+    public UserService(UserRepository userRepository,
+                       PasswordEncoder passwordEncoder,
+                       AuthorizationService authorizationService) {
+        this.userRepository = userRepository;
+        this.passwordEncoder = passwordEncoder;
+        this.authorizationService = authorizationService;
+    }
 
     public List<UserDTO> getAllUsers() {
         List<User> users = userRepository.findAll();
@@ -52,12 +53,7 @@ public class UserService {
         user.setEnabled(userDTO.getEnabled() != null ? userDTO.getEnabled() : true);
         user.setCreateTime(System.currentTimeMillis());
 
-        Set<Role> roles = new HashSet<>();
-        if (userDTO.getRoles() != null) {
-            for (String roleCode : userDTO.getRoles()) {
-                roleRepository.findByCode(roleCode).ifPresent(roles::add);
-            }
-        }
+        Set<Role> roles = authorizationService.resolveRoles(userDTO.getRoles());
         user.setRoles(roles);
 
         user = userRepository.save(user);
@@ -82,11 +78,7 @@ public class UserService {
             user.setEnabled(userDTO.getEnabled());
         }
         if (userDTO.getRoles() != null) {
-            Set<Role> roles = new HashSet<>();
-            for (String roleCode : userDTO.getRoles()) {
-                roleRepository.findByCode(roleCode).ifPresent(roles::add);
-            }
-            user.setRoles(roles);
+            user.setRoles(authorizationService.resolveRoles(userDTO.getRoles()));
         }
 
         user.setUpdateTime(System.currentTimeMillis());

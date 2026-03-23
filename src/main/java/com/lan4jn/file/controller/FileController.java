@@ -7,13 +7,20 @@ import com.lan4jn.file.model.BucketInfo;
 import com.lan4jn.file.model.FileInfo;
 import com.lan4jn.file.service.ConfigService;
 import com.lan4jn.file.service.FileService;
+import com.lan4jn.file.utils.RequestValidationUtils;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.core.io.InputStreamResource;
 import org.springframework.http.HttpHeaders;
 import org.springframework.http.MediaType;
 import org.springframework.http.ResponseEntity;
-import org.springframework.web.bind.annotation.*;
+import org.springframework.web.bind.annotation.DeleteMapping;
+import org.springframework.web.bind.annotation.GetMapping;
+import org.springframework.web.bind.annotation.PostMapping;
+import org.springframework.web.bind.annotation.RequestBody;
+import org.springframework.web.bind.annotation.RequestMapping;
+import org.springframework.web.bind.annotation.RequestParam;
+import org.springframework.web.bind.annotation.RestController;
 import org.springframework.web.multipart.MultipartFile;
 
 import java.io.InputStream;
@@ -21,15 +28,14 @@ import java.io.PipedInputStream;
 import java.io.PipedOutputStream;
 import java.io.UnsupportedEncodingException;
 import java.net.URLEncoder;
-import java.nio.charset.StandardCharsets;
 import java.util.Arrays;
 import java.util.List;
+import java.util.Map;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 
 @RestController
 @RequestMapping("/api/file")
-
 public class FileController {
 
     private static final Logger log = LoggerFactory.getLogger(FileController.class);
@@ -43,8 +49,6 @@ public class FileController {
         this.configService = configService;
     }
 
-    // ==================== Bucket Management ====================
-
     @GetMapping("/buckets")
     public Result<List<BucketInfo>> listBuckets(
             @RequestParam(value = "sortBy", required = false, defaultValue = "name") String sortBy,
@@ -53,16 +57,14 @@ public class FileController {
     }
 
     @PostMapping("/buckets")
-    public Result<BucketInfo> createBucket(@RequestBody java.util.Map<String, String> request) {
-        String bucketName = request.get("bucketName");
-        if (bucketName == null || bucketName.isEmpty()) {
-            return Result.error("Bucket鍚嶇О涓嶈兘涓虹┖");
-        }
+    public Result<BucketInfo> createBucket(@RequestBody Map<String, String> request) {
+        String bucketName = RequestValidationUtils.requireText(request.get("bucketName"), "bucketName");
         return Result.success(fileService.createBucket(bucketName));
     }
 
     @DeleteMapping("/buckets")
     public Result<Void> deleteBucket(@RequestParam("bucketName") String bucketName) {
+        bucketName = RequestValidationUtils.requireText(bucketName, "bucketName");
         fileService.deleteBucket(bucketName);
         return Result.success();
     }
@@ -72,16 +74,15 @@ public class FileController {
         return Result.success(fileService.getDefaultBucket());
     }
 
-    // ==================== File Management ====================
-
     @PostMapping("/upload")
     public Result<UploadResponse> upload(
             @RequestParam("file") MultipartFile file,
             @RequestParam(value = "folder", required = false, defaultValue = "") String folder,
             @RequestParam(value = "bucket", required = false, defaultValue = "") String bucket) {
+        folder = RequestValidationUtils.optionalText(folder, "folder");
+        bucket = RequestValidationUtils.optionalText(bucket, "bucket");
         log.info("Uploading file: {}, folder: {}, bucket: {}", file.getOriginalFilename(), folder, bucket);
-        UploadResponse response = fileService.uploadFile(file, folder, bucket);
-        return Result.success(response);
+        return Result.success(fileService.uploadFile(file, folder, bucket));
     }
 
     @GetMapping("/list")
@@ -92,15 +93,15 @@ public class FileController {
             @RequestParam(value = "order", required = false, defaultValue = "asc") String order,
             @RequestParam(value = "page", required = false, defaultValue = "0") int page,
             @RequestParam(value = "size", required = false, defaultValue = "0") int size) {
-        log.info("Listing files, folder: {}, bucket: {}, sortBy: {}, order: {}, page: {}, size: {}", folder, bucket, sortBy, order, page, size);
+        folder = RequestValidationUtils.optionalText(folder, "folder");
+        bucket = RequestValidationUtils.optionalText(bucket, "bucket");
+        log.info("Listing files, folder: {}, bucket: {}, sortBy: {}, order: {}, page: {}, size: {}",
+                folder, bucket, sortBy, order, page, size);
 
-        // 濡傛灉娌℃湁鍒嗛〉鍙傛暟锛岃繑鍥炲師鏉ョ殑鏍煎紡
         if (page <= 0 || size <= 0) {
-            List<FileInfo> files = fileService.listFiles(folder, bucket, sortBy, order);
-            return Result.success(files);
+            return Result.success(fileService.listFiles(folder, bucket, sortBy, order));
         }
 
-        // 鍒嗛〉妯″紡
         PageResult<FileInfo> pageResult = fileService.listFiles(folder, bucket, sortBy, order, page, size);
         return Result.success(pageResult);
     }
@@ -109,14 +110,17 @@ public class FileController {
     public Result<FileInfo> info(
             @RequestParam("objectName") String objectName,
             @RequestParam(value = "bucket", required = false, defaultValue = "") String bucket) {
-        FileInfo fileInfo = fileService.getFileInfo(objectName, bucket);
-        return Result.success(fileInfo);
+        objectName = RequestValidationUtils.requireText(objectName, "objectName");
+        bucket = RequestValidationUtils.optionalText(bucket, "bucket");
+        return Result.success(fileService.getFileInfo(objectName, bucket));
     }
 
     @DeleteMapping("/delete")
     public Result<Void> delete(
             @RequestParam("objectName") String objectName,
             @RequestParam(value = "bucket", required = false, defaultValue = "") String bucket) {
+        objectName = RequestValidationUtils.requireText(objectName, "objectName");
+        bucket = RequestValidationUtils.optionalText(bucket, "bucket");
         log.info("Deleting file: {}, bucket: {}", objectName, bucket);
         fileService.deleteFile(objectName, bucket);
         return Result.success();
@@ -126,12 +130,12 @@ public class FileController {
     public Result<Void> batchDelete(
             @RequestParam("objectNames") String objectNamesStr,
             @RequestParam(value = "bucket", required = false, defaultValue = "") String bucket) {
-        List<String> objectNames = Arrays.asList(objectNamesStr.split(","));
+        bucket = RequestValidationUtils.optionalText(bucket, "bucket");
+        List<String> objectNames = RequestValidationUtils.requireTextList(
+                Arrays.asList(objectNamesStr.split(",")), "objectNames");
         log.info("Batch deleting {} files, bucket: {}", objectNames.size(), bucket);
         for (String objectName : objectNames) {
-            if (objectName != null && !objectName.isEmpty()) {
-                fileService.deleteFile(objectName, bucket);
-            }
+            fileService.deleteFile(objectName, bucket);
         }
         return Result.success();
     }
@@ -141,6 +145,8 @@ public class FileController {
             @RequestParam("path") String path,
             @RequestParam(value = "bucket", required = false, defaultValue = "") String bucket,
             @RequestParam(value = "createTestFile", required = false, defaultValue = "true") boolean createTestFile) {
+        path = RequestValidationUtils.requireText(path, "path");
+        bucket = RequestValidationUtils.optionalText(bucket, "bucket");
         log.info("Creating folder: {}, bucket: {}, createTestFile: {}", path, bucket, createTestFile);
         fileService.createFolder(path, bucket, createTestFile);
         return Result.success();
@@ -149,11 +155,14 @@ public class FileController {
     @GetMapping("/download")
     public ResponseEntity<InputStreamResource> download(
             @RequestParam("objectName") String objectName,
-            @RequestParam(value = "bucket", required = false, defaultValue = "") String bucket) throws UnsupportedEncodingException {
+            @RequestParam(value = "bucket", required = false, defaultValue = "") String bucket)
+            throws UnsupportedEncodingException {
+        objectName = RequestValidationUtils.requireText(objectName, "objectName");
+        bucket = RequestValidationUtils.optionalText(bucket, "bucket");
         log.info("Downloading file: {}, bucket: {}", objectName, bucket);
+
         FileInfo fileInfo = fileService.getFileInfo(objectName, bucket);
         InputStream stream = fileService.getFileStream(objectName, bucket);
-
         String filename = URLEncoder.encode(fileInfo.getFileName(), "UTF-8");
 
         return ResponseEntity.ok()
@@ -166,14 +175,13 @@ public class FileController {
     @GetMapping("/download-folder")
     public ResponseEntity<InputStreamResource> downloadFolder(
             @RequestParam("objectName") String objectName,
-            @RequestParam(value = "bucket", required = false, defaultValue = "") String bucket) throws Exception {
+            @RequestParam(value = "bucket", required = false, defaultValue = "") String bucket)
+            throws Exception {
+        objectName = RequestValidationUtils.requireText(objectName, "objectName");
+        bucket = RequestValidationUtils.optionalText(bucket, "bucket");
         log.info("Downloading folder: {}, bucket: {}", objectName, bucket);
 
-        // 鑾峰彇鐩綍鍚?
-        String folderName = objectName;
-        if (objectName.endsWith("/")) {
-            folderName = objectName.substring(0, objectName.length() - 1);
-        }
+        String folderName = objectName.endsWith("/") ? objectName.substring(0, objectName.length() - 1) : objectName;
         int lastSlash = folderName.lastIndexOf('/');
         if (lastSlash >= 0) {
             folderName = folderName.substring(lastSlash + 1);
@@ -182,27 +190,25 @@ public class FileController {
             folderName = "folder";
         }
 
-        // 浣跨敤绠￠亾娴佹潵瀹炵幇娴佸紡浼犺緭
         PipedOutputStream pipedOut = new PipedOutputStream();
         PipedInputStream pipedIn = new PipedInputStream(pipedOut);
 
-        // 鍦ㄥ悗鍙扮嚎绋嬩腑鐢熸垚ZIP
+        final String validatedObjectName = objectName;
+        final String validatedBucket = bucket;
         executorService.submit(() -> {
             try {
-                fileService.downloadFolderAsZip(objectName, bucket, pipedOut);
-                pipedOut.close();
+                fileService.downloadFolderAsZip(validatedObjectName, validatedBucket, pipedOut);
             } catch (Exception e) {
-                log.error("Failed to create ZIP for folder: {}", objectName, e);
+                log.error("Failed to create ZIP for folder: {}", validatedObjectName, e);
+            } finally {
                 try {
                     pipedOut.close();
-                } catch (Exception ex) {
-                    // ignore
+                } catch (Exception ignored) {
                 }
             }
         });
 
         String filename = URLEncoder.encode(folderName + ".zip", "UTF-8");
-
         return ResponseEntity.ok()
                 .header(HttpHeaders.CONTENT_DISPOSITION, "attachment; filename=\"" + filename + "\"")
                 .contentType(MediaType.parseMediaType("application/zip"))
@@ -212,19 +218,17 @@ public class FileController {
     @GetMapping("/batch-download")
     public ResponseEntity<InputStreamResource> batchDownload(
             @RequestParam("objectNames") String objectNamesStr,
-            @RequestParam(value = "bucket", required = false, defaultValue = "") String bucket) throws Exception {
-        // 瑙ｆ瀽閫楀彿鍒嗛殧鐨勬枃浠跺悕鍒楄〃
-        List<String> objectNames = Arrays.asList(objectNamesStr.split(","));
+            @RequestParam(value = "bucket", required = false, defaultValue = "") String bucket)
+            throws Exception {
+        bucket = RequestValidationUtils.optionalText(bucket, "bucket");
+        List<String> objectNames = RequestValidationUtils.requireTextList(
+                Arrays.asList(objectNamesStr.split(",")), "objectNames");
         log.info("Batch downloading {} items, bucket: {}", objectNames.size(), bucket);
 
-        // 璁＄畻鎬诲ぇ灏?
         long totalSize = 0;
         for (String objectName : objectNames) {
-            // 鍒ゆ柇鏄惁鏄洰褰曪紙浠?缁撳熬锛?
             boolean isFolder = objectName.endsWith("/");
-
             if (isFolder) {
-                // 濡傛灉鏄洰褰曪紝閫掑綊鑾峰彇鎵€鏈夋枃浠跺ぇ灏?
                 try {
                     List<FileInfo> folderFiles = fileService.listFilesRecursive(objectName, bucket);
                     for (FileInfo subFile : folderFiles) {
@@ -234,7 +238,6 @@ public class FileController {
                     log.warn("Failed to list folder {}: {}", objectName, e.getMessage());
                 }
             } else {
-                // 鏂囦欢鐩存帴鑾峰彇澶у皬
                 try {
                     FileInfo fileInfo = fileService.getFileInfo(objectName, bucket);
                     totalSize += fileInfo.getSize() != null ? fileInfo.getSize() : 0;
@@ -244,54 +247,46 @@ public class FileController {
             }
         }
 
-        // 妫€鏌ユ槸鍚﹁秴杩囬厤缃殑澶у皬闄愬埗
         Long maxSize = configService.getBatchDownloadMaxSize();
         if (maxSize > 0 && totalSize > maxSize) {
-            throw new RuntimeException("鎵归噺涓嬭浇鍘嬬缉鍚庡ぇ灏忚秴杩囬檺鍒?" + formatSize(maxSize) + ")锛屾棤娉曚笅杞?");
+            throw new RuntimeException("批量下载总大小超过限制(" + formatSize(maxSize) + ")");
         }
 
-        // 浣跨敤绠￠亾娴佹潵瀹炵幇娴佸紡浼犺緭
         PipedOutputStream pipedOut = new PipedOutputStream();
         PipedInputStream pipedIn = new PipedInputStream(pipedOut);
-
-        // 鍦ㄥ悗鍙扮嚎绋嬩腑鐢熸垚ZIP
+        final List<String> validatedObjectNames = objectNames;
+        final String validatedBucket = bucket;
         executorService.submit(() -> {
             try {
-                fileService.downloadBatchAsZip(objectNames, bucket, pipedOut);
-                pipedOut.close();
+                fileService.downloadBatchAsZip(validatedObjectNames, validatedBucket, pipedOut);
             } catch (Exception e) {
                 log.error("Failed to create batch ZIP", e);
+            } finally {
                 try {
                     pipedOut.close();
-                } catch (Exception ex) {
-                    // ignore
+                } catch (Exception ignored) {
                 }
             }
         });
 
-        String filename = URLEncoder.encode("鎵归噺涓嬭浇_" + objectNames.size() + "涓枃浠?zip", "UTF-8");
-
+        String filename = URLEncoder.encode("batch-download-" + objectNames.size() + ".zip", "UTF-8");
         return ResponseEntity.ok()
                 .header(HttpHeaders.CONTENT_DISPOSITION, "attachment; filename=\"" + filename + "\"")
                 .contentType(MediaType.parseMediaType("application/zip"))
                 .body(new InputStreamResource(pipedIn));
     }
 
-    private String formatSize(long bytes) {
-        if (bytes < 1024) return bytes + " B";
-        if (bytes < 1024 * 1024) return String.format("%.2f KB", bytes / 1024.0);
-        if (bytes < 1024 * 1024 * 1024) return String.format("%.2f MB", bytes / (1024.0 * 1024));
-        return String.format("%.2f GB", bytes / (1024.0 * 1024 * 1024));
-    }
-
     @GetMapping("/preview")
     public ResponseEntity<InputStreamResource> preview(
             @RequestParam("objectName") String objectName,
-            @RequestParam(value = "bucket", required = false, defaultValue = "") String bucket) throws UnsupportedEncodingException {
+            @RequestParam(value = "bucket", required = false, defaultValue = "") String bucket)
+            throws UnsupportedEncodingException {
+        objectName = RequestValidationUtils.requireText(objectName, "objectName");
+        bucket = RequestValidationUtils.optionalText(bucket, "bucket");
         log.info("Previewing file: {}, bucket: {}", objectName, bucket);
+
         FileInfo fileInfo = fileService.getFileInfo(objectName, bucket);
         InputStream stream = fileService.getFileStream(objectName, bucket);
-
         String filename = URLEncoder.encode(fileInfo.getFileName(), "UTF-8");
 
         return ResponseEntity.ok()
@@ -305,8 +300,9 @@ public class FileController {
     public Result<String> getPreviewUrl(
             @RequestParam("objectName") String objectName,
             @RequestParam(value = "bucket", required = false, defaultValue = "") String bucket) {
-        String url = fileService.getPreviewUrl(objectName, bucket);
-        return Result.success(url);
+        objectName = RequestValidationUtils.requireText(objectName, "objectName");
+        bucket = RequestValidationUtils.nullableText(bucket, "bucket");
+        return Result.success(fileService.getPreviewUrl(objectName, bucket));
     }
 
     @PostMapping("/copy")
@@ -315,6 +311,10 @@ public class FileController {
             @RequestParam("dest") String destObjectName,
             @RequestParam(value = "sourceBucket", required = false, defaultValue = "") String sourceBucket,
             @RequestParam(value = "destBucket", required = false, defaultValue = "") String destBucket) {
+        sourceObjectName = RequestValidationUtils.requireText(sourceObjectName, "source");
+        destObjectName = RequestValidationUtils.requireText(destObjectName, "dest");
+        sourceBucket = RequestValidationUtils.optionalText(sourceBucket, "sourceBucket");
+        destBucket = RequestValidationUtils.optionalText(destBucket, "destBucket");
         log.info("Copying file from {} to {}", sourceObjectName, destObjectName);
         fileService.copyFile(sourceObjectName, destObjectName, sourceBucket, destBucket);
         return Result.success();
@@ -326,9 +326,25 @@ public class FileController {
             @RequestParam("dest") String destObjectName,
             @RequestParam(value = "sourceBucket", required = false, defaultValue = "") String sourceBucket,
             @RequestParam(value = "destBucket", required = false, defaultValue = "") String destBucket) {
+        sourceObjectName = RequestValidationUtils.requireText(sourceObjectName, "source");
+        destObjectName = RequestValidationUtils.requireText(destObjectName, "dest");
+        sourceBucket = RequestValidationUtils.optionalText(sourceBucket, "sourceBucket");
+        destBucket = RequestValidationUtils.optionalText(destBucket, "destBucket");
         log.info("Moving file from {} to {}", sourceObjectName, destObjectName);
         fileService.moveFile(sourceObjectName, destObjectName, sourceBucket, destBucket);
         return Result.success();
     }
-}
 
+    private String formatSize(long bytes) {
+        if (bytes < 1024) {
+            return bytes + " B";
+        }
+        if (bytes < 1024 * 1024) {
+            return String.format("%.2f KB", bytes / 1024.0);
+        }
+        if (bytes < 1024 * 1024 * 1024) {
+            return String.format("%.2f MB", bytes / (1024.0 * 1024));
+        }
+        return String.format("%.2f GB", bytes / (1024.0 * 1024 * 1024));
+    }
+}

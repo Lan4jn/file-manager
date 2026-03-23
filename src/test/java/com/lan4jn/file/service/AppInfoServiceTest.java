@@ -2,7 +2,9 @@ package com.lan4jn.file.service;
 
 import org.junit.jupiter.api.Test;
 
+import java.io.InputStream;
 import java.util.List;
+import java.util.Properties;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
@@ -12,8 +14,13 @@ class AppInfoServiceTest {
     private final AppInfoService appInfoService = new AppInfoService();
 
     @Test
-    void shouldReadCurrentVersionFromBuildMetadata() {
-        assertEquals("1.3.2", appInfoService.getCurrentVersion());
+    void shouldReadCurrentVersionFromBuildMetadata() throws Exception {
+        Properties properties = new Properties();
+        try (InputStream inputStream = getClass().getClassLoader().getResourceAsStream("app-info.properties")) {
+            properties.load(inputStream);
+        }
+
+        assertEquals(properties.getProperty("app.version"), appInfoService.getCurrentVersion());
     }
 
     @Test

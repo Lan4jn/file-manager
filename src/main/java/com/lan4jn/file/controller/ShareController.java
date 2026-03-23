@@ -7,6 +7,7 @@ import com.lan4jn.file.model.ShareAccessInfo;
 import com.lan4jn.file.model.ShareLink;
 import com.lan4jn.file.service.FileService;
 import com.lan4jn.file.service.ShareService;
+import com.lan4jn.file.utils.RequestValidationUtils;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.core.io.InputStreamResource;
@@ -14,9 +15,17 @@ import org.springframework.http.HttpHeaders;
 import org.springframework.http.MediaType;
 import org.springframework.http.ResponseEntity;
 import org.springframework.security.core.Authentication;
-import org.springframework.web.bind.annotation.*;
+import org.springframework.web.bind.annotation.DeleteMapping;
+import org.springframework.web.bind.annotation.GetMapping;
+import org.springframework.web.bind.annotation.PostMapping;
+import org.springframework.web.bind.annotation.RequestBody;
+import org.springframework.web.bind.annotation.RequestMapping;
+import org.springframework.web.bind.annotation.RequestParam;
+import org.springframework.web.bind.annotation.RestController;
 
 import java.io.InputStream;
+import java.io.PipedInputStream;
+import java.io.PipedOutputStream;
 import java.io.UnsupportedEncodingException;
 import java.net.URLEncoder;
 import java.util.List;
@@ -24,7 +33,6 @@ import java.util.Map;
 
 @RestController
 @RequestMapping("/api/share")
-
 public class ShareController {
 
     private static final Logger log = LoggerFactory.getLogger(ShareController.class);
@@ -37,64 +45,61 @@ public class ShareController {
         this.fileService = fileService;
     }
 
-    /**
-     * 鍒涘缓鍒嗕韩閾炬帴
-     */
     @PostMapping("/create")
-    public Result<ShareLink> createShare(
-            @RequestBody CreateShareRequest request,
-            Authentication authentication) {
+    public Result<ShareLink> createShare(@RequestBody CreateShareRequest request, Authentication authentication) {
+        request.setObjectName(RequestValidationUtils.requireText(request.getObjectName(), "objectName"));
+        request.setBucket(RequestValidationUtils.nullableText(request.getBucket(), "bucket"));
+        request.setPassword(RequestValidationUtils.nullableText(request.getPassword(), "password"));
+        request.setExpirationHours(RequestValidationUtils.optionalPositive(request.getExpirationHours(), "expirationHours"));
+
         log.info("Creating share link for: {}", request.getObjectName());
         ShareLink shareLink = shareService.createShareLink(request, authentication.getName());
         return Result.success(shareLink);
     }
 
-    /**
-     * 鍒涘缓鎵归噺鍒嗕韩閾炬帴
-     */
     @PostMapping("/batch-create")
-    public Result<ShareLink> createBatchShare(
-            @RequestBody Map<String, Object> params,
-            Authentication authentication) {
+    @SuppressWarnings("unchecked")
+    public Result<ShareLink> createBatchShare(@RequestBody Map<String, Object> params, Authentication authentication) {
         log.info("Creating batch share");
-        List<String> objectNames = (List<String>) params.get("objectNames");
-        String bucket = (String) params.get("bucket");
+        List<String> objectNames = RequestValidationUtils.requireTextList((List<String>) params.get("objectNames"), "objectNames");
+        String bucket = RequestValidationUtils.nullableText((String) params.get("bucket"), "bucket");
         Integer expirationHours = params.get("expirationHours") != null
-            ? Integer.valueOf(params.get("expirationHours").toString())
-            : null;
+                ? Integer.valueOf(params.get("expirationHours").toString())
+                : null;
         String password = params.get("password") != null
-            ? params.get("password").toString()
-            : null;
+                ? params.get("password").toString()
+                : null;
 
-        ShareLink shareLink = shareService.createBatchShareLink(objectNames, bucket, authentication.getName(), expirationHours, password);
+        expirationHours = RequestValidationUtils.optionalPositive(expirationHours, "expirationHours");
+        password = RequestValidationUtils.nullableText(password, "password");
+
+        ShareLink shareLink = shareService.createBatchShareLink(
+                objectNames, bucket, authentication.getName(), expirationHours, password);
         return Result.success(shareLink);
     }
 
     @GetMapping("/access-info")
     public Result<ShareAccessInfo> getShareAccessInfo(@RequestParam("shareCode") String shareCode) {
+        shareCode = RequestValidationUtils.requireText(shareCode, "shareCode");
         return Result.success(shareService.getShareAccessInfo(shareCode));
     }
 
-    /**
-     * 鑾峰彇鍒嗕韩淇℃伅
-     */
     @GetMapping("/info")
     public Result<ShareLink> getShareInfo(
             @RequestParam("shareCode") String shareCode,
             @RequestParam(value = "password", required = false) String password) {
-        ShareLink shareLink = shareService.getShareInfo(shareCode, password);
-        return Result.success(shareLink);
+        shareCode = RequestValidationUtils.requireText(shareCode, "shareCode");
+        password = RequestValidationUtils.nullableText(password, "password");
+        return Result.success(shareService.getShareInfo(shareCode, password));
     }
 
-    /**
-     * 閫氳繃鍒嗕韩閾炬帴鑾峰彇鏂囦欢淇℃伅
-     */
     @GetMapping("/file")
     public Result<FileInfo> getFileByShareCode(
             @RequestParam("shareCode") String shareCode,
             @RequestParam(value = "password", required = false) String password) {
-        FileInfo fileInfo = shareService.getFileByShareCode(shareCode, password);
-        return Result.success(fileInfo);
+        shareCode = RequestValidationUtils.requireText(shareCode, "shareCode");
+        password = RequestValidationUtils.nullableText(password, "password");
+        return Result.success(shareService.getFileByShareCode(shareCode, password));
     }
 
     @GetMapping("/items")
@@ -102,6 +107,9 @@ public class ShareController {
             @RequestParam("shareCode") String shareCode,
             @RequestParam(value = "password", required = false) String password,
             @RequestParam(value = "path", required = false) String path) {
+        shareCode = RequestValidationUtils.requireText(shareCode, "shareCode");
+        password = RequestValidationUtils.nullableText(password, "password");
+        path = RequestValidationUtils.nullableText(path, "path");
         return Result.success(shareService.listSharedItems(shareCode, password, path));
     }
 
@@ -110,12 +118,19 @@ public class ShareController {
             @RequestParam("shareCode") String shareCode,
             @RequestParam("objectName") String objectName,
             @RequestParam(value = "password", required = false) String password) throws UnsupportedEncodingException {
+        shareCode = RequestValidationUtils.requireText(shareCode, "shareCode");
+        objectName = RequestValidationUtils.requireText(objectName, "objectName");
+        password = RequestValidationUtils.nullableText(password, "password");
+
         FileInfo fileInfo = shareService.getSharedItemInfo(shareCode, password, objectName);
         if (Boolean.TRUE.equals(fileInfo.getIsFolder())) {
-            throw new RuntimeException("鐩綍璇疯繘鍏ュ悗涓嬭浇鏂囦欢");
+            throw new RuntimeException("目录请使用批量下载接口");
         }
 
-        InputStream stream = fileService.getFileStream(fileInfo.getObjectName(), shareService.getShareInfo(shareCode, password).getBucket());
+        InputStream stream = fileService.getFileStream(
+                fileInfo.getObjectName(),
+                shareService.getShareInfo(shareCode, password).getBucket()
+        );
         String filename = URLEncoder.encode(fileInfo.getFileName(), "UTF-8");
 
         return ResponseEntity.ok()
@@ -129,18 +144,23 @@ public class ShareController {
     public ResponseEntity<InputStreamResource> downloadAllSharedItems(
             @RequestParam("shareCode") String shareCode,
             @RequestParam(value = "password", required = false) String password) throws Exception {
+        shareCode = RequestValidationUtils.requireText(shareCode, "shareCode");
+        password = RequestValidationUtils.nullableText(password, "password");
+
         ShareLink shareLink = shareService.getShareInfo(shareCode, password);
         if (!Boolean.TRUE.equals(shareLink.getIsFolder())) {
-            throw new RuntimeException("褰撳墠鍒嗕韩涓嶆槸鐩綍鎴栨壒閲忓垎浜?");
+            throw new RuntimeException("仅目录分享支持批量下载");
         }
 
-        java.io.PipedInputStream stream = new java.io.PipedInputStream();
-        java.io.PipedOutputStream outputStream = new java.io.PipedOutputStream(stream);
+        final String validatedShareCode = shareCode;
+        final String validatedPassword = password;
+        PipedInputStream stream = new PipedInputStream();
+        PipedOutputStream outputStream = new PipedOutputStream(stream);
         new Thread(() -> {
             try {
-                shareService.downloadShareAsZip(shareCode, password, outputStream);
+                shareService.downloadShareAsZip(validatedShareCode, validatedPassword, outputStream);
             } catch (Exception e) {
-                log.error("Failed to stream share archive: {}", shareCode, e);
+                log.error("Failed to stream share archive: {}", validatedShareCode, e);
             } finally {
                 try {
                     outputStream.close();
@@ -156,25 +176,21 @@ public class ShareController {
                 .body(new InputStreamResource(stream));
     }
 
-    /**
-     * 閫氳繃鍒嗕韩閾炬帴涓嬭浇鏂囦欢
-     */
     @GetMapping("/download")
     public ResponseEntity<InputStreamResource> downloadByShareCode(
             @RequestParam("shareCode") String shareCode,
             @RequestParam(value = "password", required = false) String password) throws UnsupportedEncodingException {
+        shareCode = RequestValidationUtils.requireText(shareCode, "shareCode");
+        password = RequestValidationUtils.nullableText(password, "password");
+
         log.info("Processing download request for share: {}", shareCode);
         ShareLink link = shareService.getShareInfo(shareCode, password);
-
         if (Boolean.TRUE.equals(link.getIsFolder())) {
-            throw new RuntimeException("鐩綍鎴栨壒閲忓垎浜鍦ㄥ垎浜〉涓祻瑙堝悗鍗曠嫭涓嬭浇鏂囦欢");
+            throw new RuntimeException("目录分享请使用 download-all 接口");
         }
 
-        // 鏂囦欢鍒嗕韩
-        log.info("Downloading file {} from bucket {}", link.getObjectName(), link.getBucket());
         FileInfo fileInfo = fileService.getFileInfo(link.getObjectName(), link.getBucket());
         InputStream stream = fileService.getFileStream(link.getObjectName(), link.getBucket());
-
         String filename = URLEncoder.encode(fileInfo.getFileName(), "UTF-8");
 
         return ResponseEntity.ok()
@@ -184,42 +200,31 @@ public class ShareController {
                 .body(new InputStreamResource(stream));
     }
 
-    /**
-     * 淇濈暀鏃ф帴鍙ｏ紝鏄惧紡鎻愮ず浣跨敤鏂扮殑娴忚寮忓垎浜〉
-     */
     @GetMapping("/download-folder")
     public ResponseEntity<InputStreamResource> downloadFolderShareLink(
             @RequestParam("shareCode") String shareCode,
-            @RequestParam(value = "password", required = false) String password) throws Exception {
-        throw new RuntimeException("鐩綍鍒嗕韩宸插崌绾т负鍦ㄧ嚎娴忚妯″紡锛岃鍦ㄥ垎浜〉涓€夋嫨鏂囦欢涓嬭浇");
+            @RequestParam(value = "password", required = false) String password) {
+        RequestValidationUtils.requireText(shareCode, "shareCode");
+        RequestValidationUtils.nullableText(password, "password");
+        throw new RuntimeException("目录分享请使用 download-all 接口");
     }
 
-    /**
-     * 楠岃瘉鍒嗕韩閾炬帴
-     */
     @GetMapping("/validate")
     public Result<Boolean> validateShareCode(@RequestParam("shareCode") String shareCode) {
-        boolean valid = shareService.validateShareCode(shareCode);
-        return Result.success(valid);
+        shareCode = RequestValidationUtils.requireText(shareCode, "shareCode");
+        return Result.success(shareService.validateShareCode(shareCode));
     }
 
-    /**
-     * 鍒犻櫎鍒嗕韩閾炬帴
-     */
     @DeleteMapping("/delete")
     public Result<Void> deleteShare(@RequestParam("shareCode") String shareCode, Authentication authentication) {
+        shareCode = RequestValidationUtils.requireText(shareCode, "shareCode");
         log.info("Deleting share link: {}", shareCode);
         shareService.deleteShareLink(shareCode, authentication.getName());
         return Result.success();
     }
 
-    /**
-     * 鑾峰彇鐢ㄦ埛鐨勬墍鏈夊垎浜摼鎺?
-     */
     @GetMapping("/list")
     public Result<List<ShareLink>> getShareLinks(Authentication authentication) {
-        List<ShareLink> shareLinks = shareService.getShareLinksByUser(authentication.getName());
-        return Result.success(shareLinks);
+        return Result.success(shareService.getShareLinksByUser(authentication.getName()));
     }
 }
-
