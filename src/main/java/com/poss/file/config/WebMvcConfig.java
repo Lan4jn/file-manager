@@ -15,8 +15,10 @@ public class WebMvcConfig implements WebMvcConfigurer {
 
     @Override
     public void addViewControllers(ViewControllerRegistry registry) {
-        // 根路径映射到 index.html
+        // 根路径根据ui.mode配置决定跳转
         registry.addViewController("/").setViewName("forward:/index.html");
+        // lite界面入口
+        registry.addViewController("/lite").setViewName("forward:/lite.html");
     }
 
     @Override

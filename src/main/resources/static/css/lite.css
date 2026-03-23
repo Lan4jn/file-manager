@@ -1,0 +1,396 @@
+/* Lite CSS - 低GPU轻量界面样式 */
+/* 无动画、无过渡、最小化GPU占用 */
+
+* {
+    margin: 0;
+    padding: 0;
+    box-sizing: border-box;
+}
+
+body {
+    font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif;
+    font-size: 14px;
+    line-height: 1.5;
+    color: #333;
+    background: #f5f5f5;
+}
+
+/* Login */
+.login-container {
+    display: flex;
+    justify-content: center;
+    align-items: center;
+    min-height: 100vh;
+    background: #e8e8e8;
+}
+
+.login-box {
+    background: #fff;
+    padding: 40px;
+    border-radius: 4px;
+    box-shadow: 0 2px 8px rgba(0,0,0,0.1);
+    width: 320px;
+}
+
+.login-box h1 {
+    font-size: 24px;
+    margin-bottom: 8px;
+    color: #333;
+}
+
+.login-box .subtitle {
+    color: #666;
+    margin-bottom: 24px;
+}
+
+.login-box form input {
+    width: 100%;
+    padding: 10px;
+    margin-bottom: 12px;
+    border: 1px solid #ddd;
+    border-radius: 4px;
+    font-size: 14px;
+}
+
+.login-box form button {
+    width: 100%;
+    padding: 10px;
+    background: #409eff;
+    color: #fff;
+    border: none;
+    border-radius: 4px;
+    cursor: pointer;
+    font-size: 14px;
+}
+
+.login-box form button:disabled {
+    background: #a0cfff;
+    cursor: not-allowed;
+}
+
+.login-box .version {
+    margin-top: 16px;
+    text-align: center;
+    color: #999;
+    font-size: 12px;
+}
+
+/* Main Container */
+.main-container {
+    max-width: 1200px;
+    margin: 0 auto;
+    padding: 16px;
+}
+
+/* Header */
+.header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    background: #fff;
+    padding: 16px;
+    border-radius: 4px;
+    margin-bottom: 16px;
+    box-shadow: 0 1px 4px rgba(0,0,0,0.1);
+}
+
+.header h2 {
+    font-size: 18px;
+}
+
+.header-right {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+}
+
+.header .version {
+    color: #999;
+    font-size: 12px;
+}
+
+.header button {
+    padding: 6px 12px;
+    background: #f0f0f0;
+    border: 1px solid #ddd;
+    border-radius: 4px;
+    cursor: pointer;
+    font-size: 13px;
+}
+
+/* Toolbar */
+.toolbar {
+    display: flex;
+    gap: 8px;
+    margin-bottom: 16px;
+}
+
+.toolbar button {
+    padding: 8px 16px;
+    background: #fff;
+    border: 1px solid #ddd;
+    border-radius: 4px;
+    cursor: pointer;
+    font-size: 13px;
+}
+
+.toolbar button:disabled {
+    color: #ccc;
+    cursor: not-allowed;
+}
+
+.toolbar button:hover:not(:disabled) {
+    background: #f5f5f5;
+}
+
+/* Bucket Bar */
+.bucket-bar {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    padding: 12px;
+    background: #fff;
+    border-radius: 4px;
+    margin-bottom: 16px;
+    box-shadow: 0 1px 4px rgba(0,0,0,0.1);
+}
+
+.bucket-bar select {
+    padding: 6px 10px;
+    border: 1px solid #ddd;
+    border-radius: 4px;
+    font-size: 13px;
+}
+
+.bucket-bar .path {
+    color: #666;
+    font-size: 13px;
+}
+
+/* File List */
+.file-list {
+    background: #fff;
+    border-radius: 4px;
+    box-shadow: 0 1px 4px rgba(0,0,0,0.1);
+    overflow: hidden;
+}
+
+.file-list table {
+    width: 100%;
+    border-collapse: collapse;
+}
+
+.file-list th,
+.file-list td {
+    padding: 10px 12px;
+    text-align: left;
+    border-bottom: 1px solid #eee;
+}
+
+.file-list th {
+    background: #fafafa;
+    font-weight: 500;
+}
+
+.file-list tr:hover {
+    background: #f9f9f9;
+}
+
+.file-list .folder-icon {
+    cursor: pointer;
+    color: #409eff;
+}
+
+.file-list .file-icon {
+    cursor: pointer;
+}
+
+.file-list .empty {
+    text-align: center;
+    color: #999;
+    padding: 40px !important;
+}
+
+.file-list button {
+    padding: 4px 8px;
+    margin-right: 4px;
+    background: #fff;
+    border: 1px solid #ddd;
+    border-radius: 4px;
+    cursor: pointer;
+    font-size: 12px;
+}
+
+.file-list button:hover {
+    background: #f0f0f0;
+}
+
+.file-list button.danger {
+    color: #f56c6c;
+    border-color: #f56c6c;
+}
+
+.file-list button.danger:hover {
+    background: #fef0f0;
+}
+
+/* Pagination */
+.pagination {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    padding: 12px;
+    background: #fff;
+    border-radius: 4px;
+    margin-top: 16px;
+    box-shadow: 0 1px 4px rgba(0,0,0,0.1);
+}
+
+.pagination button {
+    padding: 6px 12px;
+    background: #fff;
+    border: 1px solid #ddd;
+    border-radius: 4px;
+    cursor: pointer;
+    font-size: 13px;
+}
+
+.pagination button:disabled {
+    color: #ccc;
+    cursor: not-allowed;
+}
+
+.pagination select {
+    padding: 6px 10px;
+    border: 1px solid #ddd;
+    border-radius: 4px;
+    font-size: 13px;
+}
+
+/* Dialog */
+.dialog-overlay {
+    position: fixed;
+    top: 0;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    background: rgba(0,0,0,0.5);
+    display: flex;
+    justify-content: center;
+    align-items: center;
+    z-index: 1000;
+}
+
+.dialog {
+    background: #fff;
+    padding: 24px;
+    border-radius: 4px;
+    width: 400px;
+    max-width: 90%;
+}
+
+.dialog h3 {
+    margin-bottom: 16px;
+    font-size: 16px;
+}
+
+.dialog input[type="text"],
+.dialog input[type="password"],
+.dialog input[type="number"],
+.dialog input[type="file"] {
+    width: 100%;
+    padding: 8px;
+    margin-bottom: 12px;
+    border: 1px solid #ddd;
+    border-radius: 4px;
+    font-size: 14px;
+}
+
+.dialog label {
+    display: block;
+    margin-bottom: 12px;
+    font-size: 13px;
+    color: #666;
+}
+
+.dialog label input {
+    margin-left: 8px;
+    width: 120px;
+}
+
+.dialog-buttons {
+    display: flex;
+    gap: 8px;
+    margin-top: 16px;
+}
+
+.dialog button {
+    flex: 1;
+    padding: 10px;
+    background: #fff;
+    border: 1px solid #ddd;
+    border-radius: 4px;
+    cursor: pointer;
+    font-size: 14px;
+}
+
+.dialog button:first-child {
+    background: #409eff;
+    color: #fff;
+    border-color: #409eff;
+}
+
+.dialog button:first-child:hover {
+    background: #66b1ff;
+}
+
+.upload-list {
+    max-height: 150px;
+    overflow-y: auto;
+    margin-bottom: 12px;
+    padding: 8px;
+    background: #f9f9f9;
+    border-radius: 4px;
+}
+
+.upload-list > div {
+    padding: 4px 0;
+    font-size: 12px;
+    color: #666;
+}
+
+.progress-bar {
+    height: 4px;
+    background: #eee;
+    border-radius: 2px;
+    overflow: hidden;
+}
+
+.progress-bar > div {
+    height: 100%;
+    background: #409eff;
+    width: 0%;
+}
+
+.share-result {
+    margin-top: 12px;
+    display: flex;
+    gap: 8px;
+}
+
+.share-result input {
+    flex: 1;
+    padding: 8px;
+    border: 1px solid #ddd;
+    border-radius: 4px;
+    font-size: 12px;
+}
+
+.share-result button {
+    padding: 8px 16px;
+    background: #67c23a;
+    color: #fff;
+    border: none;
+    border-radius: 4px;
+    cursor: pointer;
+}

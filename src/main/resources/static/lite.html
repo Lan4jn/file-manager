@@ -1,0 +1,167 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>文件管理器 - 轻量版</title>
+    <link rel="icon" type="image/x-icon" href="/favicon.ico">
+    <link rel="stylesheet" href="/css/lite.css">
+</head>
+<body>
+    <div id="app">
+        <!-- Login Page -->
+        <div v-if="!isLoggedIn" class="login-container">
+            <div class="login-box">
+                <h1>POSS DRIVE</h1>
+                <p class="subtitle">对象存储工作台</p>
+                <form @submit.prevent="handleLogin">
+                    <input type="text" v-model="loginForm.username" placeholder="用户名" required>
+                    <input type="password" v-model="loginForm.password" placeholder="密码" required>
+                    <button type="submit" :disabled="loginLoading">登录</button>
+                </form>
+                <p class="version">v1.3-dev</p>
+            </div>
+        </div>
+
+        <!-- Main App -->
+        <div v-else class="main-container">
+            <!-- Header -->
+            <div class="header">
+                <div class="header-left">
+                    <h2>{{ currentViewTitle }}</h2>
+                </div>
+                <div class="header-right">
+                    <span class="version">v1.3-dev</span>
+                    <button @click="handleLogout">退出</button>
+                </div>
+            </div>
+
+            <!-- Toolbar -->
+            <div class="toolbar">
+                <button @click="refreshFiles">刷新</button>
+                <button @click="showUploadDialog = true">上传</button>
+                <button @click="showFolderDialog = true">新建文件夹</button>
+                <button @click="batchShare" :disabled="selectedFiles.length === 0">分享</button>
+                <button @click="batchDownload" :disabled="selectedFiles.length === 0">下载</button>
+                <button @click="batchDelete" :disabled="selectedFiles.length === 0">删除</button>
+            </div>
+
+            <!-- Bucket Selector -->
+            <div class="bucket-bar">
+                <label>当前存储桶:</label>
+                <select v-model="currentBucket" @change="onBucketChange">
+                    <option v-for="bucket in bucketList" :key="bucket.name" :value="bucket.name">
+                        {{ bucket.name }}
+                    </option>
+                </select>
+                <span class="path">{{ currentPath }}</span>
+            </div>
+
+            <!-- File List -->
+            <div class="file-list">
+                <table>
+                    <thead>
+                        <tr>
+                            <th><input type="checkbox" @change="toggleSelectAll"></th>
+                            <th>名称</th>
+                            <th>大小</th>
+                            <th>修改时间</th>
+                            <th>操作</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        <tr v-for="file in fileList" :key="file.objectName" @click="toggleSelect(file)">
+                            <td><input type="checkbox" :checked="selectedFiles.includes(file.objectName)"></td>
+                            <td>
+                                <span v-if="file.isFolder" class="folder-icon" @click.stop="navigateToFolder(file.objectName)">
+                                    📁 {{ file.fileName }}
+                                </span>
+                                <span v-else class="file-icon" @click.stop="previewFile(file)">
+                                    📄 {{ file.fileName }}
+                                </span>
+                            </td>
+                            <td>{{ formatSize(file.size) }}</td>
+                            <td>{{ formatDate(file.uploadTime) }}</td>
+                            <td>
+                                <button @click.stop="shareFile(file)">分享</button>
+                                <button @click.stop="downloadFile(file)">下载</button>
+                                <button @click.stop="deleteFile(file)" class="danger">删除</button>
+                            </td>
+                        </tr>
+                        <tr v-if="fileList.length === 0">
+                            <td colspan="5" class="empty">暂无文件</td>
+                        </tr>
+                    </tbody>
+                </table>
+            </div>
+
+            <!-- Pagination -->
+            <div class="pagination">
+                <span>共 {{ fileTotal }} 条</span>
+                <button @click="prevPage" :disabled="filePage <= 1">上一页</button>
+                <span>第 {{ filePage }} / {{ totalPages }} 页</span>
+                <button @click="nextPage" :disabled="filePage >= totalPages">下一页</button>
+                <select v-model="filePageSize" @change="onPageSizeChange">
+                    <option value="10">10条/页</option>
+                    <option value="20">20条/页</option>
+                    <option value="50">50条/页</option>
+                    <option value="100">100条/页</option>
+                </select>
+            </div>
+
+            <!-- Upload Dialog -->
+            <div v-if="showUploadDialog" class="dialog-overlay" @click.self="showUploadDialog = false">
+                <div class="dialog">
+                    <h3>上传文件</h3>
+                    <input type="file" multiple @change="handleFileSelect">
+                    <div class="upload-list">
+                        <div v-for="(file, index) in uploadQueue" :key="index">
+                            {{ file.name }} - {{ formatSize(file.size) }}
+                        </div>
+                    </div>
+                    <div class="progress-bar">
+                        <div :style="{width: uploadProgress + '%'}"></div>
+                    </div>
+                    <div class="dialog-buttons">
+                        <button @click="submitUpload">上传</button>
+                        <button @click="showUploadDialog = false">取消</button>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Folder Dialog -->
+            <div v-if="showFolderDialog" class="dialog-overlay" @click.self="showFolderDialog = false">
+                <div class="dialog">
+                    <h3>新建文件夹</h3>
+                    <input type="text" v-model="newFolderName" placeholder="文件夹名称">
+                    <div class="dialog-buttons">
+                        <button @click="createFolder">创建</button>
+                        <button @click="showFolderDialog = false">取消</button>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Share Dialog -->
+            <div v-if="showShareDialog" class="dialog-overlay" @click.self="showShareDialog = false">
+                <div class="dialog">
+                    <h3>分享文件</h3>
+                    <p>文件名: {{ shareFileName }}</p>
+                    <label>有效期(小时): <input type="number" v-model="shareExpireHours" min="1" max="720"></label>
+                    <label>提取码: <input type="text" v-model="sharePassword" placeholder="留空则无需提取码"></label>
+                    <div class="dialog-buttons">
+                        <button @click="createShare">创建分享链接</button>
+                        <button @click="showShareDialog = false">取消</button>
+                    </div>
+                    <div v-if="shareLink" class="share-result">
+                        <input type="text" :value="shareLink" readonly>
+                        <button @click="copyShareLink">复制</button>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script src="/js/axios.min.js"></script>
+    <script src="/js/lite.js"></script>
+</body>
+</html>
