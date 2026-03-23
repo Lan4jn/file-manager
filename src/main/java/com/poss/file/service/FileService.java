@@ -354,7 +354,8 @@ public class FileService {
     }
 
     /**
-     * 分页获取文件列表
+     * 分页获取文件列表 - MinIO级别分页
+     * 使用startAfter实现真正的MinIO层分页，避免加载所有文件到内存
      */
     public PageResult<FileInfo> listFiles(String folder, String bucket, String sortBy, String order, int page, int size) {
         // 参数校验和默认值
@@ -363,24 +364,299 @@ public class FileService {
             size = 10; // 默认每页10条
         }
 
-        // 先获取所有文件
-        List<FileInfo> allFiles = listFiles(folder, bucket, sortBy, order);
-
-        // 计算总数
-        long total = allFiles.size();
-
-        // 计算偏移量
-        int offset = (page - 1) * size;
-        if (offset >= total) {
-            // 页码超出范围，返回空列表
-            return new PageResult<>(new ArrayList<>(), total, page, size);
+        if (bucket == null || bucket.isEmpty()) {
+            bucket = defaultBucket;
         }
 
-        // 截取当前页的数据
-        int endIndex = Math.min(offset + size, (int) total);
-        List<FileInfo> pageItems = allFiles.subList(offset, endIndex);
+        // 确保 folder 以 / 结尾
+        if (StrUtil.isNotEmpty(folder) && !folder.endsWith("/")) {
+            folder = folder + "/";
+        }
 
-        return new PageResult<>(pageItems, total, page, size);
+        try {
+            // 计算startAfter：如果是第一页则为空，否则使用上一页最后一个文件名
+            String startAfter = null;
+            if (page > 1) {
+                // 需要先获取前N页的最后一个文件名作为startAfter
+                // 由于MinIO的startAfter是基于字典序的，对于分页我们使用一个技巧：
+                // 先获取前一页的起始marker，然后获取前一页的所有文件，找到最后一个
+                startAfter = calculateStartAfterForPage(folder, bucket, sortBy, order, page - 1, size);
+                if (startAfter == null) {
+                    // 如果无法计算startAfter，返回空（可能数据已变化）
+                    return new PageResult<>(new ArrayList<>(), 0, page, size);
+                }
+            }
+
+            // 使用MinIO的listObjects进行分页查询
+            ListObjectsArgs.Builder argsBuilder = ListObjectsArgs.builder()
+                    .bucket(bucket)
+                    .prefix(folder)
+                    .recursive(false)
+                    .maxKeys(size + 1); // 多取一条来判断是否有下一页
+
+            if (startAfter != null) {
+                argsBuilder.startAfter(startAfter);
+            }
+
+            Iterable<Result<Item>> results = minioClient.listObjects(argsBuilder.build());
+
+            List<FileInfo> fileList = new ArrayList<>();
+            String lastObjectName = null;
+            boolean hasMore = false;
+            int count = 0;
+
+            for (Result<Item> result : results) {
+                Item item = result.get();
+                String objectName = item.objectName();
+
+                // 过滤掉当前查询的目录本身
+                if (objectName.equals(folder)) {
+                    continue;
+                }
+
+                // 判断是否是目录
+                boolean isFolder = item.isDir() || objectName.endsWith("/");
+
+                // 0字节文件且有同名目录的处理
+                if (!isFolder && item.size() == 0) {
+                    boolean hasFolderWithSameName = false;
+                    for (FileInfo fi : fileList) {
+                        if (fi.getIsFolder() != null && fi.getIsFolder()) {
+                            String folderName = fi.getFileName();
+                            String fileName = getFileName(objectName);
+                            if (folderName.equals(fileName)) {
+                                hasFolderWithSameName = true;
+                                break;
+                            }
+                        }
+                    }
+                    if (hasFolderWithSameName) {
+                        continue;
+                    }
+                }
+
+                count++;
+                // 如果已经取了size+1条，说明有下一页
+                if (count > size) {
+                    hasMore = true;
+                    continue;
+                }
+
+                lastObjectName = objectName;
+
+                FileInfo fileInfo = new FileInfo();
+                fileInfo.setObjectName(objectName);
+                fileInfo.setFileName(getFileName(objectName));
+                fileInfo.setSize(item.size());
+                fileInfo.setIsFolder(isFolder);
+                try {
+                    if (item.lastModified() != null) {
+                        fileInfo.setUploadTime(LocalDateTime.ofInstant(
+                                item.lastModified().toInstant(), ZoneId.systemDefault()));
+                    } else {
+                        fileInfo.setUploadTime(LocalDateTime.now());
+                    }
+                } catch (Exception e) {
+                    fileInfo.setUploadTime(LocalDateTime.now());
+                }
+                fileInfo.setUrl(publicUrl + "/" + bucket + "/" + objectName);
+                fileList.add(fileInfo);
+            }
+
+            // 对当前页进行排序
+            fileList.sort((f1, f2) -> {
+                boolean f1IsFolder = f1.getIsFolder() != null && f1.getIsFolder();
+                boolean f2IsFolder = f2.getIsFolder() != null && f2.getIsFolder();
+
+                if (f1IsFolder != f2IsFolder) {
+                    return f1IsFolder ? -1 : 1;
+                }
+
+                int result;
+                switch (sortBy) {
+                    case "size":
+                        result = Long.compare(f1.getSize() != null ? f1.getSize() : 0, f2.getSize() != null ? f2.getSize() : 0);
+                        break;
+                    case "time":
+                        result = (f1.getUploadTime() != null ? f1.getUploadTime() : LocalDateTime.MIN).compareTo(f2.getUploadTime() != null ? f2.getUploadTime() : LocalDateTime.MIN);
+                        break;
+                    default:
+                        result = (f1.getFileName() != null ? f1.getFileName() : "").compareTo(f2.getFileName() != null ? f2.getFileName() : "");
+                }
+                return "desc".equalsIgnoreCase(order) ? -result : result;
+            });
+
+            // 计算总数（估算：如果hasMore为true，总数至少是page*size）
+            long total = hasMore ? (long) page * size : fileList.size();
+            if (hasMore) {
+                // 更准确的估算：假设还有更多数据
+                total = (long) page * size + 1;
+            }
+
+            return new PageResult<>(fileList, total, page, size, hasMore ? lastObjectName : null, hasMore);
+
+        } catch (Exception e) {
+            log.error("Failed to list files with pagination", e);
+            throw new RuntimeException("获取文件列表失败: " + e.getMessage());
+        }
+    }
+
+    /**
+     * 计算指定页码的startAfter参数
+     * 通过获取前一页的最后一个文件名来实现
+     */
+    private String calculateStartAfterForPage(String folder, String bucket, String sortBy, String order, int targetPage, int size) {
+        // 对于非name排序，我们无法直接用startAfter计算
+        // 这种情况下降级为应用层分页（但限制总数）
+        if (!"name".equals(sortBy) && !"".equals(sortBy) && sortBy != null) {
+            // 对于size/time排序，MinIO不支持，我们只能获取所有然后分页
+            // 但这种情况很少见，且大多数场景下文件数量不会太多
+            return calculateStartAfterByFetchingAll(folder, bucket, sortBy, order, targetPage, size);
+        }
+
+        try {
+            // 使用startAfter迭代获取前一页
+            String startAfter = null;
+
+            for (int i = 0; i < targetPage; i++) {
+                ListObjectsArgs.Builder argsBuilder = ListObjectsArgs.builder()
+                        .bucket(bucket)
+                        .prefix(folder)
+                        .recursive(false)
+                        .maxKeys(size);
+
+                if (startAfter != null) {
+                    argsBuilder.startAfter(startAfter);
+                }
+
+                Iterable<Result<Item>> results = minioClient.listObjects(argsBuilder.build());
+
+                String lastName = null;
+                int count = 0;
+                boolean hasMore = false;
+
+                for (Result<Item> result : results) {
+                    Item item = result.get();
+                    String objectName = item.objectName();
+
+                    // 过滤掉当前查询的目录本身
+                    if (objectName.equals(folder)) {
+                        continue;
+                    }
+
+                    count++;
+                    if (count > size) {
+                        hasMore = true;
+                        break;
+                    }
+                    lastName = objectName;
+                }
+
+                if (lastName == null) {
+                    return null;
+                }
+
+                startAfter = lastName;
+
+                if (!hasMore) {
+                    // 没有更多数据了
+                    return null;
+                }
+            }
+
+            return startAfter;
+        } catch (Exception e) {
+            log.error("Failed to calculate startAfter for page {}", targetPage, e);
+            return null;
+        }
+    }
+
+    /**
+     * 通过获取所有文件来计算startAfter（适用于非name排序）
+     * 限制最大获取数量为10000以防止内存溢出
+     */
+    private String calculateStartAfterByFetchingAll(String folder, String bucket, String sortBy, String order, int targetPage, int size) {
+        try {
+            List<FileInfo> allFiles = new ArrayList<>();
+            int maxTotal = 10000; // 限制最大获取数量
+
+            // 列出所有对象
+            Iterable<Result<Item>> results = minioClient.listObjects(
+                    ListObjectsArgs.builder()
+                            .bucket(bucket)
+                            .prefix(folder)
+                            .recursive(false)
+                            .build()
+            );
+
+            for (Result<Item> result : results) {
+                if (allFiles.size() >= maxTotal) {
+                    break; // 达到上限，停止获取
+                }
+
+                Item item = result.get();
+                String objectName = item.objectName();
+
+                if (objectName.equals(folder)) {
+                    continue;
+                }
+
+                boolean isFolder = item.isDir() || objectName.endsWith("/");
+
+                FileInfo fileInfo = new FileInfo();
+                fileInfo.setObjectName(objectName);
+                fileInfo.setFileName(getFileName(objectName));
+                fileInfo.setSize(item.size());
+                fileInfo.setIsFolder(isFolder);
+                try {
+                    if (item.lastModified() != null) {
+                        fileInfo.setUploadTime(LocalDateTime.ofInstant(
+                                item.lastModified().toInstant(), ZoneId.systemDefault()));
+                    } else {
+                        fileInfo.setUploadTime(LocalDateTime.now());
+                    }
+                } catch (Exception e) {
+                    fileInfo.setUploadTime(LocalDateTime.now());
+                }
+                allFiles.add(fileInfo);
+            }
+
+            // 排序
+            allFiles.sort((f1, f2) -> {
+                boolean f1IsFolder = f1.getIsFolder() != null && f1.getIsFolder();
+                boolean f2IsFolder = f2.getIsFolder() != null && f2.getIsFolder();
+
+                if (f1IsFolder != f2IsFolder) {
+                    return f1IsFolder ? -1 : 1;
+                }
+
+                int result;
+                switch (sortBy) {
+                    case "size":
+                        result = Long.compare(f1.getSize() != null ? f1.getSize() : 0, f2.getSize() != null ? f2.getSize() : 0);
+                        break;
+                    case "time":
+                        result = (f1.getUploadTime() != null ? f1.getUploadTime() : LocalDateTime.MIN).compareTo(f2.getUploadTime() != null ? f2.getUploadTime() : LocalDateTime.MIN);
+                        break;
+                    default:
+                        result = (f1.getFileName() != null ? f1.getFileName() : "").compareTo(f2.getFileName() != null ? f2.getFileName() : "");
+                }
+                return "desc".equalsIgnoreCase(order) ? -result : result;
+            });
+
+            // 计算偏移量
+            int offset = (targetPage - 1) * size;
+            if (offset >= allFiles.size()) {
+                return null;
+            }
+
+            // 返回offset位置的文件名作为startAfter
+            return allFiles.get(offset).getObjectName();
+
+        } catch (Exception e) {
+            log.error("Failed to calculate startAfter by fetching all", e);
+            return null;
+        }
     }
 
     /**

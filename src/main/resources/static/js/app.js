@@ -54,6 +54,10 @@ const app = createApp({
         const historyIndex = ref(-1);
         const showPathDropdown = ref(false);
 
+        // 地址栏编辑相关
+        const isPathEditing = ref(false);
+        const editPathValue = ref('');
+
         // Dialogs
         const showUploadDialog = ref(false);
         const uploadRef = ref(null);
@@ -615,6 +619,75 @@ const app = createApp({
             loadBuckets();
         };
 
+        // 触发地址栏编辑模式
+        const startPathEdit = () => {
+            isPathEditing.value = true;
+            editPathValue.value = currentPathInput.value;
+        };
+
+        // 确认编辑路径
+        const confirmPathEdit = () => {
+            const path = editPathValue.value.trim();
+            if (!path) {
+                cancelPathEdit();
+                return;
+            }
+
+            // 解析输入路径，格式：/bucket/folder1/folder2/ 或 bucket/folder1/folder2/
+            let parts = path.split('/').filter(p => p);
+            if (parts.length === 0) {
+                cancelPathEdit();
+                return;
+            }
+
+            // 如果没有以/开头，认为第一个是bucket
+            if (!path.startsWith('/')) {
+                parts = path.split('/').filter(p => p);
+            }
+
+            const bucket = parts[0];
+            if (bucket) {
+                currentBucket.value = bucket;
+            }
+
+            if (parts.length > 1) {
+                currentFolder.value = parts.slice(1).join('/') + '/';
+            } else {
+                currentFolder.value = '';
+            }
+
+            // 清空历史重新开始
+            folderHistory.value = [];
+            historyIndex.value = -1;
+
+            isPathEditing.value = false;
+            updateBreadcrumb();
+            loadFiles();
+            loadBuckets();
+        };
+
+        // 取消编辑模式
+        const cancelPathEdit = () => {
+            isPathEditing.value = false;
+            editPathValue.value = '';
+        };
+
+        // 点击路径节点跳转
+        const navigateToNode = (node) => {
+            if (node.isBucket) {
+                currentFolder.value = '';
+            } else {
+                currentFolder.value = node.path;
+            }
+
+            // 清空历史重新开始
+            folderHistory.value = [];
+            historyIndex.value = -1;
+
+            updateBreadcrumb();
+            loadFiles();
+        };
+
         // 后退
         const canGoBack = computed(() => historyIndex.value > 0);
         const goBack = () => {
@@ -664,17 +737,33 @@ const app = createApp({
         };
 
         const updateBreadcrumb = () => {
-            if (!currentFolder.value) {
-                breadcrumb.value = [];
-                return;
-            }
-            const parts = currentFolder.value.split('/').filter(p => p);
             const crumbs = [];
-            let path = '';
-            for (const part of parts) {
-                path += part + '/';
-                crumbs.push({ name: part, path: path });
+
+            // 首先添加 bucket 节点
+            if (currentBucket.value) {
+                crumbs.push({
+                    name: currentBucket.value,
+                    path: currentBucket.value + '/',
+                    isBucket: true,
+                    isFolder: false
+                });
             }
+
+            // 然后添加 folder 节点
+            if (currentFolder.value) {
+                const parts = currentFolder.value.split('/').filter(p => p);
+                let path = '';
+                for (const part of parts) {
+                    path += part + '/';
+                    crumbs.push({
+                        name: part,
+                        path: path,
+                        isBucket: false,
+                        isFolder: true
+                    });
+                }
+            }
+
             breadcrumb.value = crumbs;
         };
 
@@ -1638,6 +1727,17 @@ const app = createApp({
             formatSize,
             formatDateTime
         };
+
+        // 全局点击事件：地址栏外部点击取消编辑
+        document.addEventListener('click', (e) => {
+            const pathStrip = document.querySelector('.path-strip');
+            const pathInput = document.querySelector('.path-edit-input');
+            if (isPathEditing.value && pathStrip && pathInput) {
+                if (!pathStrip.contains(e.target) && e.target !== pathInput) {
+                    cancelPathEdit();
+                }
+            }
+        });
     }
 });
 

@@ -8,6 +8,8 @@ public class PageResult<T> {
     private int page;
     private int size;
     private int pages;
+    private String nextMarker;
+    private boolean hasMore;
 
     public PageResult() {}
 
@@ -17,6 +19,18 @@ public class PageResult<T> {
         this.page = page;
         this.size = size;
         this.pages = (int) Math.ceil((double) total / size);
+        this.hasMore = false;
+        this.nextMarker = null;
+    }
+
+    public PageResult(List<T> items, long total, int page, int size, String nextMarker, boolean hasMore) {
+        this.items = items;
+        this.total = total;
+        this.page = page;
+        this.size = size;
+        this.pages = (int) Math.ceil((double) total / size);
+        this.nextMarker = nextMarker;
+        this.hasMore = hasMore;
     }
 
     public List<T> getItems() {
@@ -57,5 +71,21 @@ public class PageResult<T> {
 
     public void setPages(int pages) {
         this.pages = pages;
+    }
+
+    public String getNextMarker() {
+        return nextMarker;
+    }
+
+    public void setNextMarker(String nextMarker) {
+        this.nextMarker = nextMarker;
+    }
+
+    public boolean isHasMore() {
+        return hasMore;
+    }
+
+    public void setHasMore(boolean hasMore) {
+        this.hasMore = hasMore;
     }
 }

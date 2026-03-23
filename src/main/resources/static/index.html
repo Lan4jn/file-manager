@@ -38,7 +38,7 @@
                             <p class="eyebrow">Secure Access</p>
                             <h2>登录文件管理器</h2>
                         </div>
-                        <span class="version-chip">v1.2.1</span>
+                        <span class="version-chip">v1.3-dev</span>
                     </div>
                     <el-form :model="loginForm" @submit.prevent="handleLogin">
                         <el-form-item>
@@ -68,7 +68,7 @@
                     </div>
                 </div>
                 <div class="header-right">
-                    <button class="ghost-action" @click="showVersionDialog = true">v1.2.1</button>
+                    <button class="ghost-action" @click="showVersionDialog = true">v1.3-dev</button>
                     <el-button class="help-text-button" @click="showHelpDialog = true">系统帮助</el-button>
                     <el-dropdown @command="handleCommand">
                         <span class="user-info">
@@ -241,16 +241,34 @@
                                         </el-button>
                                     </el-tooltip>
                                 </div>
-                                <div class="path-input-wrapper">
-                                    <el-input class="path-input" v-model="currentPathInput" @keyup.enter="navigateFromInput">
-                                        <template #prepend>
-                                            <el-tooltip content="刷新" placement="top">
-                                                <el-button class="nav-btn path-prepend-btn" @click="refreshFiles">
-                                                    <el-icon><Refresh /></el-icon>
-                                                </el-button>
-                                            </el-tooltip>
-                                        </template>
-                                    </el-input>
+                                <div class="path-input-wrapper" @click="startPathEdit">
+                                    <!-- 路径节点展示模式 -->
+                                    <div class="path-display" v-if="!isPathEditing">
+                                        <el-tooltip content="刷新" placement="top">
+                                            <el-button class="nav-btn path-prepend-btn" @click.stop="refreshFiles">
+                                                <el-icon><Refresh /></el-icon>
+                                            </el-button>
+                                        </el-tooltip>
+                                        <div class="path-nodes">
+                                            <template v-for="(node, index) in breadcrumb" :key="index">
+                                                <span class="path-node" :class="{ 'is-bucket': node.isBucket, 'is-folder': node.isFolder }" @click.stop="navigateToNode(node)">
+                                                    {{ node.name }}
+                                                </span>
+                                                <span class="path-separator" v-if="index < breadcrumb.length - 1">/</span>
+                                            </template>
+                                        </div>
+                                    </div>
+                                    <!-- 编辑模式 -->
+                                    <el-input
+                                        v-else
+                                        class="path-edit-input"
+                                        v-model="editPathValue"
+                                        @keyup.enter="confirmPathEdit"
+                                        @keyup.esc="cancelPathEdit"
+                                        @click.stop
+                                        autofocus
+                                        placeholder="输入路径后回车，如 /bucket/folder1/"
+                                    ></el-input>
                                 </div>
                                 <div class="action-buttons">
                                     <el-tooltip content="上传文件" placement="top">
