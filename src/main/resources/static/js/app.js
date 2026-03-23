@@ -58,7 +58,8 @@ const app = createApp({
         const isPathEditing = ref(false);
         const editPathValue = ref('');
         const pathEditInputRef = ref(null);
-        const showHttpsNotice = ref(window.location.protocol === 'http:');
+        const runtimeConfig = ref({ httpPort: null, httpsPort: null, forceHttps: false });
+        const showHttpsNotice = computed(() => window.location.protocol === 'http:' && runtimeConfig.value.forceHttps);
 
         // Dialogs
         const showUploadDialog = ref(false);
@@ -200,7 +201,16 @@ const app = createApp({
         const currentPageSize = computed(() => {
             return fileList.value.reduce((total, item) => total + (item.isFolder ? 0 : (item.size || 0)), 0);
         });
-        const httpsSuggestionUrl = computed(() => window.location.href.replace(/^http:/, 'https:'));
+        const httpsSuggestionUrl = computed(() => {
+            const url = new URL(window.location.href);
+            url.protocol = 'https:';
+
+            if (runtimeConfig.value.httpsPort) {
+                url.port = String(runtimeConfig.value.httpsPort) === '443' ? '' : String(runtimeConfig.value.httpsPort);
+            }
+
+            return url.toString();
+        });
         const currentPathLabel = computed(() => {
             if (!currentBucket.value) {
                 return '未选择存储桶';
@@ -249,6 +259,17 @@ const app = createApp({
             folder: currentFolder.value,
             bucket: currentBucket.value
         }));
+
+        const ensureFolderFirst = (items) => {
+            return (items || []).slice().sort((a, b) => {
+                const aIsFolder = !!a.isFolder;
+                const bIsFolder = !!b.isFolder;
+                if (aIsFolder === bIsFolder) {
+                    return 0;
+                }
+                return aIsFolder ? -1 : 1;
+            });
+        };
 
         // SHA512 hash function - 使用纯 JS 实现，兼容所有环境
         const sha512 = (message) => {
@@ -463,7 +484,9 @@ const app = createApp({
 
         const selectBucket = (bucketName) => {
             currentBucket.value = bucketName;
+            currentFolder.value = '';
             currentMenu.value = 'files';
+            updateBreadcrumb();
             loadFiles();
         };
 
@@ -516,6 +539,7 @@ const app = createApp({
         // File management
         const loadFiles = async () => {
             if (!currentBucket.value) return;
+            updateBreadcrumb();
             fileLoading.value = true;
             try {
                 const res = await api.get('/file/list', {
@@ -532,11 +556,11 @@ const app = createApp({
                     // 判断返回的是分页结果还是普通列表
                     if (res.data.items !== undefined) {
                         // 分页模式
-                        fileList.value = res.data.items || [];
+                        fileList.value = ensureFolderFirst(res.data.items);
                         fileTotal.value = res.data.total || 0;
                     } else {
                         // 非分页模式（兼容旧版）
-                        fileList.value = res.data || [];
+                        fileList.value = ensureFolderFirst(res.data);
                         fileTotal.value = res.data ? res.data.length : 0;
                     }
                 }
@@ -1585,6 +1609,17 @@ const app = createApp({
             }
         };
 
+        const loadRuntimeConfig = async () => {
+            try {
+                const res = await api.get('/auth/runtime-config');
+                if (res.code === 200) {
+                    runtimeConfig.value = res.data || { httpPort: null, httpsPort: null, forceHttps: false };
+                }
+            } catch (error) {
+                // Ignore and fallback to current URL scheme replacement.
+            }
+        };
+
         const handleDocumentKeydown = (e) => {
             const isPathShortcut = (e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'l';
             if (!isPathShortcut || currentMenu.value !== 'files') {
@@ -1596,6 +1631,7 @@ const app = createApp({
 
         // Lifecycle
         onMounted(() => {
+            loadRuntimeConfig();
             checkAuth();
             document.addEventListener('click', handleDocumentClick);
             document.addEventListener('keydown', handleDocumentKeydown);

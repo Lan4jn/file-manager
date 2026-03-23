@@ -373,6 +373,11 @@ public class FileService {
             folder = folder + "/";
         }
 
+        if ((StrUtil.isBlank(sortBy) || "name".equalsIgnoreCase(sortBy))
+                && !"desc".equalsIgnoreCase(order)) {
+            return listFilesFolderFirstPaged(folder, bucket, page, size);
+        }
+
         try {
             // 计算startAfter：如果是第一页则为空，否则使用上一页最后一个文件名
             String startAfter = null;
@@ -499,6 +504,126 @@ public class FileService {
             log.error("Failed to list files with pagination", e);
             throw new RuntimeException("获取文件列表失败: " + e.getMessage());
         }
+    }
+
+    private PageResult<FileInfo> listFilesFolderFirstPaged(String folder, String bucket, int page, int size) {
+        try {
+            int startIndex = (page - 1) * size;
+            int endIndex = startIndex + size;
+
+            Iterable<Result<Item>> firstPass = minioClient.listObjects(
+                    ListObjectsArgs.builder()
+                            .bucket(bucket)
+                            .prefix(folder)
+                            .recursive(false)
+                            .build()
+            );
+
+            List<FileInfo> folders = new ArrayList<>();
+            Set<String> folderNames = new HashSet<>();
+
+            for (Result<Item> result : firstPass) {
+                Item item = result.get();
+                String objectName = item.objectName();
+                if (objectName.equals(folder)) {
+                    continue;
+                }
+
+                boolean isFolder = item.isDir() || objectName.endsWith("/");
+                if (!isFolder) {
+                    continue;
+                }
+
+                FileInfo fileInfo = buildFileInfo(item, bucket, objectName, true);
+                folders.add(fileInfo);
+                folderNames.add(fileInfo.getFileName());
+            }
+
+            folders.sort(Comparator.comparing(file -> file.getFileName() != null ? file.getFileName() : ""));
+
+            List<FileInfo> pageItems = new ArrayList<>();
+            if (startIndex < folders.size()) {
+                int folderEnd = Math.min(endIndex, folders.size());
+                pageItems.addAll(folders.subList(startIndex, folderEnd));
+            }
+
+            int fileStartIndex = Math.max(0, startIndex - folders.size());
+            int fileSlots = size - pageItems.size();
+            int fileCount = 0;
+            boolean hasMoreFiles = false;
+
+            if (fileSlots > 0) {
+                Iterable<Result<Item>> secondPass = minioClient.listObjects(
+                        ListObjectsArgs.builder()
+                                .bucket(bucket)
+                                .prefix(folder)
+                                .recursive(false)
+                                .build()
+                );
+
+                for (Result<Item> result : secondPass) {
+                    Item item = result.get();
+                    String objectName = item.objectName();
+                    if (objectName.equals(folder)) {
+                        continue;
+                    }
+
+                    boolean isFolder = item.isDir() || objectName.endsWith("/");
+                    if (isFolder) {
+                        continue;
+                    }
+
+                    String fileName = getFileName(objectName);
+                    if (item.size() == 0 && folderNames.contains(fileName)) {
+                        continue;
+                    }
+
+                    if (fileCount >= fileStartIndex && pageItems.size() < size) {
+                        pageItems.add(buildFileInfo(item, bucket, objectName, false));
+                    } else if (fileCount >= fileStartIndex + fileSlots) {
+                        hasMoreFiles = true;
+                        break;
+                    }
+
+                    fileCount++;
+                }
+            }
+
+            long total = folders.size() + fileCount;
+            boolean hasMore = endIndex < folders.size() || hasMoreFiles;
+            if (hasMore && total <= endIndex) {
+                total = endIndex + 1L;
+            }
+
+            String nextMarker = hasMore && !pageItems.isEmpty()
+                    ? pageItems.get(pageItems.size() - 1).getObjectName()
+                    : null;
+
+            return new PageResult<>(pageItems, total, page, size, nextMarker, hasMore);
+        } catch (Exception e) {
+            log.error("Failed to list files with folder-first pagination", e);
+            throw new RuntimeException("获取文件列表失败: " + e.getMessage());
+        }
+    }
+
+    private FileInfo buildFileInfo(Item item, String bucket, String objectName, boolean isFolder) throws Exception {
+        FileInfo fileInfo = new FileInfo();
+        fileInfo.setObjectName(objectName);
+        fileInfo.setFileName(getFileName(objectName));
+        fileInfo.setSize(item.size());
+        fileInfo.setIsFolder(isFolder);
+        try {
+            if (item.lastModified() != null) {
+                fileInfo.setUploadTime(LocalDateTime.ofInstant(
+                        item.lastModified().toInstant(), ZoneId.systemDefault()));
+            } else {
+                fileInfo.setUploadTime(LocalDateTime.now());
+            }
+        } catch (Exception e) {
+            fileInfo.setUploadTime(LocalDateTime.now());
+        }
+        fileInfo.setUrl(publicUrl + "/" + bucket + "/" + objectName);
+        return fileInfo;
     }
 
     /**

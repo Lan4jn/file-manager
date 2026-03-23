@@ -18,9 +18,9 @@ body {
 .lite-https-notice {
     margin-bottom: 12px;
     padding: 10px 12px;
-    border: 1px solid #f3c16c;
-    background: #fff7e6;
-    color: #9a5400;
+    border: 1px solid #8eb9ff;
+    background: #eaf3ff;
+    color: #0f4ea8;
     border-radius: 10px;
     font-size: 14px;
 }
@@ -30,7 +30,7 @@ body {
 }
 
 .lite-https-notice a {
-    color: #8b4200;
+    color: #0f4ea8;
     font-weight: 700;
 }
 

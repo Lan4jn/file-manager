@@ -74,7 +74,8 @@ createApp({
         const shareExpireHours = ref(24);
         const sharePassword = ref('');
         const shareLink = ref('');
-        const showHttpsNotice = ref(window.location.protocol === 'http:');
+        const runtimeConfig = ref({ httpPort: null, httpsPort: null, forceHttps: false });
+        const showHttpsNotice = computed(() => window.location.protocol === 'http:' && runtimeConfig.value.forceHttps);
 
         // Computed
         const totalPages = computed(() => Math.ceil(fileTotal.value / filePageSize.value) || 1);
@@ -86,7 +87,27 @@ createApp({
                 ? `/${currentBucket.value}/${currentFolder.value}`
                 : `/${currentBucket.value}/`;
         });
-        const httpsSuggestionUrl = computed(() => window.location.href.replace(/^http:/, 'https:'));
+        const httpsSuggestionUrl = computed(() => {
+            const url = new URL(window.location.href);
+            url.protocol = 'https:';
+
+            if (runtimeConfig.value.httpsPort) {
+                url.port = String(runtimeConfig.value.httpsPort) === '443' ? '' : String(runtimeConfig.value.httpsPort);
+            }
+
+            return url.toString();
+        });
+
+        const ensureFolderFirst = (items) => {
+            return (items || []).slice().sort((a, b) => {
+                const aIsFolder = !!a.isFolder;
+                const bIsFolder = !!b.isFolder;
+                if (aIsFolder === bIsFolder) {
+                    return 0;
+                }
+                return aIsFolder ? -1 : 1;
+            });
+        };
 
         // Methods
         const handleLogin = async () => {
@@ -114,6 +135,17 @@ createApp({
             localStorage.removeItem('user');
             isLoggedIn.value = false;
             loginForm.value = { username: '', password: '' };
+        };
+
+        const loadRuntimeConfig = async () => {
+            try {
+                const res = await api.get('/auth/runtime-config');
+                if (res.code === 200) {
+                    runtimeConfig.value = res.data || { httpPort: null, httpsPort: null, forceHttps: false };
+                }
+            } catch (e) {
+                // Ignore and fallback to current URL scheme replacement.
+            }
         };
 
         const loadBuckets = async () => {
@@ -145,10 +177,10 @@ createApp({
                     }
                 });
                 if (res.data.items !== undefined) {
-                    fileList.value = res.data.items || [];
+                    fileList.value = ensureFolderFirst(res.data.items);
                     fileTotal.value = res.data.total || 0;
                 } else {
-                    fileList.value = res.data || [];
+                    fileList.value = ensureFolderFirst(res.data);
                     fileTotal.value = res.data.length || 0;
                 }
                 selectedFiles.value = [];
@@ -396,6 +428,7 @@ createApp({
 
         // Init
         onMounted(() => {
+            loadRuntimeConfig();
             const token = localStorage.getItem('token');
             const user = localStorage.getItem('user');
             if (token && user) {

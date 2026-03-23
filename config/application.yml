@@ -1,0 +1,58 @@
+# 所有环境共享的基础配置
+# 该文件优先级最低，application-dev.yml / application-prod.yml 可以覆盖这里的任意字段
+
+server:
+  # HTTPS 服务端口
+  port: 19080
+  forward-headers-strategy: framework
+  ssl:
+    enabled: true
+    key-store: file:./config/ssl/keystore.p12
+    key-store-password: changeit
+    key-store-type: PKCS12
+    key-alias: file-manager
+
+spring:
+  servlet:
+    multipart:
+      enabled: true
+      max-file-size: 10GB
+      max-request-size: 10GB
+  datasource:
+    driver-class-name: org.sqlite.JDBC
+    url: jdbc:sqlite:./data/file-manager.db
+  jpa:
+    database-platform: org.hibernate.community.dialect.SQLiteDialect
+    hibernate:
+      ddl-auto: update
+    show-sql: false
+
+minio:
+  endpoint: http://127.0.0.1:9000
+  access-key: replace-me
+  secret-key: replace-me
+  default-bucket: file-manager
+  public-url: https://127.0.0.1:9000
+
+jwt:
+  # 生产环境务必替换为足够强的 JWT 密钥
+  secret: replace-with-a-strong-jwt-secret-at-least-32-characters-long
+  expiration: 86400000
+
+app:
+  security:
+    # 是否将 HTTPS 作为推荐访问方式
+    # true: 当用户通过 HTTP 端口访问时，页面顶部显示“建议切换到 HTTPS”的提示条和跳转链接
+    # false: 不显示 HTTP 到 HTTPS 的推荐提示
+    force-https: true
+    # 可选的纯 HTTP 端口，设为 -1 表示关闭 HTTP 监听
+    http-port: 18080
+
+logging:
+  level:
+    com.poss.file: info
+  config: ./config/log4j2.xml
+
+ui:
+  # full = 完整版界面，lite = 轻量版界面
+  mode: full

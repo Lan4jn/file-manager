@@ -17,13 +17,13 @@
                     <el-alert
                         v-if="showHttpsNotice"
                         class="https-notice"
-                        type="warning"
+                        type="info"
                         :closable="false"
                         show-icon
                     >
-                        <template #title>当前使用的是 HTTP 访问，建议切换到 HTTPS</template>
+                        <template #title>当前正在通过 HTTP 访问，建议切换到 HTTPS</template>
                         <template #default>
-                            <a :href="httpsSuggestionUrl" class="https-notice-link">打开 HTTPS 地址</a>
+                            <a :href="httpsSuggestionUrl" class="https-notice-link">点此跳转</a>
                         </template>
                     </el-alert>
                     <div class="brand-badge">Poss Drive</div>
@@ -76,13 +76,13 @@
             <el-alert
                 v-if="showHttpsNotice"
                 class="https-notice https-notice--app"
-                type="warning"
+                type="info"
                 :closable="false"
                 show-icon
             >
-                <template #title>当前使用的是 HTTP 访问，建议切换到 HTTPS</template>
+                <template #title>当前正在通过 HTTP 访问，建议切换到 HTTPS</template>
                 <template #default>
-                    <a :href="httpsSuggestionUrl" class="https-notice-link">打开 HTTPS 地址</a>
+                    <a :href="httpsSuggestionUrl" class="https-notice-link">点此跳转</a>
                 </template>
             </el-alert>
             <!-- Header -->
@@ -271,7 +271,7 @@
                                 </div>
                                 <div class="path-input-wrapper" @click="startPathEdit">
                                     <!-- 路径节点展示模式 -->
-                                    <div class="path-display" v-if="!isPathEditing">
+                                    <div class="path-display" v-if="!isPathEditing" @click="startPathEdit">
                                         <el-tooltip content="刷新" placement="top">
                                             <el-button class="nav-btn path-prepend-btn" @click.stop="refreshFiles">
                                                 <el-icon><Refresh /></el-icon>
@@ -284,6 +284,13 @@
                                                 </span>
                                                 <span class="path-separator" v-if="index < breadcrumb.length - 1">/</span>
                                             </template>
+                                            <span v-if="breadcrumb.length === 0" class="path-placeholder">点击这里输入路径</span>
+                                            <button
+                                                type="button"
+                                                class="path-edit-hotspot"
+                                                aria-label="编辑地址栏"
+                                                @click.stop="startPathEdit"
+                                            ></button>
                                         </div>
                                     </div>
                                     <!-- 编辑模式 -->
@@ -336,7 +343,7 @@
 
                         <el-table :data="fileList" v-loading="fileLoading" @selection-change="handleSelectionChange" @sort-change="handleFileSortChange">
                             <el-table-column type="selection" width="55"></el-table-column>
-                            <el-table-column label="名称" sortable>
+                            <el-table-column prop="fileName" label="名称" sortable="custom">
                                 <template #default="{ row }">
                                     <div class="file-name" @click="row.isFolder ? navigateToFolder(row.objectName) : previewFile(row)">
                                         <el-icon v-if="row.isFolder"><Folder /></el-icon>

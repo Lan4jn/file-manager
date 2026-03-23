@@ -13,8 +13,8 @@
         <div v-if="!isLoggedIn" class="login-container">
             <div class="login-box">
                 <div v-if="showHttpsNotice" class="lite-https-notice">
-                    当前使用的是 HTTP 访问，建议切换到
-                    <a :href="httpsSuggestionUrl">HTTPS</a>
+                    当前正在通过 HTTP 访问，建议切换到 HTTPS，
+                    <a :href="httpsSuggestionUrl">点此跳转</a>
                 </div>
                 <h1>POSS DRIVE</h1>
                 <p class="subtitle">对象存储工作台</p>
@@ -31,8 +31,8 @@
         <!-- Main App -->
         <div v-else class="main-container">
             <div v-if="showHttpsNotice" class="lite-https-notice lite-https-notice--app">
-                当前使用的是 HTTP 访问，建议切换到
-                <a :href="httpsSuggestionUrl">HTTPS</a>
+                当前正在通过 HTTP 访问，建议切换到 HTTPS，
+                <a :href="httpsSuggestionUrl">点此跳转</a>
             </div>
             <!-- Header -->
             <div class="header">

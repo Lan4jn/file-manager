@@ -30,6 +30,15 @@ public class AuthController {
     @Autowired
     private PasswordEncoder passwordEncoder;
 
+    @org.springframework.beans.factory.annotation.Value("${app.security.http-port:-1}")
+    private int httpPort;
+
+    @org.springframework.beans.factory.annotation.Value("${server.port:8080}")
+    private int httpsPort;
+
+    @org.springframework.beans.factory.annotation.Value("${app.security.force-https:false}")
+    private boolean forceHttps;
+
     @PostMapping("/login")
     public Result<Map<String, Object>> login(@RequestBody Map<String, String> loginRequest) {
         log.info("Login request received for username: {}", loginRequest.get("username"));
@@ -127,6 +136,15 @@ public class AuthController {
                     .toArray());
         }
 
+        return Result.success(data);
+    }
+
+    @GetMapping("/runtime-config")
+    public Result<Map<String, Object>> getRuntimeConfig() {
+        Map<String, Object> data = new HashMap<>();
+        data.put("httpPort", httpPort);
+        data.put("httpsPort", httpsPort);
+        data.put("forceHttps", forceHttps);
         return Result.success(data);
     }
 

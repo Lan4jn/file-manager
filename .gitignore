@@ -8,3 +8,5 @@
 /.idea/
 /.DS_Store/
 /src/main/resources/ssl/
+/.m2/
+/.vscode/
