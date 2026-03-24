@@ -2,6 +2,8 @@ package com.lan4jn.file.entity;
 
 import jakarta.persistence.*;
 
+import java.util.Objects;
+
 @Entity
 @Table(name = "sys_permission")
 public class Permission {
@@ -79,6 +81,28 @@ public class Permission {
 
     public void setParentCode(String parentCode) {
         this.parentCode = parentCode;
+    }
+
+    @Override
+    public boolean equals(Object o) {
+        if (this == o) {
+            return true;
+        }
+        if (!(o instanceof Permission that)) {
+            return false;
+        }
+        if (code != null && that.code != null) {
+            return Objects.equals(code, that.code);
+        }
+        return id != null && Objects.equals(id, that.id);
+    }
+
+    @Override
+    public int hashCode() {
+        if (code != null) {
+            return Objects.hash(code);
+        }
+        return Objects.hash(id);
     }
 }
 

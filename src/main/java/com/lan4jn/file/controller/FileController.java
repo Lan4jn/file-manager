@@ -7,7 +7,10 @@ import com.lan4jn.file.model.BucketInfo;
 import com.lan4jn.file.model.FileInfo;
 import com.lan4jn.file.service.ConfigService;
 import com.lan4jn.file.service.FileService;
+import com.lan4jn.file.service.PermissionAssertService;
 import com.lan4jn.file.utils.RequestValidationUtils;
+import com.lan4jn.file.rbac.BucketAction;
+import com.lan4jn.file.rbac.PermissionCodes;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.core.io.InputStreamResource;
@@ -42,28 +45,41 @@ public class FileController {
 
     private final FileService fileService;
     private final ConfigService configService;
+    private final PermissionAssertService permissionAssertService;
     private final ExecutorService executorService = Executors.newCachedThreadPool();
 
-    public FileController(FileService fileService, ConfigService configService) {
+    public FileController(FileService fileService,
+                          ConfigService configService,
+                          PermissionAssertService permissionAssertService) {
         this.fileService = fileService;
         this.configService = configService;
+        this.permissionAssertService = permissionAssertService;
     }
 
     @GetMapping("/buckets")
     public Result<List<BucketInfo>> listBuckets(
             @RequestParam(value = "sortBy", required = false, defaultValue = "name") String sortBy,
             @RequestParam(value = "order", required = false, defaultValue = "asc") String order) {
-        return Result.success(fileService.listBuckets(sortBy, order));
+        permissionAssertService.assertApiPermission(PermissionCodes.API_FILE_BROWSE);
+        List<BucketInfo> buckets = fileService.listBuckets(sortBy, order);
+        if (permissionAssertService.isSuperAdmin()) {
+            return Result.success(buckets);
+        }
+        return Result.success(buckets.stream()
+                .filter(bucket -> canAccessBucket(bucket.getName(), BucketAction.LIST_BUCKET))
+                .toList());
     }
 
     @PostMapping("/buckets")
     public Result<BucketInfo> createBucket(@RequestBody Map<String, String> request) {
+        permissionAssertService.assertApiPermission(PermissionCodes.API_BUCKET_MANAGE);
         String bucketName = RequestValidationUtils.requireText(request.get("bucketName"), "bucketName");
         return Result.success(fileService.createBucket(bucketName));
     }
 
     @DeleteMapping("/buckets")
     public Result<Void> deleteBucket(@RequestParam("bucketName") String bucketName) {
+        permissionAssertService.assertApiPermission(PermissionCodes.API_BUCKET_MANAGE);
         bucketName = RequestValidationUtils.requireText(bucketName, "bucketName");
         fileService.deleteBucket(bucketName);
         return Result.success();
@@ -71,6 +87,7 @@ public class FileController {
 
     @GetMapping("/buckets/default")
     public Result<String> getDefaultBucket() {
+        permissionAssertService.assertApiPermission(PermissionCodes.API_FILE_BROWSE);
         return Result.success(fileService.getDefaultBucket());
     }
 
@@ -81,6 +98,8 @@ public class FileController {
             @RequestParam(value = "bucket", required = false, defaultValue = "") String bucket) {
         folder = RequestValidationUtils.optionalText(folder, "folder");
         bucket = RequestValidationUtils.optionalText(bucket, "bucket");
+        permissionAssertService.assertApiPermission(PermissionCodes.API_FILE_OPERATE);
+        permissionAssertService.assertBucketPermission(resolveBucket(bucket), BucketAction.UPLOAD);
         log.info("Uploading file: {}, folder: {}, bucket: {}", file.getOriginalFilename(), folder, bucket);
         return Result.success(fileService.uploadFile(file, folder, bucket));
     }
@@ -95,6 +114,8 @@ public class FileController {
             @RequestParam(value = "size", required = false, defaultValue = "0") int size) {
         folder = RequestValidationUtils.optionalText(folder, "folder");
         bucket = RequestValidationUtils.optionalText(bucket, "bucket");
+        permissionAssertService.assertApiPermission(PermissionCodes.API_FILE_BROWSE);
+        permissionAssertService.assertBucketPermission(resolveBucket(bucket), BucketAction.LIST_FILE);
         log.info("Listing files, folder: {}, bucket: {}, sortBy: {}, order: {}, page: {}, size: {}",
                 folder, bucket, sortBy, order, page, size);
 
@@ -112,6 +133,8 @@ public class FileController {
             @RequestParam(value = "bucket", required = false, defaultValue = "") String bucket) {
         objectName = RequestValidationUtils.requireText(objectName, "objectName");
         bucket = RequestValidationUtils.optionalText(bucket, "bucket");
+        permissionAssertService.assertApiPermission(PermissionCodes.API_FILE_BROWSE);
+        permissionAssertService.assertBucketPermission(resolveBucket(bucket), BucketAction.LIST_FILE);
         return Result.success(fileService.getFileInfo(objectName, bucket));
     }
 
@@ -121,6 +144,8 @@ public class FileController {
             @RequestParam(value = "bucket", required = false, defaultValue = "") String bucket) {
         objectName = RequestValidationUtils.requireText(objectName, "objectName");
         bucket = RequestValidationUtils.optionalText(bucket, "bucket");
+        permissionAssertService.assertApiPermission(PermissionCodes.API_FILE_OPERATE);
+        permissionAssertService.assertBucketPermission(resolveBucket(bucket), BucketAction.DELETE);
         log.info("Deleting file: {}, bucket: {}", objectName, bucket);
         fileService.deleteFile(objectName, bucket);
         return Result.success();
@@ -131,6 +156,8 @@ public class FileController {
             @RequestParam("objectNames") String objectNamesStr,
             @RequestParam(value = "bucket", required = false, defaultValue = "") String bucket) {
         bucket = RequestValidationUtils.optionalText(bucket, "bucket");
+        permissionAssertService.assertApiPermission(PermissionCodes.API_FILE_OPERATE);
+        permissionAssertService.assertBucketPermission(resolveBucket(bucket), BucketAction.BATCH);
         List<String> objectNames = RequestValidationUtils.requireTextList(
                 Arrays.asList(objectNamesStr.split(",")), "objectNames");
         log.info("Batch deleting {} files, bucket: {}", objectNames.size(), bucket);
@@ -147,6 +174,8 @@ public class FileController {
             @RequestParam(value = "createTestFile", required = false, defaultValue = "true") boolean createTestFile) {
         path = RequestValidationUtils.requireText(path, "path");
         bucket = RequestValidationUtils.optionalText(bucket, "bucket");
+        permissionAssertService.assertApiPermission(PermissionCodes.API_FILE_OPERATE);
+        permissionAssertService.assertBucketPermission(resolveBucket(bucket), BucketAction.CREATE_FOLDER);
         log.info("Creating folder: {}, bucket: {}, createTestFile: {}", path, bucket, createTestFile);
         fileService.createFolder(path, bucket, createTestFile);
         return Result.success();
@@ -159,6 +188,8 @@ public class FileController {
             throws UnsupportedEncodingException {
         objectName = RequestValidationUtils.requireText(objectName, "objectName");
         bucket = RequestValidationUtils.optionalText(bucket, "bucket");
+        permissionAssertService.assertApiPermission(PermissionCodes.API_FILE_OPERATE);
+        permissionAssertService.assertBucketPermission(resolveBucket(bucket), BucketAction.DOWNLOAD);
         log.info("Downloading file: {}, bucket: {}", objectName, bucket);
 
         FileInfo fileInfo = fileService.getFileInfo(objectName, bucket);
@@ -179,6 +210,8 @@ public class FileController {
             throws Exception {
         objectName = RequestValidationUtils.requireText(objectName, "objectName");
         bucket = RequestValidationUtils.optionalText(bucket, "bucket");
+        permissionAssertService.assertApiPermission(PermissionCodes.API_FILE_OPERATE);
+        permissionAssertService.assertBucketPermission(resolveBucket(bucket), BucketAction.DOWNLOAD);
         log.info("Downloading folder: {}, bucket: {}", objectName, bucket);
 
         String folderName = objectName.endsWith("/") ? objectName.substring(0, objectName.length() - 1) : objectName;
@@ -221,6 +254,8 @@ public class FileController {
             @RequestParam(value = "bucket", required = false, defaultValue = "") String bucket)
             throws Exception {
         bucket = RequestValidationUtils.optionalText(bucket, "bucket");
+        permissionAssertService.assertApiPermission(PermissionCodes.API_FILE_OPERATE);
+        permissionAssertService.assertBucketPermission(resolveBucket(bucket), BucketAction.BATCH);
         List<String> objectNames = RequestValidationUtils.requireTextList(
                 Arrays.asList(objectNamesStr.split(",")), "objectNames");
         log.info("Batch downloading {} items, bucket: {}", objectNames.size(), bucket);
@@ -283,6 +318,8 @@ public class FileController {
             throws UnsupportedEncodingException {
         objectName = RequestValidationUtils.requireText(objectName, "objectName");
         bucket = RequestValidationUtils.optionalText(bucket, "bucket");
+        permissionAssertService.assertApiPermission(PermissionCodes.API_FILE_BROWSE);
+        permissionAssertService.assertBucketPermission(resolveBucket(bucket), BucketAction.DOWNLOAD);
         log.info("Previewing file: {}, bucket: {}", objectName, bucket);
 
         FileInfo fileInfo = fileService.getFileInfo(objectName, bucket);
@@ -302,6 +339,8 @@ public class FileController {
             @RequestParam(value = "bucket", required = false, defaultValue = "") String bucket) {
         objectName = RequestValidationUtils.requireText(objectName, "objectName");
         bucket = RequestValidationUtils.nullableText(bucket, "bucket");
+        permissionAssertService.assertApiPermission(PermissionCodes.API_FILE_BROWSE);
+        permissionAssertService.assertBucketPermission(resolveBucket(bucket), BucketAction.DOWNLOAD);
         return Result.success(fileService.getPreviewUrl(objectName, bucket));
     }
 
@@ -315,6 +354,9 @@ public class FileController {
         destObjectName = RequestValidationUtils.requireText(destObjectName, "dest");
         sourceBucket = RequestValidationUtils.optionalText(sourceBucket, "sourceBucket");
         destBucket = RequestValidationUtils.optionalText(destBucket, "destBucket");
+        permissionAssertService.assertApiPermission(PermissionCodes.API_FILE_OPERATE);
+        permissionAssertService.assertBucketPermission(resolveBucket(sourceBucket), BucketAction.DOWNLOAD);
+        permissionAssertService.assertBucketPermission(resolveBucket(destBucket), BucketAction.UPLOAD);
         log.info("Copying file from {} to {}", sourceObjectName, destObjectName);
         fileService.copyFile(sourceObjectName, destObjectName, sourceBucket, destBucket);
         return Result.success();
@@ -330,9 +372,25 @@ public class FileController {
         destObjectName = RequestValidationUtils.requireText(destObjectName, "dest");
         sourceBucket = RequestValidationUtils.optionalText(sourceBucket, "sourceBucket");
         destBucket = RequestValidationUtils.optionalText(destBucket, "destBucket");
+        permissionAssertService.assertApiPermission(PermissionCodes.API_FILE_OPERATE);
+        permissionAssertService.assertBucketPermission(resolveBucket(sourceBucket), BucketAction.DELETE);
+        permissionAssertService.assertBucketPermission(resolveBucket(destBucket), BucketAction.UPLOAD);
         log.info("Moving file from {} to {}", sourceObjectName, destObjectName);
         fileService.moveFile(sourceObjectName, destObjectName, sourceBucket, destBucket);
         return Result.success();
+    }
+
+    private boolean canAccessBucket(String bucketName, String action) {
+        try {
+            permissionAssertService.assertBucketPermission(bucketName, action);
+            return true;
+        } catch (SecurityException ignored) {
+            return false;
+        }
+    }
+
+    private String resolveBucket(String bucket) {
+        return (bucket == null || bucket.isBlank()) ? fileService.getDefaultBucket() : bucket;
     }
 
     private String formatSize(long bytes) {

@@ -8,7 +8,6 @@ import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
-import java.util.HashSet;
 import java.util.List;
 import java.util.Set;
 import java.util.stream.Collectors;
@@ -19,51 +18,50 @@ public class UserService {
     private final UserRepository userRepository;
     private final PasswordEncoder passwordEncoder;
     private final AuthorizationService authorizationService;
+    private final SuperAdminGuardService superAdminGuardService;
 
     public UserService(UserRepository userRepository,
                        PasswordEncoder passwordEncoder,
-                       AuthorizationService authorizationService) {
+                       AuthorizationService authorizationService,
+                       SuperAdminGuardService superAdminGuardService) {
         this.userRepository = userRepository;
         this.passwordEncoder = passwordEncoder;
         this.authorizationService = authorizationService;
+        this.superAdminGuardService = superAdminGuardService;
     }
 
     public List<UserDTO> getAllUsers() {
-        List<User> users = userRepository.findAll();
-        return users.stream().map(this::toDTO).collect(Collectors.toList());
+        return userRepository.findAll().stream().map(this::toDTO).collect(Collectors.toList());
     }
 
     public UserDTO getUserById(Long id) {
-        User user = userRepository.findById(id).orElse(null);
-        return user != null ? toDTO(user) : null;
+        return userRepository.findById(id).map(this::toDTO).orElse(null);
     }
 
     @Transactional
     public UserDTO createUser(UserDTO userDTO) {
         if (userRepository.existsByUsername(userDTO.getUsername())) {
-            throw new RuntimeException("鐢ㄦ埛鍚嶅凡瀛樺湪");
+            throw new IllegalStateException("用户名已存在");
         }
 
         User user = new User();
         user.setUsername(userDTO.getUsername());
-        user.setPassword(passwordEncoder.encode(userDTO.getNickname())); // 涓存椂瀵嗙爜
+        user.setPassword(passwordEncoder.encode(userDTO.getUsername()));
         user.setNickname(userDTO.getNickname());
         user.setEmail(userDTO.getEmail());
         user.setPhone(userDTO.getPhone());
         user.setEnabled(userDTO.getEnabled() != null ? userDTO.getEnabled() : true);
         user.setCreateTime(System.currentTimeMillis());
+        user.setRoles(authorizationService.resolveRoles(userDTO.getRoles()));
 
-        Set<Role> roles = authorizationService.resolveRoles(userDTO.getRoles());
-        user.setRoles(roles);
-
-        user = userRepository.save(user);
-        return toDTO(user);
+        return toDTO(userRepository.save(user));
     }
 
     @Transactional
     public UserDTO updateUser(Long id, UserDTO userDTO) {
         User user = userRepository.findById(id)
-                .orElseThrow(() -> new RuntimeException("鐢ㄦ埛涓嶅瓨鍦?"));
+                .orElseThrow(() -> new IllegalArgumentException("用户不存在"));
+        superAdminGuardService.assertCanUpdate(user, userDTO);
 
         if (userDTO.getNickname() != null) {
             user.setNickname(userDTO.getNickname());
@@ -80,27 +78,25 @@ public class UserService {
         if (userDTO.getRoles() != null) {
             user.setRoles(authorizationService.resolveRoles(userDTO.getRoles()));
         }
-
         user.setUpdateTime(System.currentTimeMillis());
-        user = userRepository.save(user);
-        return toDTO(user);
+        return toDTO(userRepository.save(user));
     }
 
     @Transactional
     public void deleteUser(Long id) {
+        User user = userRepository.findById(id)
+                .orElseThrow(() -> new IllegalArgumentException("用户不存在"));
+        superAdminGuardService.assertCanDelete(user);
         userRepository.deleteById(id);
     }
 
     @Transactional
     public void updatePassword(Long id, String oldPassword, String newPassword) {
         User user = userRepository.findById(id)
-                .orElseThrow(() -> new RuntimeException("鐢ㄦ埛涓嶅瓨鍦?"));
-
-        // 楠岃瘉鍘熷瘑鐮?
+                .orElseThrow(() -> new IllegalArgumentException("用户不存在"));
         if (!passwordEncoder.matches(oldPassword, user.getPassword())) {
-            throw new RuntimeException("鍘熷瘑鐮侀敊璇?");
+            throw new IllegalArgumentException("旧密码错误");
         }
-
         user.setPassword(passwordEncoder.encode(newPassword));
         userRepository.save(user);
     }
@@ -114,14 +110,10 @@ public class UserService {
         dto.setPhone(user.getPhone());
         dto.setEnabled(user.getEnabled());
         dto.setCreateTime(user.getCreateTime());
-
-        if (user.getRoles() != null) {
-            dto.setRoles(user.getRoles().stream()
-                    .map(Role::getCode)
-                    .toArray(String[]::new));
+        Set<Role> roles = user.getRoles();
+        if (roles != null) {
+            dto.setRoles(roles.stream().map(Role::getCode).toArray(String[]::new));
         }
-
         return dto;
     }
 }
-

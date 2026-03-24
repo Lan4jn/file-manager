@@ -1,18 +1,21 @@
 package com.lan4jn.file.controller;
 
 import com.lan4jn.file.common.Result;
+import com.lan4jn.file.dto.CurrentPermissionInfoDTO;
 import com.lan4jn.file.entity.User;
 import com.lan4jn.file.repository.UserRepository;
 import com.lan4jn.file.service.AppInfoService;
+import com.lan4jn.file.service.PermissionResolverService;
 import com.lan4jn.file.utils.JwtTokenUtil;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
-import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.security.core.Authentication;
 import org.springframework.security.core.context.SecurityContextHolder;
 import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.web.bind.annotation.*;
 
+import java.nio.charset.StandardCharsets;
+import java.util.Base64;
 import java.util.HashMap;
 import java.util.Map;
 
@@ -22,17 +25,11 @@ public class AuthController {
 
     private static final Logger log = LoggerFactory.getLogger(AuthController.class);
 
-    @Autowired
-    private JwtTokenUtil jwtTokenUtil;
-
-    @Autowired
-    private UserRepository userRepository;
-
-    @Autowired
-    private PasswordEncoder passwordEncoder;
-
-    @Autowired
-    private AppInfoService appInfoService;
+    private final JwtTokenUtil jwtTokenUtil;
+    private final UserRepository userRepository;
+    private final PasswordEncoder passwordEncoder;
+    private final AppInfoService appInfoService;
+    private final PermissionResolverService permissionResolverService;
 
     @org.springframework.beans.factory.annotation.Value("${app.security.http-port:-1}")
     private int httpPort;
@@ -43,50 +40,46 @@ public class AuthController {
     @org.springframework.beans.factory.annotation.Value("${app.security.force-https:false}")
     private boolean forceHttps;
 
+    public AuthController(JwtTokenUtil jwtTokenUtil,
+                          UserRepository userRepository,
+                          PasswordEncoder passwordEncoder,
+                          AppInfoService appInfoService,
+                          PermissionResolverService permissionResolverService) {
+        this.jwtTokenUtil = jwtTokenUtil;
+        this.userRepository = userRepository;
+        this.passwordEncoder = passwordEncoder;
+        this.appInfoService = appInfoService;
+        this.permissionResolverService = permissionResolverService;
+    }
+
     @PostMapping("/login")
     public Result<Map<String, Object>> login(@RequestBody Map<String, String> loginRequest) {
-        log.info("Login request received for username: {}", loginRequest.get("username"));
         String username = loginRequest.get("username");
         String encodedPassword = loginRequest.get("password");
-
         try {
-            // 瑙ｇ爜 base64 瀵嗙爜
-            String decodedPassword = new String(java.util.Base64.getDecoder().decode(encodedPassword), java.nio.charset.StandardCharsets.UTF_8);
-
+            String decodedPassword = new String(Base64.getDecoder().decode(encodedPassword), StandardCharsets.UTF_8);
             User user = userRepository.findByUsername(username).orElse(null);
-            log.info("User found: {}", user != null);
             if (user == null) {
-                return Result.error("鐢ㄦ埛涓嶅瓨鍦?");
+                return Result.error(401, "用户名或密码错误");
+            }
+            if (!passwordEncoder.matches(decodedPassword, user.getPassword())) {
+                return Result.error(401, "用户名或密码错误");
             }
 
-            // 楠岃瘉瀵嗙爜
-            boolean matches = passwordEncoder.matches(decodedPassword, user.getPassword());
-            log.info("[DEBUG] Password matches: " + matches + " for user: " + username);
-            if (!matches) {
-                return Result.error("鐢ㄦ埛鍚嶆垨瀵嗙爜閿欒");
-            }
-
-            String roles = "";
-            if (user.getRoles() != null && !user.getRoles().isEmpty()) {
-                roles = user.getRoles().stream()
-                        .map(role -> role.getCode())
-                        .reduce((a, b) -> a + "," + b)
-                        .orElse("");
-            }
+            String roles = user.getRoles() == null ? "" :
+                    user.getRoles().stream().map(role -> role.getCode()).reduce((a, b) -> a + "," + b).orElse("");
 
             String token = jwtTokenUtil.generateToken(username, user.getId(), roles);
-
             Map<String, Object> data = new HashMap<>();
             data.put("token", token);
             data.put("userId", user.getId());
             data.put("username", user.getUsername());
             data.put("nickname", user.getNickname());
             data.put("roles", roles);
-
             return Result.success(data);
         } catch (Exception e) {
-            e.printStackTrace();
-            return Result.error("鐢ㄦ埛鍚嶆垨瀵嗙爜閿欒");
+            log.error("Login failed for {}", username, e);
+            return Result.error(401, "用户名或密码错误");
         }
     }
 
@@ -94,15 +87,11 @@ public class AuthController {
     public Result<Void> register(@RequestBody Map<String, String> request) {
         String username = request.get("username");
         String encodedPassword = request.get("password");
-
         if (userRepository.existsByUsername(username)) {
-            return Result.error("鐢ㄦ埛鍚嶅凡瀛樺湪");
+            return Result.error(409, "用户名已存在");
         }
-
         try {
-            // 瑙ｇ爜 base64 瀵嗙爜骞跺搱甯?
-            String decodedPassword = new String(java.util.Base64.getDecoder().decode(encodedPassword), java.nio.charset.StandardCharsets.UTF_8);
-
+            String decodedPassword = new String(Base64.getDecoder().decode(encodedPassword), StandardCharsets.UTF_8);
             User user = new User();
             user.setUsername(username);
             user.setPassword(passwordEncoder.encode(decodedPassword));
@@ -110,10 +99,9 @@ public class AuthController {
             user.setCreateTime(System.currentTimeMillis());
             user.setEnabled(true);
             userRepository.save(user);
-
             return Result.success();
         } catch (Exception e) {
-            return Result.error("娉ㄥ唽澶辫触: " + e.getMessage());
+            return Result.error("注册失败: " + e.getMessage());
         }
     }
 
@@ -121,10 +109,9 @@ public class AuthController {
     public Result<Map<String, Object>> getUserInfo() {
         Authentication authentication = SecurityContextHolder.getContext().getAuthentication();
         String username = authentication.getName();
-
         User user = userRepository.findByUsername(username).orElse(null);
         if (user == null) {
-            return Result.error("鐢ㄦ埛涓嶅瓨鍦?");
+            return Result.error(404, "用户不存在");
         }
 
         Map<String, Object> data = new HashMap<>();
@@ -133,13 +120,9 @@ public class AuthController {
         data.put("nickname", user.getNickname());
         data.put("email", user.getEmail());
         data.put("phone", user.getPhone());
-
         if (user.getRoles() != null) {
-            data.put("roles", user.getRoles().stream()
-                    .map(role -> role.getCode())
-                    .toArray());
+            data.put("roles", user.getRoles().stream().map(role -> role.getCode()).toArray());
         }
-
         return Result.success(data);
     }
 
@@ -153,9 +136,19 @@ public class AuthController {
         return Result.success(data);
     }
 
+    @GetMapping("/current-permissions")
+    public Result<CurrentPermissionInfoDTO> getCurrentPermissions() {
+        Authentication authentication = SecurityContextHolder.getContext().getAuthentication();
+        if (authentication == null || authentication.getName() == null) {
+            return Result.error(401, "未登录");
+        }
+        return Result.success(permissionResolverService.toDto(
+                permissionResolverService.resolveByUsername(authentication.getName())
+        ));
+    }
+
     @PostMapping("/logout")
     public Result<Void> logout() {
         return Result.success();
     }
 }
-

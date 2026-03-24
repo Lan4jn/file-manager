@@ -17,6 +17,18 @@ public class GlobalExceptionHandler {
         return Result.error(400, e.getMessage());
     }
 
+    @ExceptionHandler(IllegalStateException.class)
+    public Result<Void> handleIllegalStateException(IllegalStateException e) {
+        log.warn("Conflict request: {}", e.getMessage());
+        return Result.error(409, e.getMessage());
+    }
+
+    @ExceptionHandler(SecurityException.class)
+    public Result<Void> handleSecurityException(SecurityException e) {
+        log.warn("Forbidden request: {}", e.getMessage());
+        return Result.error(403, e.getMessage());
+    }
+
     @ExceptionHandler(RuntimeException.class)
     public Result<Void> handleRuntimeException(RuntimeException e) {
         log.error("Runtime exception: {}", e.getMessage(), e);
@@ -26,13 +38,12 @@ public class GlobalExceptionHandler {
     @ExceptionHandler(MaxUploadSizeExceededException.class)
     public Result<Void> handleMaxUploadSizeExceededException(MaxUploadSizeExceededException e) {
         log.error("File size exceeds limit: {}", e.getMessage());
-        return Result.error(413, "鏂囦欢澶у皬瓒呭嚭闄愬埗");
+        return Result.error(413, "文件大小超出限制");
     }
 
     @ExceptionHandler(Exception.class)
     public Result<Void> handleException(Exception e) {
         log.error("Unexpected error: {}", e.getMessage(), e);
-        return Result.error("鏈嶅姟鍣ㄥ唴閮ㄩ敊璇?");
+        return Result.error("系统异常");
     }
 }
-

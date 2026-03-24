@@ -4,6 +4,7 @@ import com.lan4jn.file.common.GlobalExceptionHandler;
 import com.lan4jn.file.model.FileInfo;
 import com.lan4jn.file.model.ShareAccessInfo;
 import com.lan4jn.file.service.FileService;
+import com.lan4jn.file.service.PermissionAssertService;
 import com.lan4jn.file.service.ShareService;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -28,7 +29,8 @@ class ShareControllerTest {
     void setUp() {
         shareService = mock(ShareService.class);
         FileService fileService = mock(FileService.class);
-        mockMvc = MockMvcBuilders.standaloneSetup(new ShareController(shareService, fileService))
+        PermissionAssertService permissionAssertService = mock(PermissionAssertService.class);
+        mockMvc = MockMvcBuilders.standaloneSetup(new ShareController(shareService, fileService, permissionAssertService))
                 .setControllerAdvice(new GlobalExceptionHandler())
                 .build();
     }

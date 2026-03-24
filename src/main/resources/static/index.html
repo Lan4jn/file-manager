@@ -106,7 +106,7 @@
                                 <strong>{{ userInfo.nickname || userInfo.username }}</strong>
                                 <small>{{ isAdmin ? '管理员' : '普通用户' }}</small>
                             </span>
-                            <el-icon><ArrowDown /></el-icon>
+                            <el-icon><arrow-down /></el-icon>
                         </span>
                         <template #dropdown>
                             <el-dropdown-menu>
@@ -137,69 +137,66 @@
                         </div>
                     </div>
                     <el-menu :default-active="currentMenu" @select="handleMenuSelect">
-                        <el-menu-item index="buckets">
-                            <el-icon><Box /></el-icon>
-                            <span>存储桶管理</span>
-                            <el-tooltip content="管理MinIO所有存储桶，包括创建、删除、查看文件" placement="right" effect="light">
-                                <el-icon class="help-icon"><QuestionFilled /></el-icon>
-                            </el-tooltip>
-                        </el-menu-item>
-                        <el-menu-item index="files">
-                            <el-icon><Folder /></el-icon>
-                            <span>文件管理</span>
-                            <el-tooltip content="浏览、上传、下载、删除文件，支持文件夹操作" placement="right" effect="light">
-                                <el-icon class="help-icon"><QuestionFilled /></el-icon>
-                            </el-tooltip>
-                        </el-menu-item>
-                        <el-menu-item index="shares">
-                            <el-icon><Share /></el-icon>
-                            <span>我的分享</span>
-                            <el-tooltip content="创建文件分享链接，支持设置密码和有效期" placement="right" effect="light">
-                                <el-icon class="help-icon"><QuestionFilled /></el-icon>
-                            </el-tooltip>
-                        </el-menu-item>
-                        <el-menu-item v-if="isAdmin" index="users">
-                            <el-icon><UserFilled /></el-icon>
-                            <span>用户管理</span>
-                            <el-tooltip content="管理系统用户，创建、编辑、删除用户账号" placement="right" effect="light">
-                                <el-icon class="help-icon"><QuestionFilled /></el-icon>
-                            </el-tooltip>
-                        </el-menu-item>
-                        <el-menu-item v-if="isAdmin" index="roles">
-                            <el-icon><Avatar /></el-icon>
-                            <span>角色管理</span>
-                            <el-tooltip content="管理系统角色，配置角色权限" placement="right" effect="light">
-                                <el-icon class="help-icon"><QuestionFilled /></el-icon>
-                            </el-tooltip>
-                        </el-menu-item>
-                        <el-menu-item v-if="isAdmin" index="minio-keys">
-                            <el-icon><Key /></el-icon>
-                            <span>MinIO密钥</span>
-                            <el-tooltip content="管理MinIO访问密钥和桶权限" placement="right" effect="light">
-                                <el-icon class="help-icon"><QuestionFilled /></el-icon>
-                            </el-tooltip>
-                        </el-menu-item>
-                        <el-menu-item v-if="isAdmin" index="config">
-                            <el-icon><Setting /></el-icon>
-                            <span>系统配置</span>
-                            <el-tooltip content="配置允许上传的文件类型和大小限制" placement="right" effect="light">
-                                <el-icon class="help-icon"><QuestionFilled /></el-icon>
-                            </el-tooltip>
-                        </el-menu-item>
+                        <el-tooltip v-if="canAccessMenu('buckets')" content="管理MinIO所有存储桶，包括创建、删除、查看文件" placement="right" effect="light" :show-after="700">
+                            <el-menu-item index="buckets">
+                                <el-icon><Box /></el-icon>
+                                <span>存储桶管理</span>
+                            </el-menu-item>
+                        </el-tooltip>
+                        <el-tooltip v-if="canAccessMenu('files')" content="浏览、上传、下载、删除文件，支持文件夹操作" placement="right" effect="light" :show-after="700">
+                            <el-menu-item index="files">
+                                <el-icon><Folder /></el-icon>
+                                <span>文件管理</span>
+                            </el-menu-item>
+                        </el-tooltip>
+                        <el-tooltip v-if="canAccessMenu('shares')" content="创建文件分享链接，支持设置密码和有效期" placement="right" effect="light" :show-after="700">
+                            <el-menu-item index="shares">
+                                <el-icon><Share /></el-icon>
+                                <span>我的分享</span>
+                            </el-menu-item>
+                        </el-tooltip>
+                        <el-tooltip v-if="canAccessMenu('users')" content="管理系统用户，创建、编辑、删除用户账号" placement="right" effect="light" :show-after="700">
+                            <el-menu-item index="users">
+                                <el-icon><User /></el-icon>
+                                <span>用户管理</span>
+                            </el-menu-item>
+                        </el-tooltip>
+                        <el-tooltip v-if="canAccessMenu('roles')" content="管理系统角色，配置角色权限" placement="right" effect="light" :show-after="700">
+                            <el-menu-item index="roles">
+                                <el-icon><Avatar /></el-icon>
+                                <span>角色管理</span>
+                            </el-menu-item>
+                        </el-tooltip>
+                        <el-tooltip v-if="canAccessMenu('minio-keys')" content="管理MinIO访问密钥和桶权限" placement="right" effect="light" :show-after="700">
+                            <el-menu-item index="minio-keys">
+                                <el-icon><Key /></el-icon>
+                                <span>MinIO密钥</span>
+                            </el-menu-item>
+                        </el-tooltip>
+                        <el-tooltip v-if="canAccessMenu('config')" content="配置允许上传的文件类型和大小限制" placement="right" effect="light" :show-after="700">
+                            <el-menu-item index="config">
+                                <el-icon><Setting /></el-icon>
+                                <span>系统配置</span>
+                            </el-menu-item>
+                        </el-tooltip>
                     </el-menu>
                 </div>
 
                 <!-- Main Content Area -->
                 <div class="main-content">
+                    <div v-if="!currentMenuAccessible" class="page-content">
+                        <el-empty description="当前账号无权访问该功能"></el-empty>
+                    </div>
+
                     <!-- Bucket Management -->
-                    <div v-if="currentMenu === 'buckets'" class="page-content">
+                    <div v-if="currentMenu === 'buckets' && currentMenuAccessible" class="page-content">
                         <div class="page-header">
                             <h3>存储桶管理</h3>
-                            <el-button type="primary" @click="showBucketDialog = true">
+                            <el-button v-if="hasApiPermission('API_BUCKET_MANAGE')" type="primary" @click="showBucketDialog = true">
                                 <el-icon><Plus /></el-icon>
                                 创建存储桶
                                 <el-tooltip content="在MinIO中创建一个新的存储桶用于存放文件" placement="top" effect="light">
-                                    <el-icon class="inline-help"><QuestionFilled /></el-icon>
+                                    <el-icon class="inline-help"><question-filled /></el-icon>
                                 </el-tooltip>
                             </el-button>
                         </div>
@@ -219,14 +216,14 @@
                             <el-table-column label="操作" width="150">
                                 <template #default="{ row }">
                                     <el-button size="small" type="primary" @click="selectBucket(row.name)">管理文件</el-button>
-                                    <el-button size="small" type="danger" @click="deleteBucket(row)">删除</el-button>
+                                    <el-button v-if="hasApiPermission('API_BUCKET_MANAGE')" size="small" type="danger" @click="deleteBucket(row)">删除</el-button>
                                 </template>
                             </el-table-column>
                         </el-table>
                     </div>
 
                     <!-- File Manager -->
-                    <div v-if="currentMenu === 'files'" class="page-content">
+                    <div v-if="currentMenu === 'files' && currentMenuAccessible" class="page-content">
                         <div class="drive-overview">
                             <article class="overview-card">
                                 <span>当前存储桶</span>
@@ -309,31 +306,31 @@
                                 </div>
                                 <div class="action-buttons">
                                     <el-tooltip content="上传文件" placement="top">
-                                        <el-button type="primary" size="small" @click="openUploadDialog">
+                                        <el-button v-if="hasApiPermission('API_FILE_OPERATE') && hasBucketPermission(currentBucket, 'UPLOAD')" type="primary" size="small" @click="openUploadDialog">
                                             <el-icon><Upload /></el-icon>
                                             上传
                                         </el-button>
                                     </el-tooltip>
                                     <el-tooltip content="新建文件夹" placement="top">
-                                        <el-button size="small" @click="showFolderDialog = true">
-                                            <el-icon><FolderAdd /></el-icon>
+                                        <el-button v-if="hasApiPermission('API_FILE_OPERATE') && hasBucketPermission(currentBucket, 'CREATE_FOLDER')" size="small" @click="showFolderDialog = true">
+                                            <el-icon><folder-add /></el-icon>
                                             新建
                                         </el-button>
                                     </el-tooltip>
                                     <el-tooltip content="批量分享" placement="top">
-                                        <el-button type="success" size="small" @click="batchShare">
+                                        <el-button v-if="hasApiPermission('API_SHARE_MANAGE') && hasBucketPermission(currentBucket, 'SHARE')" type="success" size="small" @click="batchShare">
                                             <el-icon><Share /></el-icon>
                                             分享
                                         </el-button>
                                     </el-tooltip>
                                     <el-tooltip content="批量下载" placement="top">
-                                        <el-button type="warning" size="small" @click="batchDownload">
+                                        <el-button v-if="hasApiPermission('API_FILE_OPERATE') && hasBucketPermission(currentBucket, 'BATCH')" type="warning" size="small" @click="batchDownload">
                                             <el-icon><Download /></el-icon>
                                             下载
                                         </el-button>
                                     </el-tooltip>
                                     <el-tooltip content="批量删除" placement="top">
-                                        <el-button type="danger" size="small" @click="batchDelete">
+                                        <el-button v-if="hasApiPermission('API_FILE_OPERATE') && hasBucketPermission(currentBucket, 'BATCH')" type="danger" size="small" @click="batchDelete">
                                             <el-icon><Delete /></el-icon>
                                             删除
                                         </el-button>
@@ -363,17 +360,17 @@
                             <el-table-column label="操作" width="280">
                                 <template #default="{ row }">
                                     <el-tooltip content="下载文件到本地" placement="top" effect="light">
-                                        <el-button size="small" @click="downloadFile(row)">
+                                        <el-button v-if="hasApiPermission('API_FILE_OPERATE') && hasBucketPermission(currentBucket, 'DOWNLOAD')" size="small" @click="downloadFile(row)">
                                             <el-icon><Download /></el-icon>
                                         </el-button>
                                     </el-tooltip>
                                     <el-tooltip content="创建分享链接供他人下载" placement="top" effect="light">
-                                        <el-button size="small" @click="shareFile(row)">
+                                        <el-button v-if="hasApiPermission('API_SHARE_MANAGE') && hasBucketPermission(currentBucket, 'SHARE')" size="small" @click="shareFile(row)">
                                             <el-icon><Share /></el-icon>
                                         </el-button>
                                     </el-tooltip>
                                     <el-tooltip content="删除文件或文件夹" placement="top" effect="light">
-                                        <el-button size="small" type="danger" @click="deleteFile(row)">
+                                        <el-button v-if="hasApiPermission('API_FILE_OPERATE') && hasBucketPermission(currentBucket, 'DELETE')" size="small" type="danger" @click="deleteFile(row)">
                                             <el-icon><Delete /></el-icon>
                                         </el-button>
                                     </el-tooltip>
@@ -396,11 +393,11 @@
                     </div>
 
                     <!-- Shares -->
-                    <div v-if="currentMenu === 'shares'" class="page-content">
+                    <div v-if="currentMenu === 'shares' && currentMenuAccessible" class="page-content">
                         <div class="page-header">
                             <h3>我的分享</h3>
                             <el-tooltip content="查看和管理您创建的所有分享链接" placement="top" effect="light">
-                                <el-icon class="inline-help"><QuestionFilled /></el-icon>
+                                <el-icon class="inline-help"><question-filled /></el-icon>
                             </el-tooltip>
                         </div>
                         <el-table :data="shareList" v-loading="shareLoading" @expand-change="handleShareExpand">
@@ -444,11 +441,11 @@
                                 <template #default="{ row }">
                                     <el-tooltip content="复制分享链接到剪贴板" placement="top" effect="light">
                                         <el-button size="small" @click="copyShareLink(row)">
-                                            <el-icon><CopyDocument /></el-icon> 复制
+                                            <el-icon><copy-document /></el-icon> 复制
                                         </el-button>
                                     </el-tooltip>
                                     <el-tooltip content="删除分享链接" placement="top" effect="light">
-                                        <el-button size="small" type="danger" @click="deleteShare(row)">
+                                        <el-button v-if="hasApiPermission('API_SHARE_MANAGE')" size="small" type="danger" @click="deleteShare(row)">
                                             <el-icon><Delete /></el-icon>
                                         </el-button>
                                     </el-tooltip>
@@ -458,14 +455,14 @@
                     </div>
 
                     <!-- User Management -->
-                    <div v-if="currentMenu === 'users' && isAdmin" class="page-content">
+                    <div v-if="currentMenu === 'users' && currentMenuAccessible" class="page-content">
                         <div class="page-header">
                             <h3>用户管理</h3>
-                            <el-button type="primary" @click="showUserDialog = true">
+                            <el-button v-if="hasApiPermission('API_USER_MANAGE')" type="primary" @click="openCreateUserDialog">
                                 <el-icon><Plus /></el-icon>
                                 添加用户
                                 <el-tooltip content="创建新用户账号，可设置用户名、昵称、角色等" placement="top" effect="light">
-                                    <el-icon class="inline-help"><QuestionFilled /></el-icon>
+                                    <el-icon class="inline-help"><question-filled /></el-icon>
                                 </el-tooltip>
                             </el-button>
                         </div>
@@ -484,12 +481,12 @@
                             <el-table-column label="操作" width="180">
                                 <template #default="{ row }">
                                     <el-tooltip content="编辑用户信息或角色" placement="top" effect="light">
-                                        <el-button size="small" @click="editUser(row)">
+                                        <el-button v-if="hasApiPermission('API_USER_MANAGE')" size="small" @click="editUser(row)">
                                             <el-icon><Edit /></el-icon>
                                         </el-button>
                                     </el-tooltip>
                                     <el-tooltip content="删除用户账号" placement="top" effect="light">
-                                        <el-button size="small" type="danger" @click="deleteUser(row)">
+                                        <el-button v-if="hasApiPermission('API_USER_MANAGE')" size="small" type="danger" @click="deleteUser(row)">
                                             <el-icon><Delete /></el-icon>
                                         </el-button>
                                     </el-tooltip>
@@ -499,14 +496,14 @@
                     </div>
 
                     <!-- Role Management -->
-                    <div v-if="currentMenu === 'roles' && isAdmin" class="page-content">
+                    <div v-if="currentMenu === 'roles' && currentMenuAccessible" class="page-content">
                         <div class="page-header">
                             <h3>角色管理</h3>
-                            <el-button type="primary" @click="showRoleDialog = true">
+                            <el-button v-if="hasApiPermission('API_ROLE_MANAGE')" type="primary" @click="openCreateRoleDialog">
                                 <el-icon><Plus /></el-icon>
                                 添加角色
                                 <el-tooltip content="创建新角色并配置权限，角色决定用户可访问的功能" placement="top" effect="light">
-                                    <el-icon class="inline-help"><QuestionFilled /></el-icon>
+                                    <el-icon class="inline-help"><question-filled /></el-icon>
                                 </el-tooltip>
                             </el-button>
                         </div>
@@ -518,12 +515,12 @@
                             <el-table-column label="操作" width="180">
                                 <template #default="{ row }">
                                     <el-tooltip content="编辑角色信息和权限" placement="top" effect="light">
-                                        <el-button size="small" @click="editRole(row)">
+                                        <el-button v-if="hasApiPermission('API_ROLE_MANAGE')" size="small" @click="editRole(row)">
                                             <el-icon><Edit /></el-icon>
                                         </el-button>
                                     </el-tooltip>
                                     <el-tooltip content="删除角色" placement="top" effect="light">
-                                        <el-button size="small" type="danger" @click="deleteRole(row)">
+                                        <el-button v-if="hasApiPermission('API_ROLE_MANAGE')" size="small" type="danger" @click="deleteRole(row)">
                                             <el-icon><Delete /></el-icon>
                                         </el-button>
                                     </el-tooltip>
@@ -533,26 +530,26 @@
                     </div>
 
                     <!-- Config -->
-                    <div v-if="currentMenu === 'config' && isAdmin" class="page-content">
+                    <div v-if="currentMenu === 'config' && currentMenuAccessible" class="page-content">
                         <div class="page-header">
                             <h3>系统配置</h3>
                         </div>
                         <el-form label-width="120px" style="max-width: 600px">
                             <el-form-item label="允许的文件类型">
                                 <el-tooltip content="用户只能上传指定扩展名的文件，多个用逗号分隔" placement="top" effect="light">
-                                    <el-icon class="form-help"><QuestionFilled /></el-icon>
+                                    <el-icon class="form-help"><question-filled /></el-icon>
                                 </el-tooltip>
                                 <el-input v-model="fileConfig.allowedExtensionsText" type="textarea" rows="3" placeholder="jpg,png,pdf,docx..."></el-input>
                             </el-form-item>
                             <el-form-item label="最大文件大小">
                                 <el-tooltip content="限制单次上传文件的最大大小，设置为-1表示无限制" placement="top" effect="light">
-                                    <el-icon class="form-help"><QuestionFilled /></el-icon>
+                                    <el-icon class="form-help"><question-filled /></el-icon>
                                 </el-tooltip>
                                 <el-input-number v-model="fileConfig.maxFileSizeMB" :min="-1" :max="102400"></el-input-number>
                                 <span style="margin-left: 10px">MB (-1表示无限制)</span>
                             </el-form-item>
                             <el-form-item>
-                                <el-button type="primary" @click="saveFileConfig">保存配置</el-button>
+                                <el-button v-if="isSuperAdmin" type="primary" @click="saveFileConfig">保存配置</el-button>
                             </el-form-item>
                         </el-form>
                         <el-divider></el-divider>
@@ -560,20 +557,20 @@
                         <el-form label-width="160px" style="max-width: 600px">
                             <el-form-item label="批量分享/目录分享大小限制">
                                 <el-tooltip content="批量分享和目录分享时，压缩包的最大大小限制" placement="top" effect="light">
-                                    <el-icon class="form-help"><QuestionFilled /></el-icon>
+                                    <el-icon class="form-help"><question-filled /></el-icon>
                                 </el-tooltip>
                                 <el-input-number v-model="shareConfig.batchShareMaxSizeGB" :min="1" :max="100"></el-input-number>
                                 <span style="margin-left: 10px">GB</span>
                             </el-form-item>
                             <el-form-item label="分享链接有效期">
                                 <el-tooltip content="分享链接的默认有效期" placement="top" effect="light">
-                                    <el-icon class="form-help"><QuestionFilled /></el-icon>
+                                    <el-icon class="form-help"><question-filled /></el-icon>
                                 </el-tooltip>
                                 <el-input-number v-model="shareConfig.expireHours" :min="1" :max="8760"></el-input-number>
                                 <span style="margin-left: 10px">小时</span>
                             </el-form-item>
                             <el-form-item>
-                                <el-button type="primary" @click="saveShareConfig">保存分享设置</el-button>
+                                <el-button v-if="isSuperAdmin" type="primary" @click="saveShareConfig">保存分享设置</el-button>
                             </el-form-item>
                         </el-form>
                         <el-divider></el-divider>
@@ -581,23 +578,23 @@
                         <el-form label-width="160px" style="max-width: 600px">
                             <el-form-item label="批量下载大小限制">
                                 <el-tooltip content="批量下载时，压缩包的最大大小限制" placement="top" effect="light">
-                                    <el-icon class="form-help"><QuestionFilled /></el-icon>
+                                    <el-icon class="form-help"><question-filled /></el-icon>
                                 </el-tooltip>
                                 <el-input-number v-model="shareConfig.batchDownloadMaxSizeGB" :min="1" :max="100"></el-input-number>
                                 <span style="margin-left: 10px">GB</span>
                             </el-form-item>
                             <el-form-item>
-                                <el-button type="primary" @click="saveShareConfig">保存下载设置</el-button>
+                                <el-button v-if="isSuperAdmin" type="primary" @click="saveShareConfig">保存下载设置</el-button>
                             </el-form-item>
                         </el-form>
                     </div>
 
                     <!-- MinIO API Keys -->
-                    <div v-if="currentMenu === 'minio-keys' && isAdmin" class="page-content">
+                    <div v-if="currentMenu === 'minio-keys' && currentMenuAccessible" class="page-content">
                         <div class="page-header">
                             <h3>MinIO密钥管理</h3>
                             <div class="header-actions">
-                                <el-button type="primary" @click="showMinioKeyDialog = true">
+                                <el-button v-if="hasApiPermission('API_MINIO_KEY_MANAGE')" type="primary" @click="showMinioKeyDialog = true">
                                     <el-icon><Plus /></el-icon>
                                     创建密钥
                                 </el-button>
@@ -635,7 +632,7 @@
                             <el-table-column label="操作" width="150">
                                 <template #default="{ row }">
                                     <el-button size="small" @click="copyMinioKey(row)">复制</el-button>
-                                    <el-button size="small" type="danger" @click="deleteMinioKey(row)">删除</el-button>
+                                    <el-button v-if="hasApiPermission('API_MINIO_KEY_MANAGE')" size="small" type="danger" @click="deleteMinioKey(row)">删除</el-button>
                                 </template>
                             </el-table-column>
                         </el-table>
@@ -814,6 +811,70 @@
             <template #footer>
                 <el-button @click="showUserDialog = false">取消</el-button>
                 <el-button type="primary" @click="saveUser">保存</el-button>
+            </template>
+        </el-dialog>
+
+        <el-dialog v-model="showRoleDialog" :title="roleForm.id ? '编辑角色' : '添加角色'" width="760px">
+            <el-form :model="roleForm" label-width="100px">
+                <el-form-item label="角色编码">
+                    <el-input v-model="roleForm.code" :disabled="!!roleForm.id"></el-input>
+                </el-form-item>
+                <el-form-item label="角色名称">
+                    <el-input v-model="roleForm.name"></el-input>
+                </el-form-item>
+                <el-form-item label="角色描述">
+                    <el-input v-model="roleForm.description" type="textarea" :rows="3"></el-input>
+                </el-form-item>
+                <el-form-item label="菜单权限">
+                    <el-checkbox-group v-model="roleForm.menuPermissions">
+                        <el-checkbox
+                            v-for="permission in menuPermissionOptions"
+                            :key="permission.code"
+                            :label="permission.code"
+                        >
+                            {{ permission.name }}
+                        </el-checkbox>
+                    </el-checkbox-group>
+                </el-form-item>
+                <el-form-item label="接口权限">
+                    <el-checkbox-group v-model="roleForm.apiPermissions">
+                        <el-checkbox
+                            v-for="permission in apiPermissionOptions"
+                            :key="permission.code"
+                            :label="permission.code"
+                        >
+                            {{ permission.name }}
+                        </el-checkbox>
+                    </el-checkbox-group>
+                </el-form-item>
+                <el-form-item label="桶权限">
+                    <div style="width: 100%">
+                        <div v-for="(bucketPermission, index) in roleForm.bucketPermissions" :key="index" style="display: flex; gap: 12px; margin-bottom: 12px; align-items: flex-start;">
+                            <el-select v-model="bucketPermission.bucketName" placeholder="选择存储桶" style="width: 180px">
+                                <el-option
+                                    v-for="bucketName in availableBucketOptions"
+                                    :key="bucketName"
+                                    :label="bucketName"
+                                    :value="bucketName"
+                                ></el-option>
+                            </el-select>
+                            <el-select v-model="bucketPermission.actions" multiple collapse-tags placeholder="选择权限" style="flex: 1">
+                                <el-option
+                                    v-for="action in bucketActionOptions"
+                                    :key="action.value"
+                                    :label="action.label"
+                                    :value="action.value"
+                                ></el-option>
+                            </el-select>
+                            <el-button type="danger" plain @click="removeRoleBucketPermission(index)">删除</el-button>
+                        </div>
+                        <el-button plain @click="addRoleBucketPermission">添加桶权限</el-button>
+                    </div>
+                </el-form-item>
+            </el-form>
+            <template #footer>
+                <el-button @click="showRoleDialog = false">取消</el-button>
+                <el-button type="primary" @click="saveRole">保存</el-button>
             </template>
         </el-dialog>
 

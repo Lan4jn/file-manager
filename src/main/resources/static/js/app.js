@@ -83,13 +83,50 @@ const app = createApp({
         const createTestFile = ref(false);
         const shareForm = ref({ objectName: '', expirationHours: 24, password: '' });
         const batchShareForm = ref({ expirationHours: 24, password: '' });
-        const userForm = ref({});
-        const roleForm = ref({});
+        const createEmptyUserForm = () => ({
+            username: '',
+            nickname: '',
+            email: '',
+            phone: '',
+            enabled: true,
+            roles: []
+        });
+        const userForm = ref(createEmptyUserForm());
+        const createEmptyRoleForm = () => ({
+            id: null,
+            code: '',
+            name: '',
+            description: '',
+            menuPermissions: [],
+            apiPermissions: [],
+            bucketPermissions: []
+        });
+        const roleForm = ref(createEmptyRoleForm());
         const minioKeyForm = ref({
             name: '',
             bucketPermissions: [],  // 改为数组，每个元素包含 bucket, canRead, canWrite, canDelete
             expireDays: 0
         });
+        const permissionInfo = ref({
+            userId: null,
+            username: '',
+            superAdmin: false,
+            roles: [],
+            menuPermissions: [],
+            apiPermissions: [],
+            bucketPermissions: []
+        });
+        const permissionList = ref([]);
+        const bucketActionOptions = [
+            { label: '查看桶列表', value: 'LIST_BUCKET' },
+            { label: '查看文件', value: 'READ' },
+            { label: '上传文件', value: 'UPLOAD' },
+            { label: '下载文件', value: 'DOWNLOAD' },
+            { label: '删除文件', value: 'DELETE' },
+            { label: '新建目录', value: 'CREATE_FOLDER' },
+            { label: '分享文件', value: 'SHARE' },
+            { label: '批量操作', value: 'BATCH' }
+        ];
 
         // 辅助函数：添加桶权限
         const addBucketPermission = () => {
@@ -167,6 +204,35 @@ const app = createApp({
         // Computed
         const isAdmin = computed(() => {
             return userInfo.value.roles && userInfo.value.roles.includes('ADMIN');
+        });
+        const isSuperAdmin = computed(() => !!permissionInfo.value.superAdmin);
+        const menuPermissionSet = computed(() => new Set(permissionInfo.value.menuPermissions || []));
+        const apiPermissionSet = computed(() => new Set(permissionInfo.value.apiPermissions || []));
+        const bucketPermissionMap = computed(() => {
+            const map = new Map();
+            (permissionInfo.value.bucketPermissions || []).forEach(item => {
+                if (!item || !item.bucketName) {
+                    return;
+                }
+                map.set(item.bucketName, new Set(item.actions || []));
+            });
+            return map;
+        });
+        const menuPermissionOptions = computed(() => {
+            return (permissionList.value || [])
+                .filter(item => item && item.code && item.code.startsWith('MENU_'))
+                .sort((a, b) => a.name.localeCompare(b.name, 'zh-CN'));
+        });
+        const apiPermissionOptions = computed(() => {
+            return (permissionList.value || [])
+                .filter(item => item && item.code && item.code.startsWith('API_'))
+                .sort((a, b) => a.name.localeCompare(b.name, 'zh-CN'));
+        });
+        const availableBucketOptions = computed(() => {
+            return (bucketList.value || []).map(item => item.name).filter(Boolean);
+        });
+        const currentMenuAccessible = computed(() => {
+            return canAccessMenu(currentMenu.value);
         });
 
         const currentViewTitle = computed(() => {
@@ -252,6 +318,110 @@ const app = createApp({
             } finally {
                 document.body.removeChild(textarea);
             }
+        };
+
+        const hasMenuPermission = (code) => {
+            return isSuperAdmin.value || menuPermissionSet.value.has(code);
+        };
+
+        const hasApiPermission = (code) => {
+            return isSuperAdmin.value || apiPermissionSet.value.has(code);
+        };
+
+        const hasBucketPermission = (bucketName, action) => {
+            if (isSuperAdmin.value) {
+                return true;
+            }
+            if (!bucketName) {
+                return false;
+            }
+            const actions = bucketPermissionMap.value.get(bucketName);
+            return !!actions && actions.has(action);
+        };
+
+        const canAccessMenu = (menuName) => {
+            const menuCodeMap = {
+                buckets: 'MENU_BUCKETS',
+                files: 'MENU_FILES',
+                shares: 'MENU_SHARES',
+                users: 'MENU_USERS',
+                roles: 'MENU_ROLES',
+                'minio-keys': 'MENU_MINIO_KEYS',
+                config: 'MENU_CONFIG'
+            };
+            const code = menuCodeMap[menuName];
+            return !code || hasMenuPermission(code);
+        };
+
+        const ensureMenuAccess = (menuName) => {
+            if (canAccessMenu(menuName)) {
+                return true;
+            }
+            ElementPlus.ElMessage.error('无权限访问该功能');
+            return false;
+        };
+
+        const syncCurrentMenu = () => {
+            const menuOrder = ['buckets', 'files', 'shares', 'users', 'roles', 'minio-keys', 'config'];
+            if (canAccessMenu(currentMenu.value)) {
+                return;
+            }
+            const nextMenu = menuOrder.find(item => canAccessMenu(item));
+            currentMenu.value = nextMenu || 'files';
+        };
+
+        const loadCurrentPermissions = async () => {
+            if (!token.value) {
+                permissionInfo.value = {
+                    userId: null,
+                    username: '',
+                    superAdmin: false,
+                    roles: [],
+                    menuPermissions: [],
+                    apiPermissions: [],
+                    bucketPermissions: []
+                };
+                return;
+            }
+            const res = await api.get('/auth/current-permissions');
+            if (res.code === 200) {
+                permissionInfo.value = res.data || {
+                    userId: null,
+                    username: '',
+                    superAdmin: false,
+                    roles: [],
+                    menuPermissions: [],
+                    apiPermissions: [],
+                    bucketPermissions: []
+                };
+                syncCurrentMenu();
+            }
+        };
+
+        const loadPermissions = async () => {
+            if (!hasApiPermission('API_PERMISSION_READ')) {
+                permissionList.value = [];
+                return;
+            }
+            try {
+                const res = await api.get('/admin/permissions');
+                if (res.code === 200) {
+                    permissionList.value = res.data || [];
+                }
+            } catch (error) {
+                ElementPlus.ElMessage.error('加载权限列表失败');
+            }
+        };
+
+        const addRoleBucketPermission = () => {
+            roleForm.value.bucketPermissions.push({
+                bucketName: currentBucket.value || '',
+                actions: []
+            });
+        };
+
+        const removeRoleBucketPermission = (index) => {
+            roleForm.value.bucketPermissions.splice(index, 1);
         };
 
         const uploadUrl = computed(() => '/api/file/upload');
@@ -382,7 +552,9 @@ const app = createApp({
                     localStorage.setItem('token', token.value);
                     userInfo.value = res.data;
                     isLoggedIn.value = true;
-                    loadBuckets();
+                    await loadCurrentPermissions();
+                    await loadPermissions();
+                    handleMenuSelect(currentMenu.value);
                 } else {
                     ElementPlus.ElMessage.error(res.message || '登录失败');
                 }
@@ -404,7 +576,18 @@ const app = createApp({
             token.value = '';
             localStorage.removeItem('token');
             userInfo.value = {};
+            permissionInfo.value = {
+                userId: null,
+                username: '',
+                superAdmin: false,
+                roles: [],
+                menuPermissions: [],
+                apiPermissions: [],
+                bucketPermissions: []
+            };
+            permissionList.value = [];
             isLoggedIn.value = false;
+            currentMenu.value = 'buckets';
             loginForm.value = { username: '', password: '' };
         };
 
@@ -423,7 +606,9 @@ const app = createApp({
                 if (res.code === 200) {
                     userInfo.value = res.data;
                     isLoggedIn.value = true;
-                    loadBuckets();
+                    await loadCurrentPermissions();
+                    await loadPermissions();
+                    handleMenuSelect(currentMenu.value);
                 } else {
                     logout();
                 }
@@ -433,6 +618,9 @@ const app = createApp({
         };
 
         const handleMenuSelect = (index) => {
+            if (!ensureMenuAccess(index)) {
+                return;
+            }
             currentMenu.value = index;
             if (index === 'buckets') {
                 loadBuckets();
@@ -1255,6 +1443,11 @@ const app = createApp({
             }
         };
 
+        const openCreateUserDialog = () => {
+            userForm.value = createEmptyUserForm();
+            showUserDialog.value = true;
+        };
+
         const editUser = (user) => {
             userForm.value = { ...user, roles: user.roles || [] };
             showUserDialog.value = true;
@@ -1268,6 +1461,7 @@ const app = createApp({
                 if (res.code === 200) {
                     ElementPlus.ElMessage.success('保存成功');
                     showUserDialog.value = false;
+                    userForm.value = createEmptyUserForm();
                     loadUsers();
                 }
             } catch (error) {
@@ -1309,9 +1503,60 @@ const app = createApp({
             }
         };
 
-        const editRole = (role) => {
-            roleForm.value = { ...role };
+        const openCreateRoleDialog = async () => {
+            roleForm.value = createEmptyRoleForm();
+            await loadPermissions();
             showRoleDialog.value = true;
+        };
+
+        const editRole = async (role) => {
+            await loadPermissions();
+            const detailRes = await api.get('/admin/roles/' + role.id + '/permissions-detail');
+            const detail = detailRes.data || {};
+            roleForm.value = {
+                id: role.id,
+                code: role.code || '',
+                name: role.name || '',
+                description: role.description || '',
+                menuPermissions: detail.menuPermissions || [],
+                apiPermissions: detail.apiPermissions || [],
+                bucketPermissions: (detail.bucketPermissions || []).map(item => ({
+                    bucketName: item.bucketName || '',
+                    actions: item.actions || []
+                }))
+            };
+            showRoleDialog.value = true;
+        };
+
+        const saveRole = async () => {
+            const payload = {
+                code: (roleForm.value.code || '').trim(),
+                name: (roleForm.value.name || '').trim(),
+                description: (roleForm.value.description || '').trim()
+            };
+            const permissionPayload = {
+                menuPermissions: roleForm.value.menuPermissions || [],
+                apiPermissions: roleForm.value.apiPermissions || [],
+                bucketPermissions: (roleForm.value.bucketPermissions || [])
+                    .filter(item => item.bucketName)
+                    .map(item => ({
+                        bucketName: item.bucketName,
+                        actions: item.actions || []
+                    }))
+            };
+            try {
+                const roleRes = roleForm.value.id
+                    ? await api.put('/admin/roles/' + roleForm.value.id, payload)
+                    : await api.post('/admin/roles', payload);
+                const savedRole = roleRes.data;
+                await api.post('/admin/roles/' + savedRole.id + '/permissions-detail', permissionPayload);
+                ElementPlus.ElMessage.success('保存成功');
+                showRoleDialog.value = false;
+                roleForm.value = createEmptyRoleForm();
+                await loadRoles();
+            } catch (error) {
+                ElementPlus.ElMessage.error(error.response?.data?.message || error.message || '保存失败');
+            }
         };
 
         const deleteRole = async (role) => {
@@ -1709,7 +1954,15 @@ const app = createApp({
             roleLoading,
             fileConfig,
             shareConfig,
+            permissionInfo,
+            permissionList,
             isAdmin,
+            isSuperAdmin,
+            menuPermissionOptions,
+            apiPermissionOptions,
+            availableBucketOptions,
+            bucketActionOptions,
+            currentMenuAccessible,
             currentViewTitle,
             currentViewDescription,
             bucketCount,
@@ -1775,11 +2028,20 @@ const app = createApp({
             copyShareLink,
             deleteShare,
             handleShareExpand,
+            openCreateUserDialog,
             editUser,
             saveUser,
             deleteUser,
+            openCreateRoleDialog,
             editRole,
+            saveRole,
             deleteRole,
+            addRoleBucketPermission,
+            removeRoleBucketPermission,
+            canAccessMenu,
+            hasMenuPermission,
+            hasApiPermission,
+            hasBucketPermission,
             loadMinioKeys,
             createMinioKey,
             copyMinioKey,
@@ -1797,6 +2059,10 @@ const app = createApp({
 for (const [key, component] of Object.entries(ElementPlusIconsVue)) {
     app.component(key, component);
 }
+app.component('arrowdown', ElementPlusIconsVue.ArrowDown);
+app.component('questionfilled', ElementPlusIconsVue.QuestionFilled);
+app.component('folderadd', ElementPlusIconsVue.FolderAdd);
+app.component('copydocument', ElementPlusIconsVue.CopyDocument);
 
 app.use(ElementPlus, { locale: zhCnLocale });
 app.mount('#app');

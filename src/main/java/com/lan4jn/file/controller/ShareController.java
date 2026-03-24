@@ -6,8 +6,11 @@ import com.lan4jn.file.model.FileInfo;
 import com.lan4jn.file.model.ShareAccessInfo;
 import com.lan4jn.file.model.ShareLink;
 import com.lan4jn.file.service.FileService;
+import com.lan4jn.file.service.PermissionAssertService;
 import com.lan4jn.file.service.ShareService;
 import com.lan4jn.file.utils.RequestValidationUtils;
+import com.lan4jn.file.rbac.BucketAction;
+import com.lan4jn.file.rbac.PermissionCodes;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.core.io.InputStreamResource;
@@ -39,10 +42,14 @@ public class ShareController {
 
     private final ShareService shareService;
     private final FileService fileService;
+    private final PermissionAssertService permissionAssertService;
 
-    public ShareController(ShareService shareService, FileService fileService) {
+    public ShareController(ShareService shareService,
+                           FileService fileService,
+                           PermissionAssertService permissionAssertService) {
         this.shareService = shareService;
         this.fileService = fileService;
+        this.permissionAssertService = permissionAssertService;
     }
 
     @PostMapping("/create")
@@ -51,6 +58,8 @@ public class ShareController {
         request.setBucket(RequestValidationUtils.nullableText(request.getBucket(), "bucket"));
         request.setPassword(RequestValidationUtils.nullableText(request.getPassword(), "password"));
         request.setExpirationHours(RequestValidationUtils.optionalPositive(request.getExpirationHours(), "expirationHours"));
+        permissionAssertService.assertApiPermission(PermissionCodes.API_SHARE_MANAGE);
+        permissionAssertService.assertBucketPermission(resolveBucket(request.getBucket()), BucketAction.SHARE);
 
         log.info("Creating share link for: {}", request.getObjectName());
         ShareLink shareLink = shareService.createShareLink(request, authentication.getName());
@@ -72,6 +81,8 @@ public class ShareController {
 
         expirationHours = RequestValidationUtils.optionalPositive(expirationHours, "expirationHours");
         password = RequestValidationUtils.nullableText(password, "password");
+        permissionAssertService.assertApiPermission(PermissionCodes.API_SHARE_MANAGE);
+        permissionAssertService.assertBucketPermission(resolveBucket(bucket), BucketAction.SHARE);
 
         ShareLink shareLink = shareService.createBatchShareLink(
                 objectNames, bucket, authentication.getName(), expirationHours, password);
@@ -217,6 +228,7 @@ public class ShareController {
 
     @DeleteMapping("/delete")
     public Result<Void> deleteShare(@RequestParam("shareCode") String shareCode, Authentication authentication) {
+        permissionAssertService.assertApiPermission(PermissionCodes.API_SHARE_MANAGE);
         shareCode = RequestValidationUtils.requireText(shareCode, "shareCode");
         log.info("Deleting share link: {}", shareCode);
         shareService.deleteShareLink(shareCode, authentication.getName());
@@ -225,6 +237,11 @@ public class ShareController {
 
     @GetMapping("/list")
     public Result<List<ShareLink>> getShareLinks(Authentication authentication) {
+        permissionAssertService.assertApiPermission(PermissionCodes.API_SHARE_MANAGE);
         return Result.success(shareService.getShareLinksByUser(authentication.getName()));
+    }
+
+    private String resolveBucket(String bucket) {
+        return (bucket == null || bucket.isBlank()) ? fileService.getDefaultBucket() : bucket;
     }
 }

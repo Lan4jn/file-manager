@@ -6,6 +6,7 @@ import com.lan4jn.file.model.BucketInfo;
 import com.lan4jn.file.model.FileInfo;
 import com.lan4jn.file.service.ConfigService;
 import com.lan4jn.file.service.FileService;
+import com.lan4jn.file.service.PermissionAssertService;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.test.web.servlet.MockMvc;
@@ -24,12 +25,14 @@ class FileControllerTest {
 
     private MockMvc mockMvc;
     private FileService fileService;
+    private PermissionAssertService permissionAssertService;
 
     @BeforeEach
     void setUp() {
         fileService = mock(FileService.class);
         ConfigService configService = mock(ConfigService.class);
-        mockMvc = MockMvcBuilders.standaloneSetup(new FileController(fileService, configService))
+        permissionAssertService = mock(PermissionAssertService.class);
+        mockMvc = MockMvcBuilders.standaloneSetup(new FileController(fileService, configService, permissionAssertService))
                 .setControllerAdvice(new GlobalExceptionHandler())
                 .build();
     }
@@ -41,9 +44,28 @@ class FileControllerTest {
         bucketInfo.setCreationDate(LocalDateTime.now());
 
         when(fileService.listBuckets("name", "asc")).thenReturn(List.of(bucketInfo));
+        when(permissionAssertService.isSuperAdmin()).thenReturn(true);
 
         mockMvc.perform(get("/api/file/buckets"))
                 .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data[0].name").value("bucket-a"));
+    }
+
+    @Test
+    void shouldFilterBucketsByBucketPermission() throws Exception {
+        BucketInfo allowed = new BucketInfo();
+        allowed.setName("bucket-a");
+        BucketInfo denied = new BucketInfo();
+        denied.setName("bucket-b");
+
+        when(fileService.listBuckets("name", "asc")).thenReturn(List.of(allowed, denied));
+        when(permissionAssertService.isSuperAdmin()).thenReturn(false);
+        org.mockito.Mockito.doThrow(new SecurityException("forbidden"))
+                .when(permissionAssertService).assertBucketPermission("bucket-b", "LIST_BUCKET");
+
+        mockMvc.perform(get("/api/file/buckets"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.length()").value(1))
                 .andExpect(jsonPath("$.data[0].name").value("bucket-a"));
     }
 

@@ -1,11 +1,13 @@
 package com.lan4jn.file.controller;
 
 import com.lan4jn.file.common.GlobalExceptionHandler;
+import com.lan4jn.file.dto.RolePermissionDetailDTO;
 import com.lan4jn.file.dto.UserDTO;
 import com.lan4jn.file.entity.Permission;
 import com.lan4jn.file.entity.Role;
 import com.lan4jn.file.service.AuthorizationService;
 import com.lan4jn.file.service.ConfigService;
+import com.lan4jn.file.service.PermissionAssertService;
 import com.lan4jn.file.service.PermissionService;
 import com.lan4jn.file.service.RoleService;
 import com.lan4jn.file.service.UserService;
@@ -34,6 +36,7 @@ class AdminControllerSplitTest {
     private PermissionService permissionService;
     private ConfigService configService;
     private AuthorizationService authorizationService;
+    private PermissionAssertService permissionAssertService;
 
     @BeforeEach
     void setUp() {
@@ -42,12 +45,13 @@ class AdminControllerSplitTest {
         permissionService = mock(PermissionService.class);
         configService = mock(ConfigService.class);
         authorizationService = mock(AuthorizationService.class);
+        permissionAssertService = mock(PermissionAssertService.class);
 
         mockMvc = MockMvcBuilders.standaloneSetup(
-                new AdminUserController(userService),
-                new AdminRoleController(roleService, authorizationService),
-                new AdminPermissionController(permissionService, authorizationService),
-                new AdminConfigController(configService),
+                new AdminUserController(userService, permissionAssertService),
+                new AdminRoleController(roleService, authorizationService, permissionAssertService),
+                new AdminPermissionController(permissionService, authorizationService, permissionAssertService),
+                new AdminConfigController(configService, permissionAssertService),
                 new AdminInitController(roleService, permissionService)
         ).setControllerAdvice(new GlobalExceptionHandler()).build();
     }
@@ -61,8 +65,14 @@ class AdminControllerSplitTest {
         Permission permission = new Permission();
         permission.setCode("user:manage");
 
+        RolePermissionDetailDTO detailDTO = new RolePermissionDetailDTO();
+        detailDTO.setRoleId(1L);
+        detailDTO.setRoleCode("ADMIN");
+        detailDTO.setMenuPermissions(List.of("MENU_USERS"));
+
         when(userService.getAllUsers()).thenReturn(List.of(user));
         when(authorizationService.getPermissionTree()).thenReturn(List.of(permission));
+        when(authorizationService.getRolePermissionDetail(1L)).thenReturn(detailDTO);
 
         mockMvc.perform(get("/api/admin/users"))
                 .andExpect(status().isOk())
@@ -71,12 +81,18 @@ class AdminControllerSplitTest {
         mockMvc.perform(get("/api/admin/permissions/tree"))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.data[0].code").value("user:manage"));
+
+        mockMvc.perform(get("/api/admin/roles/1/permissions-detail"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.roleCode").value("ADMIN"))
+                .andExpect(jsonPath("$.data.menuPermissions[0]").value("MENU_USERS"));
     }
 
     @Test
     void shouldExposeInitAndConfigRoutes() throws Exception {
         when(configService.getAllowedExtensions()).thenReturn(Set.of("txt"));
         when(configService.getMaxFileSize()).thenReturn(1024L);
+        when(permissionAssertService.isSuperAdmin()).thenReturn(true);
 
         Role adminRole = new Role();
         adminRole.setCode("ADMIN");
