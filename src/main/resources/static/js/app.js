@@ -502,7 +502,7 @@ const app = createApp({
 
             if (hadAllActions && !uniqueActions.includes('*') && hasAllSpecificActions) {
                 row.actions = [];
-            } else if (uniqueActions.includes('*') && !hasAllSpecificActions) {
+            } else if (hadAllActions && uniqueActions.includes('*') && !hasAllSpecificActions) {
                 row.actions = uniqueActions.filter(action => action !== '*');
             } else if (uniqueActions.includes('*') || hasAllSpecificActions) {
                 row.actions = ['*', ...bucketSpecificActionValues];
