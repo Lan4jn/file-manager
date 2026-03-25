@@ -919,6 +919,46 @@ body {
     color: #fff;
 }
 
+.role-dialog .el-dialog {
+    width: min(1240px, calc(100vw - 24px)) !important;
+    max-width: min(1240px, calc(100vw - 24px));
+}
+
+.role-bucket-panel {
+    width: 100%;
+}
+
+.role-bucket-panel__toolbar {
+    display: flex;
+    gap: 10px;
+    margin-bottom: 12px;
+}
+
+.role-bucket-panel__hint {
+    margin-bottom: 14px;
+    padding: 10px 14px;
+    border-radius: 14px;
+    background: #f8fbff;
+    border: 1px dashed #c7daf8;
+    color: var(--muted);
+    font-size: 13px;
+    line-height: 1.7;
+}
+
+.role-bucket-table {
+    width: 100%;
+}
+
+.role-bucket-table .cell {
+    line-height: 1.8;
+    white-space: normal;
+    word-break: break-word;
+}
+
+.role-bucket-table .el-button {
+    min-width: 56px;
+}
+
 @media (max-width: 1180px) {
     .login-shell,
     .content,

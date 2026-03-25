@@ -850,7 +850,12 @@
             </template>
         </el-dialog>
 
-        <el-dialog v-model="showRoleDialog" :title="roleForm.id ? '编辑角色' : '添加角色'" width="760px">
+        <el-dialog
+            v-model="showRoleDialog"
+            :title="roleForm.id ? '编辑角色' : '添加角色'"
+            width="1240px"
+            class="role-dialog"
+        >
             <el-form :model="roleForm" label-width="100px">
                 <el-form-item label="角色编码">
                     <el-input v-model="roleForm.code" :disabled="!!roleForm.id"></el-input>
@@ -884,24 +889,25 @@
                     </el-checkbox-group>
                 </el-form-item>
                 <el-form-item label="桶权限">
-                    <div style="width: 100%">
-                        <div style="display: flex; gap: 10px; margin-bottom: 12px;">
+                    <div class="role-bucket-panel">
+                        <div class="role-bucket-panel__toolbar">
                             <el-button plain @click="addRoleBucketPermission">添加项</el-button>
-                            <el-button type="danger" plain @click="deleteSelectedRoleBucketPermissions">删除项</el-button>
+                        </div>
+                        <div class="role-bucket-panel__hint">
+                            这里可以给角色单独授权指定存储桶。点击右侧“编辑”后，可修改桶和允许的操作。
                         </div>
                         <el-table
+                            class="role-bucket-table"
                             :data="roleForm.bucketPermissions"
                             border
                             size="small"
-                            @selection-change="handleRoleBucketSelectionChange"
                         >
-                            <el-table-column type="selection" width="48"></el-table-column>
                             <el-table-column label="生效" width="72">
                                 <template #default="{ row }">
                                     <el-checkbox v-model="row.enabled"></el-checkbox>
                                 </template>
                             </el-table-column>
-                            <el-table-column label="存储桶" min-width="220">
+                            <el-table-column label="存储桶" min-width="180">
                                 <template #default="{ row, $index }">
                                     <el-select
                                         v-if="roleBucketEditIndex === $index"
@@ -919,18 +925,24 @@
                                     <span v-else>{{ formatBucketPermissionBuckets(row.bucketName) }}</span>
                                 </template>
                             </el-table-column>
-                            <el-table-column label="权限" min-width="260">
+                            <el-table-column label="权限" min-width="300">
                                 <template #default="{ row, $index }">
                                     <el-select
                                         v-if="roleBucketEditIndex === $index"
                                         v-model="row.actions"
                                         multiple
-                                        collapse-tags
-                                        collapse-tags-tooltip
                                         placeholder="选择权限"
                                         style="width: 100%"
-                                        @change="normalizeRoleBucketActions(row)"
+                                        @change="handleRoleBucketActionsChange($event, row)"
                                     >
+                                        <template #tag="{ data }">
+                                            <el-tag
+                                                v-if="row.actions && row.actions.length && data.value === row.actions[0]"
+                                                disable-transitions
+                                            >
+                                                {{ getRoleBucketActionDisplayText(row.actions) }}
+                                            </el-tag>
+                                        </template>
                                         <el-option
                                             v-for="action in bucketActionOptions"
                                             :key="action.value"
@@ -941,7 +953,7 @@
                                     <span v-else>{{ formatBucketPermissionActions(row.actions) }}</span>
                                 </template>
                             </el-table-column>
-                            <el-table-column label="操作" width="120">
+                            <el-table-column label="操作" width="148" align="center">
                                 <template #default="{ $index }">
                                     <el-button
                                         v-if="roleBucketEditIndex === $index"
@@ -959,6 +971,14 @@
                                         @click="roleBucketEditIndex = $index"
                                     >
                                         编辑
+                                    </el-button>
+                                    <el-button
+                                        size="small"
+                                        type="danger"
+                                        plain
+                                        @click="removeRoleBucketPermission($index)"
+                                    >
+                                        删除
                                     </el-button>
                                 </template>
                             </el-table-column>

@@ -113,7 +113,6 @@ const app = createApp({
             bucketPermissions: []
         });
         const roleForm = ref(createEmptyRoleForm());
-        const roleBucketSelections = ref([]);
         const roleBucketEditIndex = ref(-1);
         const minioKeyForm = ref({
             name: '',
@@ -142,6 +141,9 @@ const app = createApp({
             { label: '批量操作', value: 'BATCH' }
         ];
         const bucketActionLabelMap = Object.fromEntries(bucketActionOptions.map(item => [item.value, item.label]));
+        const bucketSpecificActionValues = bucketActionOptions
+            .filter(item => item.value !== '*')
+            .map(item => item.value);
 
         // 辅助函数：添加桶权限
         const addBucketPermission = () => {
@@ -442,7 +444,8 @@ const app = createApp({
             roleForm.value.bucketPermissions.push({
                 enabled: true,
                 bucketName: currentBucket.value || '',
-                actions: []
+                actions: [],
+                lastActions: []
             });
             roleBucketEditIndex.value = roleForm.value.bucketPermissions.length - 1;
         };
@@ -456,40 +459,78 @@ const app = createApp({
             }
         };
 
-        const handleRoleBucketSelectionChange = (rows) => {
-            roleBucketSelections.value = rows || [];
-        };
-
-        const editSelectedRoleBucketPermission = () => {
-            if (roleBucketSelections.value.length !== 1) {
-                ElementPlus.ElMessage.warning('请选择一条桶权限记录进行编辑');
-                return;
-            }
-            roleBucketEditIndex.value = roleForm.value.bucketPermissions.indexOf(roleBucketSelections.value[0]);
-        };
-
-        const deleteSelectedRoleBucketPermissions = () => {
-            if (!roleBucketSelections.value.length) {
-                ElementPlus.ElMessage.warning('请选择要删除的桶权限记录');
-                return;
-            }
-            roleForm.value.bucketPermissions = roleForm.value.bucketPermissions
-                .filter(item => !roleBucketSelections.value.includes(item));
-            roleBucketSelections.value = [];
-            roleBucketEditIndex.value = -1;
-        };
-
         const finishEditRoleBucketPermission = () => {
+            if (roleBucketEditIndex.value < 0) {
+                return;
+            }
+            normalizeRoleBucketActions(roleForm.value.bucketPermissions[roleBucketEditIndex.value]);
             roleBucketEditIndex.value = -1;
+        };
+
+        const isAllBucketActionsSelected = (actions) => {
+            if (!Array.isArray(actions)) {
+                return false;
+            }
+            const uniqueActions = [...new Set(actions.filter(Boolean))];
+            const includesAllSpecificActions = bucketSpecificActionValues.every(action => uniqueActions.includes(action));
+            return uniqueActions.includes('*') || includesAllSpecificActions;
+        };
+
+        const getExpandedRoleBucketActions = (actions) => {
+            if (!Array.isArray(actions)) {
+                return [];
+            }
+            const uniqueActions = [...new Set(actions.filter(Boolean))];
+            if (isAllBucketActionsSelected(uniqueActions)) {
+                return ['*', ...bucketSpecificActionValues];
+            }
+            return uniqueActions.filter(action => action !== '*');
+        };
+
+        const getStoredRoleBucketActions = (actions) => {
+            return isAllBucketActionsSelected(actions) ? ['*'] : getExpandedRoleBucketActions(actions);
+        };
+
+        const handleRoleBucketActionsChange = (actions, row) => {
+            if (!row) {
+                return;
+            }
+            const uniqueActions = [...new Set((actions || []).filter(Boolean))];
+            const previousActions = Array.isArray(row.lastActions) ? row.lastActions : [];
+            const hadAllActions = isAllBucketActionsSelected(previousActions);
+            const hasAllSpecificActions = bucketSpecificActionValues.every(action => uniqueActions.includes(action));
+
+            if (hadAllActions && !uniqueActions.includes('*') && hasAllSpecificActions) {
+                row.actions = [];
+            } else if (uniqueActions.includes('*') && !hasAllSpecificActions) {
+                row.actions = uniqueActions.filter(action => action !== '*');
+            } else if (uniqueActions.includes('*') || hasAllSpecificActions) {
+                row.actions = ['*', ...bucketSpecificActionValues];
+            } else {
+                row.actions = uniqueActions.filter(action => action !== '*');
+            }
+            row.lastActions = [...row.actions];
         };
 
         const normalizeRoleBucketActions = (row) => {
-            if (!row || !Array.isArray(row.actions)) {
+            if (!row) {
                 return;
             }
-            if (row.actions.includes('*')) {
-                row.actions = [...new Set(bucketActionOptions.map(item => item.value))];
+            row.actions = getExpandedRoleBucketActions(row.actions);
+            row.lastActions = [...row.actions];
+        };
+
+        const getRoleBucketActionDisplayText = (actions) => {
+            if (!actions || !actions.length) {
+                return '';
             }
+            if (isAllBucketActionsSelected(actions)) {
+                return bucketActionLabelMap['*'];
+            }
+            return actions
+                .filter(action => action !== '*')
+                .map(action => bucketActionLabelMap[action] || action)
+                .join('、');
         };
 
         const formatBucketPermissionBuckets = (bucketName) => {
@@ -503,7 +544,7 @@ const app = createApp({
             if (!actions || !actions.length) {
                 return '未选择';
             }
-            return actions.map(action => bucketActionLabelMap[action] || action).join('、');
+            return getRoleBucketActionDisplayText(actions) || '未选择';
         };
 
         const uploadUrl = computed(() => '/api/file/upload');
@@ -1638,7 +1679,6 @@ const app = createApp({
 
         const openCreateRoleDialog = async () => {
             roleForm.value = createEmptyRoleForm();
-            roleBucketSelections.value = [];
             roleBucketEditIndex.value = -1;
             await loadPermissions();
             showRoleDialog.value = true;
@@ -1661,7 +1701,7 @@ const app = createApp({
                     actions: Array.isArray(item.actions) ? [...item.actions] : []
                 }))
             };
-            roleBucketSelections.value = [];
+            roleForm.value.bucketPermissions.forEach(normalizeRoleBucketActions);
             roleBucketEditIndex.value = -1;
             showRoleDialog.value = true;
         };
@@ -1680,7 +1720,12 @@ const app = createApp({
                     .filter(item => item.bucketName)
                     .map(item => ({
                         bucketName: item.bucketName,
-                        actions: Array.isArray(item.actions) ? [...new Set(item.actions)] : []
+                        actions: Array.isArray(item.actions)
+                            ? (() => {
+                                const normalized = { actions: [...item.actions] };
+                                return getStoredRoleBucketActions(normalized.actions);
+                            })()
+                            : []
                     }))
             };
             try {
@@ -1692,7 +1737,6 @@ const app = createApp({
                 ElementPlus.ElMessage.success('保存成功');
                 showRoleDialog.value = false;
                 roleForm.value = createEmptyRoleForm();
-                roleBucketSelections.value = [];
                 roleBucketEditIndex.value = -1;
                 await loadRoles();
             } catch (error) {
@@ -2182,12 +2226,10 @@ const app = createApp({
             deleteRole,
             addRoleBucketPermission,
             removeRoleBucketPermission,
-            roleBucketSelections,
             roleBucketEditIndex,
-            handleRoleBucketSelectionChange,
-            editSelectedRoleBucketPermission,
-            deleteSelectedRoleBucketPermissions,
             finishEditRoleBucketPermission,
+            handleRoleBucketActionsChange,
+            getRoleBucketActionDisplayText,
             formatBucketPermissionBuckets,
             formatBucketPermissionActions,
             canAccessMenu,
