@@ -46,7 +46,7 @@ public class UserService {
 
         User user = new User();
         user.setUsername(userDTO.getUsername());
-        user.setPassword(passwordEncoder.encode(userDTO.getUsername()));
+        user.setPassword(passwordEncoder.encode(resolvePasswordForCreate(userDTO)));
         user.setNickname(userDTO.getNickname());
         user.setEmail(userDTO.getEmail());
         user.setPhone(userDTO.getPhone());
@@ -78,6 +78,9 @@ public class UserService {
         if (userDTO.getRoles() != null) {
             user.setRoles(authorizationService.resolveRoles(userDTO.getRoles()));
         }
+        if (userDTO.getPassword() != null && !userDTO.getPassword().isBlank()) {
+            user.setPassword(passwordEncoder.encode(userDTO.getPassword().trim()));
+        }
         user.setUpdateTime(System.currentTimeMillis());
         return toDTO(userRepository.save(user));
     }
@@ -98,7 +101,47 @@ public class UserService {
             throw new IllegalArgumentException("旧密码错误");
         }
         user.setPassword(passwordEncoder.encode(newPassword));
+        user.setUpdateTime(System.currentTimeMillis());
         userRepository.save(user);
+    }
+
+    @Transactional
+    public void updatePasswordByAdmin(Long id, String newPassword) {
+        User user = userRepository.findById(id)
+                .orElseThrow(() -> new IllegalArgumentException("用户不存在"));
+        user.setPassword(passwordEncoder.encode(newPassword));
+        user.setUpdateTime(System.currentTimeMillis());
+        userRepository.save(user);
+    }
+
+    @Transactional
+    public UserDTO updateProfile(String username, UserDTO userDTO) {
+        User user = userRepository.findByUsername(username)
+                .orElseThrow(() -> new IllegalArgumentException("用户不存在"));
+        user.setNickname(userDTO.getNickname());
+        user.setEmail(userDTO.getEmail());
+        user.setPhone(userDTO.getPhone());
+        user.setUpdateTime(System.currentTimeMillis());
+        return toDTO(userRepository.save(user));
+    }
+
+    @Transactional
+    public void changeOwnPassword(String username, String oldPassword, String newPassword) {
+        User user = userRepository.findByUsername(username)
+                .orElseThrow(() -> new IllegalArgumentException("用户不存在"));
+        if (!passwordEncoder.matches(oldPassword, user.getPassword())) {
+            throw new IllegalArgumentException("旧密码错误");
+        }
+        user.setPassword(passwordEncoder.encode(newPassword));
+        user.setUpdateTime(System.currentTimeMillis());
+        userRepository.save(user);
+    }
+
+    private String resolvePasswordForCreate(UserDTO userDTO) {
+        if (userDTO.getPassword() == null || userDTO.getPassword().isBlank()) {
+            return userDTO.getUsername();
+        }
+        return userDTO.getPassword().trim();
     }
 
     private UserDTO toDTO(User user) {

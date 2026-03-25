@@ -9,6 +9,7 @@ public class UserDTO {
     private Boolean enabled;
     private Long createTime;
     private String[] roles;
+    private String password;
 
     public Long getId() {
         return id;
@@ -72,6 +73,14 @@ public class UserDTO {
 
     public void setRoles(String[] roles) {
         this.roles = roles;
+    }
+
+    public String getPassword() {
+        return password;
+    }
+
+    public void setPassword(String password) {
+        this.password = password;
     }
 }
 

@@ -69,6 +69,7 @@ const app = createApp({
         const showShareDialog = ref(false);
         const showBatchShareDialog = ref(false);
         const showUserDialog = ref(false);
+        const showProfileDialog = ref(false);
         const showRoleDialog = ref(false);
         const showMinioKeyDialog = ref(false);
         const showHelpDialog = ref(false);
@@ -89,9 +90,19 @@ const app = createApp({
             email: '',
             phone: '',
             enabled: true,
-            roles: []
+            roles: [],
+            password: ''
         });
         const userForm = ref(createEmptyUserForm());
+        const createEmptyProfileForm = () => ({
+            nickname: '',
+            email: '',
+            phone: '',
+            oldPassword: '',
+            newPassword: '',
+            confirmPassword: ''
+        });
+        const profileForm = ref(createEmptyProfileForm());
         const createEmptyRoleForm = () => ({
             id: null,
             code: '',
@@ -102,6 +113,8 @@ const app = createApp({
             bucketPermissions: []
         });
         const roleForm = ref(createEmptyRoleForm());
+        const roleBucketSelections = ref([]);
+        const roleBucketEditIndex = ref(-1);
         const minioKeyForm = ref({
             name: '',
             bucketPermissions: [],  // 改为数组，每个元素包含 bucket, canRead, canWrite, canDelete
@@ -118,6 +131,7 @@ const app = createApp({
         });
         const permissionList = ref([]);
         const bucketActionOptions = [
+            { label: '所有权限', value: '*' },
             { label: '查看桶列表', value: 'LIST_BUCKET' },
             { label: '查看文件', value: 'READ' },
             { label: '上传文件', value: 'UPLOAD' },
@@ -127,6 +141,7 @@ const app = createApp({
             { label: '分享文件', value: 'SHARE' },
             { label: '批量操作', value: 'BATCH' }
         ];
+        const bucketActionLabelMap = Object.fromEntries(bucketActionOptions.map(item => [item.value, item.label]));
 
         // 辅助函数：添加桶权限
         const addBucketPermission = () => {
@@ -229,7 +244,13 @@ const app = createApp({
                 .sort((a, b) => a.name.localeCompare(b.name, 'zh-CN'));
         });
         const availableBucketOptions = computed(() => {
-            return (bucketList.value || []).map(item => item.name).filter(Boolean);
+            return [
+                { label: '所有存储桶', value: '*' },
+                ...(bucketList.value || [])
+                    .map(item => item.name)
+                    .filter(Boolean)
+                    .map(name => ({ label: name, value: name }))
+            ];
         });
         const currentMenuAccessible = computed(() => {
             return canAccessMenu(currentMenu.value);
@@ -336,7 +357,11 @@ const app = createApp({
                 return false;
             }
             const actions = bucketPermissionMap.value.get(bucketName);
-            return !!actions && actions.has(action);
+            const globalActions = bucketPermissionMap.value.get('*');
+            if (actions && actions.size > 0) {
+                return actions.has(action) || actions.has('*');
+            }
+            return !!(globalActions && (globalActions.has(action) || globalActions.has('*')));
         };
 
         const canAccessMenu = (menuName) => {
@@ -415,13 +440,70 @@ const app = createApp({
 
         const addRoleBucketPermission = () => {
             roleForm.value.bucketPermissions.push({
+                enabled: true,
                 bucketName: currentBucket.value || '',
                 actions: []
             });
+            roleBucketEditIndex.value = roleForm.value.bucketPermissions.length - 1;
         };
 
         const removeRoleBucketPermission = (index) => {
             roleForm.value.bucketPermissions.splice(index, 1);
+            if (roleBucketEditIndex.value === index) {
+                roleBucketEditIndex.value = -1;
+            } else if (roleBucketEditIndex.value > index) {
+                roleBucketEditIndex.value -= 1;
+            }
+        };
+
+        const handleRoleBucketSelectionChange = (rows) => {
+            roleBucketSelections.value = rows || [];
+        };
+
+        const editSelectedRoleBucketPermission = () => {
+            if (roleBucketSelections.value.length !== 1) {
+                ElementPlus.ElMessage.warning('请选择一条桶权限记录进行编辑');
+                return;
+            }
+            roleBucketEditIndex.value = roleForm.value.bucketPermissions.indexOf(roleBucketSelections.value[0]);
+        };
+
+        const deleteSelectedRoleBucketPermissions = () => {
+            if (!roleBucketSelections.value.length) {
+                ElementPlus.ElMessage.warning('请选择要删除的桶权限记录');
+                return;
+            }
+            roleForm.value.bucketPermissions = roleForm.value.bucketPermissions
+                .filter(item => !roleBucketSelections.value.includes(item));
+            roleBucketSelections.value = [];
+            roleBucketEditIndex.value = -1;
+        };
+
+        const finishEditRoleBucketPermission = () => {
+            roleBucketEditIndex.value = -1;
+        };
+
+        const normalizeRoleBucketActions = (row) => {
+            if (!row || !Array.isArray(row.actions)) {
+                return;
+            }
+            if (row.actions.includes('*')) {
+                row.actions = [...new Set(bucketActionOptions.map(item => item.value))];
+            }
+        };
+
+        const formatBucketPermissionBuckets = (bucketName) => {
+            if (!bucketName) {
+                return '未选择';
+            }
+            return bucketName === '*' ? '所有存储桶' : bucketName;
+        };
+
+        const formatBucketPermissionActions = (actions) => {
+            if (!actions || !actions.length) {
+                return '未选择';
+            }
+            return actions.map(action => bucketActionLabelMap[action] || action).join('、');
         };
 
         const uploadUrl = computed(() => '/api/file/upload');
@@ -595,7 +677,55 @@ const app = createApp({
             if (command === 'logout') {
                 logout();
             } else if (command === 'profile') {
-                // Show profile dialog
+                profileForm.value = {
+                    nickname: userInfo.value.nickname || '',
+                    email: userInfo.value.email || '',
+                    phone: userInfo.value.phone || '',
+                    oldPassword: '',
+                    newPassword: '',
+                    confirmPassword: ''
+                };
+                showProfileDialog.value = true;
+            }
+        };
+
+        const saveProfile = async () => {
+            try {
+                const profilePayload = {
+                    nickname: (profileForm.value.nickname || '').trim(),
+                    email: (profileForm.value.email || '').trim(),
+                    phone: (profileForm.value.phone || '').trim()
+                };
+                const profileRes = await api.put('/auth/profile', profilePayload);
+                if (profileRes.code === 200) {
+                    userInfo.value = {
+                        ...userInfo.value,
+                        nickname: profileRes.data.nickname,
+                        email: profileRes.data.email,
+                        phone: profileRes.data.phone
+                    };
+                }
+
+                if (profileForm.value.oldPassword || profileForm.value.newPassword || profileForm.value.confirmPassword) {
+                    if (!profileForm.value.oldPassword || !profileForm.value.newPassword) {
+                        ElementPlus.ElMessage.error('修改密码需要填写旧密码和新密码');
+                        return;
+                    }
+                    if (profileForm.value.newPassword !== profileForm.value.confirmPassword) {
+                        ElementPlus.ElMessage.error('两次输入的新密码不一致');
+                        return;
+                    }
+                    await api.post('/auth/change-password', {
+                        oldPassword: profileForm.value.oldPassword,
+                        newPassword: profileForm.value.newPassword
+                    });
+                }
+
+                ElementPlus.ElMessage.success('个人信息已保存');
+                showProfileDialog.value = false;
+                profileForm.value = createEmptyProfileForm();
+            } catch (error) {
+                ElementPlus.ElMessage.error(error.response?.data?.message || error.message || '保存失败');
             }
         };
 
@@ -633,6 +763,7 @@ const app = createApp({
                 loadShares();
             } else if (index === 'users') {
                 loadUsers();
+                loadRoles();
             } else if (index === 'roles') {
                 loadRoles();
             } else if (index === 'config') {
@@ -1443,13 +1574,15 @@ const app = createApp({
             }
         };
 
-        const openCreateUserDialog = () => {
+        const openCreateUserDialog = async () => {
+            await loadRoles();
             userForm.value = createEmptyUserForm();
             showUserDialog.value = true;
         };
 
-        const editUser = (user) => {
-            userForm.value = { ...user, roles: user.roles || [] };
+        const editUser = async (user) => {
+            await loadRoles();
+            userForm.value = { ...user, roles: user.roles || [], password: '' };
             showUserDialog.value = true;
         };
 
@@ -1505,6 +1638,8 @@ const app = createApp({
 
         const openCreateRoleDialog = async () => {
             roleForm.value = createEmptyRoleForm();
+            roleBucketSelections.value = [];
+            roleBucketEditIndex.value = -1;
             await loadPermissions();
             showRoleDialog.value = true;
         };
@@ -1521,10 +1656,13 @@ const app = createApp({
                 menuPermissions: detail.menuPermissions || [],
                 apiPermissions: detail.apiPermissions || [],
                 bucketPermissions: (detail.bucketPermissions || []).map(item => ({
+                    enabled: true,
                     bucketName: item.bucketName || '',
-                    actions: item.actions || []
+                    actions: Array.isArray(item.actions) ? [...item.actions] : []
                 }))
             };
+            roleBucketSelections.value = [];
+            roleBucketEditIndex.value = -1;
             showRoleDialog.value = true;
         };
 
@@ -1538,10 +1676,11 @@ const app = createApp({
                 menuPermissions: roleForm.value.menuPermissions || [],
                 apiPermissions: roleForm.value.apiPermissions || [],
                 bucketPermissions: (roleForm.value.bucketPermissions || [])
+                    .filter(item => item.enabled)
                     .filter(item => item.bucketName)
                     .map(item => ({
                         bucketName: item.bucketName,
-                        actions: item.actions || []
+                        actions: Array.isArray(item.actions) ? [...new Set(item.actions)] : []
                     }))
             };
             try {
@@ -1553,6 +1692,8 @@ const app = createApp({
                 ElementPlus.ElMessage.success('保存成功');
                 showRoleDialog.value = false;
                 roleForm.value = createEmptyRoleForm();
+                roleBucketSelections.value = [];
+                roleBucketEditIndex.value = -1;
                 await loadRoles();
             } catch (error) {
                 ElementPlus.ElMessage.error(error.response?.data?.message || error.message || '保存失败');
@@ -1926,6 +2067,7 @@ const app = createApp({
             showShareDialog,
             showBatchShareDialog,
             showUserDialog,
+            showProfileDialog,
             showRoleDialog,
             showMinioKeyDialog,
             showHelpDialog,
@@ -1945,6 +2087,7 @@ const app = createApp({
             shareForm,
             batchShareForm,
             userForm,
+            profileForm,
             roleForm,
             shareList,
             userList,
@@ -1994,6 +2137,7 @@ const app = createApp({
             handleLogin,
             logout,
             handleCommand,
+            saveProfile,
             handleMenuSelect,
             loadBuckets,
             selectBucket,
@@ -2038,6 +2182,14 @@ const app = createApp({
             deleteRole,
             addRoleBucketPermission,
             removeRoleBucketPermission,
+            roleBucketSelections,
+            roleBucketEditIndex,
+            handleRoleBucketSelectionChange,
+            editSelectedRoleBucketPermission,
+            deleteSelectedRoleBucketPermissions,
+            finishEditRoleBucketPermission,
+            formatBucketPermissionBuckets,
+            formatBucketPermissionActions,
             canAccessMenu,
             hasMenuPermission,
             hasApiPermission,

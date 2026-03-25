@@ -44,6 +44,7 @@ public class AdminUserController {
         userDTO.setNickname(RequestValidationUtils.requireText(userDTO.getNickname(), "nickname"));
         userDTO.setEmail(RequestValidationUtils.nullableText(userDTO.getEmail(), "email"));
         userDTO.setPhone(RequestValidationUtils.nullableText(userDTO.getPhone(), "phone"));
+        userDTO.setPassword(RequestValidationUtils.nullableText(userDTO.getPassword(), "password"));
         userDTO.setRoles(RequestValidationUtils.normalizeTextArray(userDTO.getRoles(), "roles"));
         return Result.success(userService.createUser(userDTO));
     }
@@ -54,6 +55,7 @@ public class AdminUserController {
         userDTO.setNickname(RequestValidationUtils.nullableText(userDTO.getNickname(), "nickname"));
         userDTO.setEmail(RequestValidationUtils.nullableText(userDTO.getEmail(), "email"));
         userDTO.setPhone(RequestValidationUtils.nullableText(userDTO.getPhone(), "phone"));
+        userDTO.setPassword(RequestValidationUtils.nullableText(userDTO.getPassword(), "password"));
         userDTO.setRoles(RequestValidationUtils.normalizeTextArray(userDTO.getRoles(), "roles"));
         return Result.success(userService.updateUser(id, userDTO));
     }
@@ -68,9 +70,8 @@ public class AdminUserController {
     @PostMapping("/users/{id}/password")
     public Result<Void> updatePassword(@PathVariable Long id, @RequestBody Map<String, String> passwordData) {
         permissionAssertService.assertApiPermission(PermissionCodes.API_USER_MANAGE);
-        String oldPassword = RequestValidationUtils.requireText(passwordData.get("oldPassword"), "oldPassword");
         String newPassword = RequestValidationUtils.requireText(passwordData.get("newPassword"), "newPassword");
-        userService.updatePassword(id, oldPassword, newPassword);
+        userService.updatePasswordByAdmin(id, newPassword);
         return Result.success();
     }
 }

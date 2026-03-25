@@ -5,6 +5,7 @@ import com.lan4jn.file.repository.UserRepository;
 import com.lan4jn.file.service.AppInfoService;
 import com.lan4jn.file.service.PermissionResolverService;
 import com.lan4jn.file.service.PermissionSnapshot;
+import com.lan4jn.file.service.UserService;
 import com.lan4jn.file.utils.JwtTokenUtil;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
@@ -37,7 +38,8 @@ class AuthControllerTest {
                 mock(UserRepository.class),
                 mock(PasswordEncoder.class),
                 mock(AppInfoService.class),
-                permissionResolverService
+                permissionResolverService,
+                mock(UserService.class)
         )).build();
     }
 

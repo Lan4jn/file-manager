@@ -2,6 +2,8 @@ package com.lan4jn.file.rbac;
 
 public final class BucketAction {
 
+    public static final String ALL_BUCKETS = "*";
+    public static final String ALL_ACTIONS = "*";
     public static final String LIST_BUCKET = "LIST_BUCKET";
     public static final String LIST_FILE = "LIST_FILE";
     public static final String UPLOAD = "UPLOAD";

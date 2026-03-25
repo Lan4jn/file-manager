@@ -1,5 +1,6 @@
 package com.lan4jn.file.service;
 
+import com.lan4jn.file.rbac.BucketAction;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.security.core.Authentication;
@@ -43,8 +44,17 @@ public class PermissionAssertService {
         if (snapshot.superAdmin()) {
             return;
         }
+
         Set<String> actions = snapshot.bucketPermissions().getOrDefault(bucketName, Collections.emptySet());
-        if (!actions.contains(action)) {
+        Set<String> globalActions = snapshot.bucketPermissions().getOrDefault(BucketAction.ALL_BUCKETS, Collections.emptySet());
+        boolean allowed;
+        if (!actions.isEmpty()) {
+            allowed = actions.contains(action) || actions.contains(BucketAction.ALL_ACTIONS);
+        } else {
+            allowed = globalActions.contains(action) || globalActions.contains(BucketAction.ALL_ACTIONS);
+        }
+
+        if (!allowed) {
             log.warn("Bucket permission denied for user {} on bucket {} action {}", snapshot.username(), bucketName, action);
             throw new SecurityException("无权限访问该存储桶");
         }

@@ -807,10 +807,46 @@
                         <el-option v-for="role in roleList" :key="role.id" :label="role.name" :value="role.code"></el-option>
                     </el-select>
                 </el-form-item>
+                <el-form-item :label="userForm.id ? '新密码' : '登录密码'">
+                    <el-input
+                        v-model="userForm.password"
+                        type="password"
+                        show-password
+                        :placeholder="userForm.id ? '留空则不修改密码' : '留空则默认使用用户名'"
+                    ></el-input>
+                </el-form-item>
             </el-form>
             <template #footer>
                 <el-button @click="showUserDialog = false">取消</el-button>
                 <el-button type="primary" @click="saveUser">保存</el-button>
+            </template>
+        </el-dialog>
+
+        <el-dialog v-model="showProfileDialog" title="个人信息" width="520px">
+            <el-form :model="profileForm" label-width="90px">
+                <el-form-item label="昵称">
+                    <el-input v-model="profileForm.nickname"></el-input>
+                </el-form-item>
+                <el-form-item label="邮箱">
+                    <el-input v-model="profileForm.email"></el-input>
+                </el-form-item>
+                <el-form-item label="手机">
+                    <el-input v-model="profileForm.phone"></el-input>
+                </el-form-item>
+                <el-divider>修改密码</el-divider>
+                <el-form-item label="旧密码">
+                    <el-input v-model="profileForm.oldPassword" type="password" show-password></el-input>
+                </el-form-item>
+                <el-form-item label="新密码">
+                    <el-input v-model="profileForm.newPassword" type="password" show-password></el-input>
+                </el-form-item>
+                <el-form-item label="确认密码">
+                    <el-input v-model="profileForm.confirmPassword" type="password" show-password></el-input>
+                </el-form-item>
+            </el-form>
+            <template #footer>
+                <el-button @click="showProfileDialog = false">取消</el-button>
+                <el-button type="primary" @click="saveProfile">保存</el-button>
             </template>
         </el-dialog>
 
@@ -849,26 +885,84 @@
                 </el-form-item>
                 <el-form-item label="桶权限">
                     <div style="width: 100%">
-                        <div v-for="(bucketPermission, index) in roleForm.bucketPermissions" :key="index" style="display: flex; gap: 12px; margin-bottom: 12px; align-items: flex-start;">
-                            <el-select v-model="bucketPermission.bucketName" placeholder="选择存储桶" style="width: 180px">
-                                <el-option
-                                    v-for="bucketName in availableBucketOptions"
-                                    :key="bucketName"
-                                    :label="bucketName"
-                                    :value="bucketName"
-                                ></el-option>
-                            </el-select>
-                            <el-select v-model="bucketPermission.actions" multiple collapse-tags placeholder="选择权限" style="flex: 1">
-                                <el-option
-                                    v-for="action in bucketActionOptions"
-                                    :key="action.value"
-                                    :label="action.label"
-                                    :value="action.value"
-                                ></el-option>
-                            </el-select>
-                            <el-button type="danger" plain @click="removeRoleBucketPermission(index)">删除</el-button>
+                        <div style="display: flex; gap: 10px; margin-bottom: 12px;">
+                            <el-button plain @click="addRoleBucketPermission">添加项</el-button>
+                            <el-button type="danger" plain @click="deleteSelectedRoleBucketPermissions">删除项</el-button>
                         </div>
-                        <el-button plain @click="addRoleBucketPermission">添加桶权限</el-button>
+                        <el-table
+                            :data="roleForm.bucketPermissions"
+                            border
+                            size="small"
+                            @selection-change="handleRoleBucketSelectionChange"
+                        >
+                            <el-table-column type="selection" width="48"></el-table-column>
+                            <el-table-column label="生效" width="72">
+                                <template #default="{ row }">
+                                    <el-checkbox v-model="row.enabled"></el-checkbox>
+                                </template>
+                            </el-table-column>
+                            <el-table-column label="存储桶" min-width="220">
+                                <template #default="{ row, $index }">
+                                    <el-select
+                                        v-if="roleBucketEditIndex === $index"
+                                        v-model="row.bucketName"
+                                        placeholder="选择存储桶"
+                                        style="width: 100%"
+                                    >
+                                        <el-option
+                                            v-for="bucketOption in availableBucketOptions"
+                                            :key="bucketOption.value"
+                                            :label="bucketOption.label"
+                                            :value="bucketOption.value"
+                                        ></el-option>
+                                    </el-select>
+                                    <span v-else>{{ formatBucketPermissionBuckets(row.bucketName) }}</span>
+                                </template>
+                            </el-table-column>
+                            <el-table-column label="权限" min-width="260">
+                                <template #default="{ row, $index }">
+                                    <el-select
+                                        v-if="roleBucketEditIndex === $index"
+                                        v-model="row.actions"
+                                        multiple
+                                        collapse-tags
+                                        collapse-tags-tooltip
+                                        placeholder="选择权限"
+                                        style="width: 100%"
+                                        @change="normalizeRoleBucketActions(row)"
+                                    >
+                                        <el-option
+                                            v-for="action in bucketActionOptions"
+                                            :key="action.value"
+                                            :label="action.label"
+                                            :value="action.value"
+                                        ></el-option>
+                                    </el-select>
+                                    <span v-else>{{ formatBucketPermissionActions(row.actions) }}</span>
+                                </template>
+                            </el-table-column>
+                            <el-table-column label="操作" width="120">
+                                <template #default="{ $index }">
+                                    <el-button
+                                        v-if="roleBucketEditIndex === $index"
+                                        size="small"
+                                        type="primary"
+                                        plain
+                                        @click="finishEditRoleBucketPermission"
+                                    >
+                                        完成
+                                    </el-button>
+                                    <el-button
+                                        v-else
+                                        size="small"
+                                        plain
+                                        @click="roleBucketEditIndex = $index"
+                                    >
+                                        编辑
+                                    </el-button>
+                                </template>
+                            </el-table-column>
+                        </el-table>
                     </div>
                 </el-form-item>
             </el-form>

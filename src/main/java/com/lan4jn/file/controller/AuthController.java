@@ -2,11 +2,14 @@ package com.lan4jn.file.controller;
 
 import com.lan4jn.file.common.Result;
 import com.lan4jn.file.dto.CurrentPermissionInfoDTO;
+import com.lan4jn.file.dto.UserDTO;
 import com.lan4jn.file.entity.User;
 import com.lan4jn.file.repository.UserRepository;
 import com.lan4jn.file.service.AppInfoService;
 import com.lan4jn.file.service.PermissionResolverService;
+import com.lan4jn.file.service.UserService;
 import com.lan4jn.file.utils.JwtTokenUtil;
+import com.lan4jn.file.utils.RequestValidationUtils;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.security.core.Authentication;
@@ -30,6 +33,7 @@ public class AuthController {
     private final PasswordEncoder passwordEncoder;
     private final AppInfoService appInfoService;
     private final PermissionResolverService permissionResolverService;
+    private final UserService userService;
 
     @org.springframework.beans.factory.annotation.Value("${app.security.http-port:-1}")
     private int httpPort;
@@ -44,12 +48,14 @@ public class AuthController {
                           UserRepository userRepository,
                           PasswordEncoder passwordEncoder,
                           AppInfoService appInfoService,
-                          PermissionResolverService permissionResolverService) {
+                          PermissionResolverService permissionResolverService,
+                          UserService userService) {
         this.jwtTokenUtil = jwtTokenUtil;
         this.userRepository = userRepository;
         this.passwordEncoder = passwordEncoder;
         this.appInfoService = appInfoService;
         this.permissionResolverService = permissionResolverService;
+        this.userService = userService;
     }
 
     @PostMapping("/login")
@@ -59,10 +65,7 @@ public class AuthController {
         try {
             String decodedPassword = new String(Base64.getDecoder().decode(encodedPassword), StandardCharsets.UTF_8);
             User user = userRepository.findByUsername(username).orElse(null);
-            if (user == null) {
-                return Result.error(401, "用户名或密码错误");
-            }
-            if (!passwordEncoder.matches(decodedPassword, user.getPassword())) {
+            if (user == null || !passwordEncoder.matches(decodedPassword, user.getPassword())) {
                 return Result.error(401, "用户名或密码错误");
             }
 
@@ -124,6 +127,24 @@ public class AuthController {
             data.put("roles", user.getRoles().stream().map(role -> role.getCode()).toArray());
         }
         return Result.success(data);
+    }
+
+    @PutMapping("/profile")
+    public Result<UserDTO> updateProfile(@RequestBody UserDTO userDTO) {
+        Authentication authentication = SecurityContextHolder.getContext().getAuthentication();
+        userDTO.setNickname(RequestValidationUtils.requireText(userDTO.getNickname(), "nickname"));
+        userDTO.setEmail(RequestValidationUtils.nullableText(userDTO.getEmail(), "email"));
+        userDTO.setPhone(RequestValidationUtils.nullableText(userDTO.getPhone(), "phone"));
+        return Result.success(userService.updateProfile(authentication.getName(), userDTO));
+    }
+
+    @PostMapping("/change-password")
+    public Result<Void> changePassword(@RequestBody Map<String, String> passwordData) {
+        Authentication authentication = SecurityContextHolder.getContext().getAuthentication();
+        String oldPassword = RequestValidationUtils.requireText(passwordData.get("oldPassword"), "oldPassword");
+        String newPassword = RequestValidationUtils.requireText(passwordData.get("newPassword"), "newPassword");
+        userService.changeOwnPassword(authentication.getName(), oldPassword, newPassword);
+        return Result.success();
     }
 
     @GetMapping("/runtime-config")
