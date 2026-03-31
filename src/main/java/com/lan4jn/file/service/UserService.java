@@ -19,15 +19,18 @@ public class UserService {
     private final PasswordEncoder passwordEncoder;
     private final AuthorizationService authorizationService;
     private final SuperAdminGuardService superAdminGuardService;
+    private final LoginProtectionService loginProtectionService;
 
     public UserService(UserRepository userRepository,
                        PasswordEncoder passwordEncoder,
                        AuthorizationService authorizationService,
-                       SuperAdminGuardService superAdminGuardService) {
+                       SuperAdminGuardService superAdminGuardService,
+                       LoginProtectionService loginProtectionService) {
         this.userRepository = userRepository;
         this.passwordEncoder = passwordEncoder;
         this.authorizationService = authorizationService;
         this.superAdminGuardService = superAdminGuardService;
+        this.loginProtectionService = loginProtectionService;
     }
 
     public List<UserDTO> getAllUsers() {
@@ -137,6 +140,12 @@ public class UserService {
         userRepository.save(user);
     }
 
+    public void unlockUser(Long id) {
+        User user = userRepository.findById(id)
+                .orElseThrow(() -> new IllegalArgumentException("用户不存在"));
+        loginProtectionService.reset(user.getUsername());
+    }
+
     private String resolvePasswordForCreate(UserDTO userDTO) {
         if (userDTO.getPassword() == null || userDTO.getPassword().isBlank()) {
             return userDTO.getUsername();
@@ -157,6 +166,9 @@ public class UserService {
         if (roles != null) {
             dto.setRoles(roles.stream().map(Role::getCode).toArray(String[]::new));
         }
+        LoginProtectionService.LockStatus lockStatus = loginProtectionService.getStatus(user.getUsername());
+        dto.setLocked(lockStatus.locked());
+        dto.setUnlockTime(lockStatus.unlockTime());
         return dto;
     }
 }

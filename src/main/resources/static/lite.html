@@ -51,8 +51,13 @@
                     <div class="bucket-group">
                         <label for="bucket-select">当前存储桶</label>
                         <select id="bucket-select" v-model="currentBucket" @change="onBucketChange">
-                            <option v-for="bucket in bucketList" :key="bucket.name" :value="bucket.name">
-                                {{ bucket.name }}
+                            <option
+                                v-for="bucket in bucketList"
+                                :key="bucket.name"
+                                :value="bucket.name"
+                                :disabled="bucket.compatible === false"
+                            >
+                                {{ bucket.compatible === false ? `${bucket.name}（不兼容）` : bucket.name }}
                             </option>
                         </select>
                     </div>
@@ -214,6 +219,8 @@
 
     <script src="/js/vue.global.js"></script>
     <script src="/js/axios.min.js"></script>
+    <script src="/vendor/sha512.min.js"></script>
+    <script src="/vendor/bcryptjs.min.js"></script>
     <script src="/js/lite.js"></script>
 </body>
 </html>

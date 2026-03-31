@@ -8,6 +8,7 @@ public class ShareAccessInfo {
     private Boolean hasPassword;
     private Boolean isFolder;
     private LocalDateTime expireTime;
+    private String displayPath;
 
     public String getShareCode() {
         return shareCode;
@@ -48,5 +49,12 @@ public class ShareAccessInfo {
     public void setExpireTime(LocalDateTime expireTime) {
         this.expireTime = expireTime;
     }
-}
 
+    public String getDisplayPath() {
+        return displayPath;
+    }
+
+    public void setDisplayPath(String displayPath) {
+        this.displayPath = displayPath;
+    }
+}

@@ -176,7 +176,7 @@ final class FileQueryService {
             List<FileInfo> fileList = new ArrayList<>();
             for (Result<Item> result : results) {
                 Item item = result.get();
-                if (item.isDir()) {
+                if (item.isDir() || item.objectName().endsWith("/")) {
                     continue;
                 }
                 FileInfo fileInfo = new FileInfo();

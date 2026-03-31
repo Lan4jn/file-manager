@@ -5,6 +5,23 @@ const api = axios.create({
     timeout: 30000
 });
 
+const sha512 = (message) => window.sha512(message);
+const getBcrypt = () => window.dcodeIO?.bcrypt || window.bcrypt;
+const deriveLoginSecret = (password, challengeData) => {
+    if ((challengeData?.passwordScheme || '').toUpperCase() === 'BCRYPT') {
+        const verifier = challengeData.passwordVerifier;
+        if (!verifier) {
+            throw new Error('登录验证参数缺失，请刷新后重试');
+        }
+        const bcrypt = getBcrypt();
+        if (!bcrypt || typeof bcrypt.hashSync !== 'function') {
+            throw new Error('登录组件未正确加载，请刷新页面后重试');
+        }
+        return bcrypt.hashSync(password, verifier);
+    }
+    return sha512(password);
+};
+
 api.interceptors.request.use((config) => {
     const token = localStorage.getItem('token');
     if (token) {
@@ -138,8 +155,17 @@ createApp({
             }
             loginLoading.value = true;
             try {
-                const password = btoa(unescape(encodeURIComponent(loginForm.value.password)));
-                const res = await api.post('/auth/login', { username: loginForm.value.username, password });
+                const challengeRes = await api.get('/auth/login-challenge', {
+                    params: { username: loginForm.value.username }
+                });
+                const challengeData = challengeRes.data || {};
+                const loginSecret = deriveLoginSecret(loginForm.value.password, challengeData);
+                const passwordProof = sha512(loginSecret + ':' + challengeData.nonce);
+                const res = await api.post('/auth/login', {
+                    username: loginForm.value.username,
+                    challengeId: challengeData.challengeId,
+                    passwordProof: passwordProof
+                });
                 if (res.code === 200) {
                     localStorage.setItem('token', res.data.token);
                     localStorage.setItem('user', JSON.stringify(res.data));
@@ -181,7 +207,8 @@ createApp({
                 if (res.code === 200) {
                     bucketList.value = res.data || [];
                     if (!currentBucket.value && bucketList.value.length > 0) {
-                        currentBucket.value = bucketList.value[0].name;
+                        const compatibleBucket = bucketList.value.find((bucket) => bucket.compatible !== false);
+                        currentBucket.value = compatibleBucket ? compatibleBucket.name : '';
                     }
                     if (currentBucket.value) {
                         currentFolder.value = currentFolder.value || '';
@@ -231,6 +258,17 @@ createApp({
         };
 
         const onBucketChange = async () => {
+            const targetBucket = bucketList.value.find((bucket) => bucket.name === currentBucket.value);
+            if (targetBucket && targetBucket.compatible === false) {
+                alert('当前存储桶名称不符合 Amazon S3 规范，已被禁用。');
+                const compatibleBucket = bucketList.value.find((bucket) => bucket.compatible !== false);
+                currentBucket.value = compatibleBucket ? compatibleBucket.name : '';
+                if (!currentBucket.value) {
+                    fileList.value = [];
+                    fileTotal.value = 0;
+                    return;
+                }
+            }
             currentFolder.value = '';
             filePage.value = 1;
             await loadFiles();

@@ -108,6 +108,7 @@ final class ShareLinkService {
         info.setHasPassword(Boolean.TRUE.equals(shareLink.getHasPassword()));
         info.setIsFolder(Boolean.TRUE.equals(shareLink.getIsFolder()));
         info.setExpireTime(shareLink.getExpireTime());
+        info.setDisplayPath(shareSupport.getShareDisplayPath(shareLink));
         return info;
     }
 

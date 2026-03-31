@@ -36,6 +36,7 @@ final class BucketService {
             for (Bucket bucket : buckets) {
                 BucketInfo info = new BucketInfo();
                 info.setName(bucket.name());
+                info.setCompatible(isS3CompatibleBucketName(bucket.name()));
                 info.setCreationDate(LocalDateTime.ofInstant(
                         bucket.creationDate().toInstant(), ZoneId.systemDefault()));
 
@@ -93,6 +94,7 @@ final class BucketService {
 
             BucketInfo info = new BucketInfo();
             info.setName(bucketName);
+            info.setCompatible(true);
             info.setCreationDate(LocalDateTime.now());
             info.setObjectCount(0L);
             info.setTotalSize(0L);
@@ -134,5 +136,18 @@ final class BucketService {
 
     private String valueOf(String value) {
         return value != null ? value : "";
+    }
+
+    private boolean isS3CompatibleBucketName(String bucketName) {
+        if (bucketName == null || bucketName.length() < 3 || bucketName.length() > 63) {
+            return false;
+        }
+        if (!bucketName.matches("^[a-z0-9][a-z0-9.-]*[a-z0-9]$")) {
+            return false;
+        }
+        if (bucketName.contains("..")) {
+            return false;
+        }
+        return !bucketName.matches("^\\d+\\.\\d+\\.\\d+\\.\\d+$");
     }
 }

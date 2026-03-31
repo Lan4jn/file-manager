@@ -10,6 +10,8 @@ public class UserDTO {
     private Long createTime;
     private String[] roles;
     private String password;
+    private Boolean locked;
+    private Long unlockTime;
 
     public Long getId() {
         return id;
@@ -82,5 +84,20 @@ public class UserDTO {
     public void setPassword(String password) {
         this.password = password;
     }
-}
 
+    public Boolean getLocked() {
+        return locked;
+    }
+
+    public void setLocked(Boolean locked) {
+        this.locked = locked;
+    }
+
+    public Long getUnlockTime() {
+        return unlockTime;
+    }
+
+    public void setUnlockTime(Long unlockTime) {
+        this.unlockTime = unlockTime;
+    }
+}

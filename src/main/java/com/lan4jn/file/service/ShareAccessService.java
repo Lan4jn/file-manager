@@ -8,6 +8,7 @@ import org.slf4j.LoggerFactory;
 
 import java.io.InputStream;
 import java.io.OutputStream;
+import java.nio.charset.StandardCharsets;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
@@ -94,9 +95,13 @@ final class ShareAccessService {
                 throw new RuntimeException("分享打包大小超过限制(" + shareSupport.formatSize(maxSize) + ")");
             }
 
-            try (ZipOutputStream zos = new ZipOutputStream(outputStream)) {
+            try (ZipOutputStream zos = new ZipOutputStream(outputStream, StandardCharsets.UTF_8)) {
                 byte[] buffer = new byte[8192];
                 for (Map.Entry<String, FileInfo> entry : entries.entrySet()) {
+                    if (entry.getValue() == null || StrUtil.isBlank(entry.getValue().getObjectName())
+                            || entry.getValue().getObjectName().endsWith("/")) {
+                        continue;
+                    }
                     try (InputStream inputStream = fileService.getFileStream(entry.getValue().getObjectName(), shareLink.getBucket())) {
                         zos.putNextEntry(new ZipEntry(entry.getKey()));
                         int len;

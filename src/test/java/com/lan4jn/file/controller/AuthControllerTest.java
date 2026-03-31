@@ -1,8 +1,11 @@
 package com.lan4jn.file.controller;
 
 import com.lan4jn.file.dto.CurrentPermissionInfoDTO;
+import com.lan4jn.file.entity.User;
 import com.lan4jn.file.repository.UserRepository;
 import com.lan4jn.file.service.AppInfoService;
+import com.lan4jn.file.service.LoginChallengeService;
+import com.lan4jn.file.service.LoginProtectionService;
 import com.lan4jn.file.service.PermissionResolverService;
 import com.lan4jn.file.service.PermissionSnapshot;
 import com.lan4jn.file.service.UserService;
@@ -10,18 +13,30 @@ import com.lan4jn.file.utils.JwtTokenUtil;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
+import org.springframework.http.MediaType;
 import org.springframework.security.authentication.TestingAuthenticationToken;
+import org.springframework.security.crypto.bcrypt.BCrypt;
 import org.springframework.security.core.context.SecurityContextHolder;
 import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.test.web.servlet.MockMvc;
+import org.springframework.test.web.servlet.MvcResult;
 import org.springframework.test.web.servlet.setup.MockMvcBuilders;
 
+import java.nio.charset.StandardCharsets;
+import java.security.MessageDigest;
 import java.util.LinkedHashMap;
 import java.util.LinkedHashSet;
+import java.util.Map;
+import java.util.Optional;
 
+import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.eq;
+import static org.mockito.Mockito.doNothing;
 import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
@@ -29,17 +44,26 @@ class AuthControllerTest {
 
     private MockMvc mockMvc;
     private PermissionResolverService permissionResolverService;
+    private UserRepository userRepository;
+    private LoginProtectionService loginProtectionService;
+    private JwtTokenUtil jwtTokenUtil;
 
     @BeforeEach
     void setUp() {
         permissionResolverService = mock(PermissionResolverService.class);
+        userRepository = mock(UserRepository.class);
+        loginProtectionService = mock(LoginProtectionService.class);
+        jwtTokenUtil = mock(JwtTokenUtil.class);
+        doNothing().when(loginProtectionService).assertAllowed(any(), any());
         mockMvc = MockMvcBuilders.standaloneSetup(new AuthController(
-                mock(JwtTokenUtil.class),
-                mock(UserRepository.class),
+                jwtTokenUtil,
+                userRepository,
                 mock(PasswordEncoder.class),
                 mock(AppInfoService.class),
                 permissionResolverService,
-                mock(UserService.class)
+                mock(UserService.class),
+                loginProtectionService,
+                new LoginChallengeService()
         )).build();
     }
 
@@ -76,5 +100,57 @@ class AuthControllerTest {
                 .andExpect(jsonPath("$.data.username").value("alice"))
                 .andExpect(jsonPath("$.data.menuPermissions[0]").value("MENU_FILES"))
                 .andExpect(jsonPath("$.data.apiPermissions[0]").value("API_FILE_BROWSE"));
+    }
+
+    @Test
+    void shouldLoginWithChallengeForBcryptUser() throws Exception {
+        User user = new User();
+        user.setId(2L);
+        user.setUsername("bcrypt-user");
+        user.setNickname("Bcrypt User");
+        user.setEnabled(true);
+        user.setPassword(BCrypt.hashpw("secret123", BCrypt.gensalt()));
+        user.setRoles(new LinkedHashSet<>());
+
+        when(userRepository.findByUsername("bcrypt-user")).thenReturn(Optional.of(user));
+        when(jwtTokenUtil.generateToken(eq("bcrypt-user"), eq(2L), eq(""))).thenReturn("token");
+
+        MvcResult challengeResult = mockMvc.perform(get("/api/auth/login-challenge")
+                        .param("username", "bcrypt-user"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.passwordScheme").value("BCRYPT"))
+                .andExpect(jsonPath("$.data.passwordVerifier").value(user.getPassword()))
+                .andReturn();
+
+        com.fasterxml.jackson.databind.JsonNode challengeJson = new com.fasterxml.jackson.databind.ObjectMapper()
+                .readTree(challengeResult.getResponse().getContentAsString());
+        String challengeId = challengeJson.path("data").path("challengeId").asText();
+        String nonce = challengeJson.path("data").path("nonce").asText();
+        String derivedSecret = BCrypt.hashpw("secret123", user.getPassword());
+        String proof = sha512(derivedSecret + ":" + nonce);
+
+        mockMvc.perform(post("/api/auth/login")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(("{\"username\":\"bcrypt-user\",\"challengeId\":\"" + challengeId + "\",\"passwordProof\":\"" + proof + "\"}")
+                                .getBytes(StandardCharsets.UTF_8)))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.code").value(200))
+                .andExpect(jsonPath("$.data.token").value("token"));
+
+        verify(loginProtectionService).reset(eq("bcrypt-user"), any());
+    }
+
+    private String sha512(String value) throws Exception {
+        MessageDigest digest = MessageDigest.getInstance("SHA-512");
+        byte[] hash = digest.digest(value.getBytes(StandardCharsets.UTF_8));
+        StringBuilder builder = new StringBuilder(hash.length * 2);
+        for (byte b : hash) {
+            String hex = Integer.toHexString(b & 0xff);
+            if (hex.length() == 1) {
+                builder.append('0');
+            }
+            builder.append(hex);
+        }
+        return builder.toString();
     }
 }

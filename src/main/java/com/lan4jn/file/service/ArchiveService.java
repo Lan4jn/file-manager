@@ -7,6 +7,7 @@ import org.slf4j.LoggerFactory;
 
 import java.io.InputStream;
 import java.io.OutputStream;
+import java.nio.charset.StandardCharsets;
 import java.util.List;
 import java.util.zip.ZipEntry;
 import java.util.zip.ZipOutputStream;
@@ -37,7 +38,7 @@ final class ArchiveService {
                 throw new RuntimeException("目录压缩后大小超过2GB，无法下载");
             }
 
-            try (ZipOutputStream zos = new ZipOutputStream(outputStream)) {
+            try (ZipOutputStream zos = new ZipOutputStream(outputStream, StandardCharsets.UTF_8)) {
                 byte[] buffer = new byte[8192];
                 for (FileInfo file : files) {
                     addFileToZip(zos, file, resolvedBucket, defaultBucket, buffer);
@@ -56,7 +57,7 @@ final class ArchiveService {
     void downloadBatchAsZip(List<String> objectNames, String bucket, String defaultBucket, OutputStream outputStream) {
         String resolvedBucket = support.resolveBucket(bucket, defaultBucket);
         try {
-            try (ZipOutputStream zos = new ZipOutputStream(outputStream)) {
+            try (ZipOutputStream zos = new ZipOutputStream(outputStream, StandardCharsets.UTF_8)) {
                 byte[] buffer = new byte[8192];
                 for (String objectName : objectNames) {
                     if (objectName.endsWith("/")) {
@@ -92,7 +93,7 @@ final class ArchiveService {
             throws Exception {
         try (InputStream is = support.getFileStream(fileInfo.getObjectName(), bucket, defaultBucket)) {
             String entryName = fileInfo.getObjectName();
-            if (StrUtil.isBlank(entryName)) {
+            if (StrUtil.isBlank(entryName) || entryName.endsWith("/")) {
                 return;
             }
             ZipEntry zipEntry = new ZipEntry(entryName);

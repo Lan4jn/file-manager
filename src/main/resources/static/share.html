@@ -299,6 +299,7 @@
         var shareCode = params.get('code');
         var password = params.get('password') || '';
         var shareInfo = null;
+        var shareDisplayPath = '';
         var currentPath = '';
         var historyStack = [];
 
@@ -366,6 +367,7 @@
                         throw new Error(response.data.message || '加载分享失败');
                     }
                     shareInfo = response.data.data;
+                    shareDisplayPath = shareInfo.displayPath || '';
                     renderMeta();
                     if (shareInfo.hasPassword) {
                         verifyBlock.classList.remove('hidden');
@@ -439,6 +441,7 @@
         function renderMeta() {
             titleEl.textContent = shareInfo.fileName || '未命名分享';
             metaEl.textContent = (shareInfo.isFolder ? '目录 / 批量分享' : '单文件分享') +
+                ' · 原始路径: ' + (shareDisplayPath || '/') +
                 ' · 过期时间: ' + (shareInfo.expireTime || '未知');
             typeBadge.textContent = shareInfo.isFolder ? '浏览式分享' : '文件直链';
         }
@@ -447,7 +450,9 @@
             itemListEl.innerHTML = '';
             countBadge.textContent = '共 ' + items.length + ' 项';
             emptyStateEl.classList.toggle('hidden', items.length > 0);
-            crumbEl.textContent = currentPath ? '当前位置: ' + readableName(currentPath) : '当前位置: 根目录';
+            crumbEl.textContent = currentPath
+                ? ('原始路径: ' + (shareDisplayPath || '/') + ' · 当前位置: ' + currentPath)
+                : ('原始路径: ' + (shareDisplayPath || '/'));
             backBtn.classList.toggle('hidden', historyStack.length === 0);
 
             items.forEach(function (item) {

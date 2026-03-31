@@ -7,6 +7,7 @@ public class BucketInfo {
     private LocalDateTime creationDate;
     private Long objectCount;
     private Long totalSize;
+    private Boolean compatible;
 
     public String getName() {
         return name;
@@ -39,5 +40,12 @@ public class BucketInfo {
     public void setTotalSize(Long totalSize) {
         this.totalSize = totalSize;
     }
-}
 
+    public Boolean getCompatible() {
+        return compatible;
+    }
+
+    public void setCompatible(Boolean compatible) {
+        this.compatible = compatible;
+    }
+}

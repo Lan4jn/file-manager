@@ -65,6 +65,17 @@ final class ShareSupport {
         return lastSlash >= 0 ? normalized.substring(lastSlash + 1) : normalized;
     }
 
+    String getShareDisplayPath(ShareLink shareLink) {
+        if (shareLink == null || StrUtil.isBlank(shareLink.getObjectName())) {
+            return "/";
+        }
+        String bucketPrefix = StrUtil.blankToDefault(shareLink.getBucket(), "") + "/";
+        if (isBatchShare(shareLink)) {
+            return bucketPrefix + getCommonParentPath(parseBatchRoots(shareLink.getObjectName()));
+        }
+        return bucketPrefix + shareLink.getObjectName();
+    }
+
     void validateObjectAccess(ShareLink shareLink, String objectName) {
         if (isBatchShare(shareLink)) {
             for (String root : parseBatchRoots(shareLink.getObjectName())) {
@@ -143,5 +154,49 @@ final class ShareSupport {
 
     Map<String, FileInfo> newEntryMap() {
         return new LinkedHashMap<>();
+    }
+
+    private String getCommonParentPath(List<String> objectNames) {
+        if (objectNames == null || objectNames.isEmpty()) {
+            return "/";
+        }
+        String commonPath = null;
+        for (String objectName : objectNames) {
+            String parent = parentPath(objectName);
+            if (commonPath == null) {
+                commonPath = parent;
+            } else {
+                commonPath = commonPrefixPath(commonPath, parent);
+            }
+            if (StrUtil.isBlank(commonPath)) {
+                return "";
+            }
+        }
+        return StrUtil.blankToDefault(commonPath, "");
+    }
+
+    private String parentPath(String objectName) {
+        if (StrUtil.isBlank(objectName)) {
+            return "";
+        }
+        String normalized = objectName.endsWith("/")
+                ? objectName.substring(0, objectName.length() - 1)
+                : objectName;
+        int lastSlash = normalized.lastIndexOf('/');
+        return lastSlash >= 0 ? normalized.substring(0, lastSlash + 1) : "";
+    }
+
+    private String commonPrefixPath(String left, String right) {
+        String[] leftParts = StrUtil.splitToArray(StrUtil.removeSuffix(left, "/"), '/');
+        String[] rightParts = StrUtil.splitToArray(StrUtil.removeSuffix(right, "/"), '/');
+        int minLength = Math.min(leftParts.length, rightParts.length);
+        StringBuilder builder = new StringBuilder();
+        for (int i = 0; i < minLength; i++) {
+            if (!Objects.equals(leftParts[i], rightParts[i])) {
+                break;
+            }
+            builder.append(leftParts[i]).append('/');
+        }
+        return builder.toString();
     }
 }

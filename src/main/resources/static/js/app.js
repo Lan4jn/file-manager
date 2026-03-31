@@ -53,6 +53,7 @@ const app = createApp({
         const folderHistory = ref([]);
         const historyIndex = ref(-1);
         const showPathDropdown = ref(false);
+        const lastCompatibleBucket = ref('');
 
         // 地址栏编辑相关
         const isPathEditing = ref(false);
@@ -74,10 +75,17 @@ const app = createApp({
         const showMinioKeyDialog = ref(false);
         const showHelpDialog = ref(false);
         const showVersionDialog = ref(false);
+        const showPreviewDialog = ref(false);
         const helpContent = ref('');
         const versionList = ref([]);
         const selectedVersion = ref('');
         const versionContent = ref('');
+        const previewLoading = ref(false);
+        const previewTitle = ref('');
+        const previewKind = ref('');
+        const previewUrl = ref('');
+        const previewText = ref('');
+        let previewObjectUrl = '';
 
         // Form data
         const newFolderName = ref('');
@@ -91,7 +99,9 @@ const app = createApp({
             phone: '',
             enabled: true,
             roles: [],
-            password: ''
+            password: '',
+            locked: false,
+            unlockTime: null
         });
         const userForm = ref(createEmptyUserForm());
         const createEmptyProfileForm = () => ({
@@ -290,6 +300,10 @@ const app = createApp({
         const currentPageSize = computed(() => {
             return fileList.value.reduce((total, item) => total + (item.isFolder ? 0 : (item.size || 0)), 0);
         });
+        const previewSupportHint = computed(() => {
+            return '支持预览：图片、PDF、文本、音频、视频';
+        });
+        const textPreviewMaxSize = 2 * 1024 * 1024;
         const httpsSuggestionUrl = computed(() => {
             const url = new URL(window.location.href);
             url.protocol = 'https:';
@@ -567,90 +581,21 @@ const app = createApp({
             });
         };
 
-        // SHA512 hash function - 使用纯 JS 实现，兼容所有环境
-        const sha512 = (message) => {
-            // 统一使用纯 JS 实现，避免 crypto.subtle 在非安全上下文的问题
-            const hexChars = '0123456789abcdef';
-            const msgBytes = new Uint8Array(message.length);
-            for (let i = 0; i < message.length; i++) {
-                msgBytes[i] = message.charCodeAt(i);
+        const sha512 = (message) => window.sha512(message);
+        const getBcrypt = () => window.dcodeIO?.bcrypt || window.bcrypt;
+        const deriveLoginSecret = (password, challengeData) => {
+            if ((challengeData?.passwordScheme || '').toUpperCase() === 'BCRYPT') {
+                const verifier = challengeData.passwordVerifier;
+                if (!verifier) {
+                    throw new Error('登录验证参数缺失，请刷新后重试');
+                }
+                const bcrypt = getBcrypt();
+                if (!bcrypt || typeof bcrypt.hashSync !== 'function') {
+                    throw new Error('登录组件未正确加载，请刷新页面后重试');
+                }
+                return bcrypt.hashSync(password, verifier);
             }
-
-            // SHA-512 参数
-            let h0 = 0x6a09e667, h1 = 0xbb67ae85, h2 = 0x3c6ef372, h3 = 0xa54ff53a;
-            let h4 = 0x510e527f, h5 = 0x9b05688c, h6 = 0x1f83d9ab, h7 = 0x5be0cd19;
-            const k = [
-                0x428a2f98, 0x71374491, 0xb5c0fbcf, 0xe9b5dba5, 0x3956c25b, 0x59f111f1, 0x923f82a4, 0xab1c5ed5,
-                0xd807aa98, 0x12835b01, 0x243185be, 0x550c7dc3, 0x72be5d74, 0x80deb1fe, 0x9bdc06a7, 0xc19bf174,
-                0xe49b69c1, 0xefbe4786, 0x0fc19dc6, 0x240ca1cc, 0x2de92c6f, 0x4a7484aa, 0x5cb0a9dc, 0x76f988da,
-                0x983e5152, 0xa831c66d, 0xb00327c8, 0xbf597fc7, 0xc6e00bf3, 0xd5a79147, 0x06ca6351, 0x14292967,
-                0x27b70a85, 0x2e1b2138, 0x4d2c6dfc, 0x53380d13, 0x650a7354, 0x766a0abb, 0x81c2c92e, 0x92722c85,
-                0xa2bfe8a1, 0xa81a664b, 0xc24b8b70, 0xc76c51a3, 0xd192e819, 0xd6990624, 0xf40e3585, 0x106aa070,
-                0x19a4c116, 0x1e376c08, 0x2748774c, 0x34b0bcb5, 0x391c0cb3, 0x4ed8aa4a, 0x5b9cca4f, 0x682e6ff3,
-                0x748f82ee, 0x78a5636f, 0x84c87814, 0x8cc70208, 0x90befffa, 0xa4506ceb, 0xbef9a3f7, 0xc67178f2
-            ];
-
-            // 填充消息
-            const msgBitLen = msgBytes.length * 8;
-            const padLen = msgBytes.length % 128 < 112 ? 112 - msgBytes.length % 128 : 240 - msgBytes.length % 128;
-            const padded = new Uint8Array(msgBytes.length + padLen + 8);
-            padded.set(msgBytes, 0);
-            padded[msgBytes.length] = 0x80;
-
-            // 大端序写入消息长度
-            const view = new DataView(padded.buffer);
-            view.setUint32(padded.length - 4, msgBitLen, false);
-
-            // 辅助函数
-            const rotr = (x, n) => (x >>> n) | (x << (64 - n));
-            const sum0 = x => rotr(x, 28) ^ rotr(x, 34) ^ rotr(x, 39);
-            const sum1 = x => rotr(x, 14) ^ rotr(x, 18) ^ rotr(x, 41);
-            const sigma0 = x => rotr(x, 1) ^ rotr(x, 8) ^ (x >>> 7);
-            const sigma1 = x => rotr(x, 19) ^ rotr(x, 61) ^ (x >>> 6);
-
-            // 处理每个块
-            for (let i = 0; i < padded.length; i += 128) {
-                const w = new Uint32Array(80);
-                for (let j = 0; j < 16; j++) {
-                    w[j] = view.getUint32(i + j * 4, false);
-                }
-                for (let j = 16; j < 80; j++) {
-                    w[j] = (sigma1(w[j - 2]) + w[j - 7] + sigma0(w[j - 15]) + w[j - 16]) >>> 0;
-                }
-
-                let a = h0, b = h1, c = h2, d = h3, e = h4, f = h5, g = h6, hh = h7;
-                for (let j = 0; j < 80; j++) {
-                    const t1 = (hh + sum1(e) + ((e & f) ^ (~e & g)) + k[j] + w[j]) >>> 0;
-                    const t2 = (sum0(a) + ((a & b) ^ (a & c) ^ (b & c))) >>> 0;
-                    hh = g;
-                    g = f;
-                    f = e;
-                    e = (d + t1) >>> 0;
-                    d = c;
-                    c = b;
-                    b = a;
-                    a = (t1 + t2) >>> 0;
-                }
-
-                h0 = (h0 + a) >>> 0;
-                h1 = (h1 + b) >>> 0;
-                h2 = (h2 + c) >>> 0;
-                h3 = (h3 + d) >>> 0;
-                h4 = (h4 + e) >>> 0;
-                h5 = (h5 + f) >>> 0;
-                h6 = (h6 + g) >>> 0;
-                h7 = (h7 + hh) >>> 0;
-            }
-
-            // 输出十六进制
-            const result = [];
-            [h0, h1, h2, h3, h4, h5, h6, h7].forEach(h => {
-                for (let i = 3; i >= 0; i--) {
-                    result.push(hexChars[(h >>> (i * 4 + 4)) & 0xf]);
-                    result.push(hexChars[(h >>> (i * 4)) & 0xf]);
-                }
-            });
-            return result.join('');
+            return sha512(password);
         };
 
         // Methods
@@ -663,11 +608,16 @@ const app = createApp({
             loginLoading.value = true;
             try {
                 console.log('[Login] Sending login request to /auth/login');
-                // 使用 base64 编码密码传输
-                const encodedPassword = btoa(unescape(encodeURIComponent(loginForm.value.password)));
+                const challengeRes = await api.get('/auth/login-challenge', {
+                    params: { username: loginForm.value.username }
+                });
+                const challengeData = challengeRes.data || {};
+                const loginSecret = deriveLoginSecret(loginForm.value.password, challengeData);
+                const passwordProof = sha512(loginSecret + ':' + challengeData.nonce);
                 const res = await api.post('/auth/login', {
                     username: loginForm.value.username,
-                    password: encodedPassword
+                    challengeId: challengeData.challengeId,
+                    passwordProof: passwordProof
                 });
                 console.log('[Login] Response received:', res);
                 if (res.code === 200) {
@@ -797,7 +747,23 @@ const app = createApp({
                 loadBuckets();
             } else if (index === 'files') {
                 if (!currentBucket.value && bucketList.value.length > 0) {
-                    currentBucket.value = bucketList.value[0].name;
+                    const compatibleBucket = bucketList.value.find(item => item.compatible !== false);
+                    if (!compatibleBucket) {
+                        ElementPlus.ElMessage.warning('当前没有可用的兼容存储桶');
+                        return;
+                    }
+                    currentBucket.value = compatibleBucket.name;
+                    lastCompatibleBucket.value = compatibleBucket.name;
+                }
+                const targetBucket = bucketList.value.find(item => item.name === currentBucket.value);
+                if (targetBucket && targetBucket.compatible === false) {
+                    showBucketCompatibilityWarning(targetBucket.name);
+                    const compatibleBucket = bucketList.value.find(item => item.compatible !== false);
+                    currentBucket.value = compatibleBucket ? compatibleBucket.name : '';
+                    lastCompatibleBucket.value = currentBucket.value || '';
+                    if (!currentBucket.value) {
+                        return;
+                    }
                 }
                 loadFiles();
             } else if (index === 'shares') {
@@ -845,8 +811,30 @@ const app = createApp({
             loadBuckets();
         };
 
-        const selectBucket = (bucketName) => {
-            currentBucket.value = bucketName;
+        const showBucketCompatibilityWarning = (bucketName) => {
+            ElementPlus.ElMessageBox.alert(
+                '当前存储桶 "' + bucketName + '" 的名称不符合 Amazon S3 规范，已被禁用，无法进入文件管理。\n\n' +
+                '桶名规范：\n' +
+                '1. 长度为 3 到 63 个字符\n' +
+                '2. 只能使用小写字母、数字、点(.)、连字符(-)\n' +
+                '3. 必须以字母或数字开头和结尾\n' +
+                '4. 不能包含连续的点(..)\n' +
+                '5. 不能使用 IP 地址格式',
+                '桶名不规范',
+                { confirmButtonText: '我知道了', type: 'warning' }
+            );
+        };
+
+        const selectBucket = (bucket) => {
+            const targetBucket = typeof bucket === 'string'
+                ? bucketList.value.find(item => item.name === bucket) || { name: bucket, compatible: true }
+                : bucket;
+            if (targetBucket && targetBucket.compatible === false) {
+                showBucketCompatibilityWarning(targetBucket.name);
+                return;
+            }
+            currentBucket.value = targetBucket.name;
+            lastCompatibleBucket.value = targetBucket.name;
             currentFolder.value = '';
             currentMenu.value = 'files';
             updateBreadcrumb();
@@ -854,6 +842,13 @@ const app = createApp({
         };
 
         const onBucketSelect = () => {
+            const targetBucket = bucketList.value.find(item => item.name === currentBucket.value);
+            if (targetBucket && targetBucket.compatible === false) {
+                showBucketCompatibilityWarning(targetBucket.name);
+                currentBucket.value = lastCompatibleBucket.value || '';
+                return;
+            }
+            lastCompatibleBucket.value = currentBucket.value || '';
             // 清空历史重新开始
             folderHistory.value = [];
             historyIndex.value = -1;
@@ -1187,11 +1182,99 @@ const app = createApp({
             }
         };
 
-        const previewFile = (file) => {
-            const params = new URLSearchParams();
-            params.append('objectName', file.objectName);
-            params.append('bucket', currentBucket.value);
-            window.open('/api/file/preview?' + params.toString());
+        const imagePreviewExtensions = ['png', 'jpg', 'jpeg', 'gif', 'webp', 'bmp', 'svg'];
+        const textPreviewExtensions = ['txt', 'md', 'log', 'json', 'xml', 'yml', 'yaml', 'properties', 'csv', 'java', 'js', 'ts', 'css', 'html', 'htm', 'sql', 'sh'];
+        const audioPreviewExtensions = ['mp3', 'wav', 'ogg', 'm4a', 'aac', 'flac'];
+        const videoPreviewExtensions = ['mp4', 'webm', 'ogg', 'mov', 'm4v'];
+
+        const getFileExtension = (fileName) => {
+            if (!fileName || fileName.indexOf('.') === -1) {
+                return '';
+            }
+            return fileName.split('.').pop().toLowerCase();
+        };
+
+        const resolvePreviewKind = (file) => {
+            const extension = getFileExtension(file.fileName);
+            const contentType = (file.contentType || '').toLowerCase();
+
+            if (contentType.startsWith('image/') || imagePreviewExtensions.includes(extension)) {
+                return 'image';
+            }
+            if (contentType === 'application/pdf' || extension === 'pdf') {
+                return 'pdf';
+            }
+            if (contentType.startsWith('text/') || textPreviewExtensions.includes(extension)) {
+                return 'text';
+            }
+            if (contentType.startsWith('audio/') || audioPreviewExtensions.includes(extension)) {
+                return 'audio';
+            }
+            if (contentType.startsWith('video/') || videoPreviewExtensions.includes(extension)) {
+                return 'video';
+            }
+            return 'unsupported';
+        };
+
+        const resetPreviewContent = () => {
+            previewTitle.value = '';
+            previewKind.value = '';
+            previewText.value = '';
+            if (previewObjectUrl) {
+                window.URL.revokeObjectURL(previewObjectUrl);
+                previewObjectUrl = '';
+            }
+            previewUrl.value = '';
+        };
+
+        const closePreviewDialog = () => {
+            previewLoading.value = false;
+            resetPreviewContent();
+        };
+
+        const previewFile = async (file) => {
+            const kind = resolvePreviewKind(file);
+            previewTitle.value = file.fileName || '文件预览';
+
+            if (kind === 'unsupported') {
+                previewKind.value = 'unsupported';
+                previewText.value = '';
+                previewUrl.value = '';
+                showPreviewDialog.value = true;
+                ElementPlus.ElMessage.warning('当前文件类型不支持在线预览');
+                return;
+            }
+
+            resetPreviewContent();
+            previewTitle.value = file.fileName || '文件预览';
+            previewKind.value = kind;
+            previewLoading.value = true;
+            showPreviewDialog.value = true;
+
+            try {
+                const response = await api.get('/file/preview', {
+                    params: { objectName: file.objectName, bucket: currentBucket.value },
+                    responseType: 'blob'
+                });
+                const contentType = response.headers?.['content-type'] || file.contentType || 'application/octet-stream';
+                const blob = response.data instanceof Blob
+                    ? response.data
+                    : new Blob([response.data], { type: contentType });
+                if (kind === 'text') {
+                    if (blob.size > textPreviewMaxSize) {
+                        throw new Error('文本文件过大，请下载后查看');
+                    }
+                    previewText.value = await blob.text();
+                    return;
+                }
+                previewObjectUrl = window.URL.createObjectURL(blob);
+                previewUrl.value = previewObjectUrl;
+            } catch (error) {
+                showPreviewDialog.value = false;
+                ElementPlus.ElMessage.error('预览失败: ' + (error.response?.data?.message || error.message || '未知错误'));
+            } finally {
+                previewLoading.value = false;
+            }
         };
 
         const deleteFile = async (file) => {
@@ -1662,6 +1745,33 @@ const app = createApp({
             }
         };
 
+        const unlockUser = async (user) => {
+            try {
+                await ElementPlus.ElMessageBox.confirm(
+                    '确定要手动解封用户 "' + user.username + '" 吗？',
+                    '解封用户',
+                    {
+                        confirmButtonText: '确定解封',
+                        cancelButtonText: '取消',
+                        type: 'warning'
+                    }
+                );
+                const res = await api.post('/admin/users/' + user.id + '/unlock');
+                if (res.code === 200) {
+                    ElementPlus.ElMessage.success('解封成功');
+                    await loadUsers();
+                    if (userForm.value.id === user.id) {
+                        userForm.value.locked = false;
+                        userForm.value.unlockTime = null;
+                    }
+                }
+            } catch (error) {
+                if (error !== 'cancel') {
+                    ElementPlus.ElMessage.error(error.response?.data?.message || error.message || '解封失败');
+                }
+            }
+        };
+
         // Role management
         const loadRoles = async () => {
             roleLoading.value = true;
@@ -2116,11 +2226,19 @@ const app = createApp({
             showMinioKeyDialog,
             showHelpDialog,
             showVersionDialog,
+            showPreviewDialog,
             helpContent,
             versionList,
             selectedVersion,
             versionContent,
             loadVersionNote,
+            previewLoading,
+            previewTitle,
+            previewKind,
+            previewUrl,
+            previewText,
+            previewSupportHint,
+            closePreviewDialog,
             minioKeyForm,
             minioKeyList,
             minioKeyLoading,
@@ -2220,6 +2338,7 @@ const app = createApp({
             editUser,
             saveUser,
             deleteUser,
+            unlockUser,
             openCreateRoleDialog,
             editRole,
             saveRole,

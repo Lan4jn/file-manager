@@ -74,4 +74,14 @@ public class AdminUserController {
         userService.updatePasswordByAdmin(id, newPassword);
         return Result.success();
     }
+
+    @PostMapping("/users/{id}/unlock")
+    public Result<Void> unlockUser(@PathVariable Long id) {
+        permissionAssertService.assertApiPermission(PermissionCodes.API_USER_MANAGE);
+        if (!permissionAssertService.isSuperAdmin()) {
+            throw new IllegalStateException("仅原生超级管理员可手动解封");
+        }
+        userService.unlockUser(id);
+        return Result.success();
+    }
 }

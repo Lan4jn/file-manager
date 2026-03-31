@@ -75,6 +75,7 @@ public class SecurityConfig {
                         .requestMatchers("/favicon.svg").permitAll()
                         .requestMatchers("/css/**").permitAll()
                         .requestMatchers("/js/**").permitAll()
+                        .requestMatchers("/vendor/**").permitAll()
                         .requestMatchers("/img/**").permitAll()
                         .requestMatchers("/share/**").permitAll()
                         .requestMatchers("/full").permitAll()
@@ -98,4 +99,3 @@ public class SecurityConfig {
         return http.build();
     }
 }
-

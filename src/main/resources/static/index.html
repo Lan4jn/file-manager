@@ -58,13 +58,25 @@
                     </div>
                     <el-form :model="loginForm" @submit.prevent="handleLogin">
                         <el-form-item>
-                            <el-input v-model="loginForm.username" placeholder="用户名" prefix-icon="User"></el-input>
+                            <el-input
+                                v-model="loginForm.username"
+                                placeholder="用户名"
+                                prefix-icon="User"
+                                @keydown.enter.prevent="handleLogin"
+                            ></el-input>
                         </el-form-item>
                         <el-form-item>
-                            <el-input v-model="loginForm.password" type="password" placeholder="密码" prefix-icon="Lock"></el-input>
+                            <el-input
+                                v-model="loginForm.password"
+                                type="password"
+                                placeholder="密码"
+                                prefix-icon="Lock"
+                                show-password
+                                @keydown.enter.prevent="handleLogin"
+                            ></el-input>
                         </el-form-item>
                         <el-form-item>
-                            <el-button type="primary" class="login-submit" @click="handleLogin" :loading="loginLoading">进入工作台</el-button>
+                            <el-button type="primary" native-type="submit" class="login-submit" :loading="loginLoading">进入工作台</el-button>
                         </el-form-item>
                     </el-form>
                 </el-card>
@@ -203,7 +215,8 @@
                         <el-table :data="bucketList" v-loading="bucketLoading" @sort-change="handleBucketSortChange">
                             <el-table-column prop="name" label="存储桶名称" sortable>
                                 <template #default="{ row }">
-                                    <span class="bucket-name" @click="selectBucket(row.name)">{{ row.name }}</span>
+                                    <span class="bucket-name" @click="selectBucket(row)">{{ row.name }}</span>
+                                    <el-tag v-if="row.compatible === false" size="small" type="warning" effect="plain" style="margin-left: 8px;">不兼容</el-tag>
                                 </template>
                             </el-table-column>
                             <el-table-column prop="creationDate" label="创建时间" width="180" sortable="custom"></el-table-column>
@@ -215,7 +228,7 @@
                             </el-table-column>
                             <el-table-column label="操作" width="150">
                                 <template #default="{ row }">
-                                    <el-button size="small" type="primary" @click="selectBucket(row.name)">管理文件</el-button>
+                                    <el-button size="small" type="primary" @click="selectBucket(row)">管理文件</el-button>
                                     <el-button v-if="hasApiPermission('API_BUCKET_MANAGE')" size="small" type="danger" @click="deleteBucket(row)">删除</el-button>
                                 </template>
                             </el-table-column>
@@ -228,7 +241,13 @@
                             <article class="overview-card">
                                 <span>当前存储桶</span>
                                 <el-select v-model="currentBucket" @change="onBucketSelect" class="bucket-select-full" popper-class="bucket-select-popper">
-                                    <el-option v-for="b in bucketList" :key="b.name" :label="b.name" :value="b.name"></el-option>
+                                    <el-option
+                                        v-for="b in bucketList"
+                                        :key="b.name"
+                                        :label="b.compatible === false ? (b.name + '（不兼容）') : b.name"
+                                        :value="b.name"
+                                        :disabled="b.compatible === false"
+                                    ></el-option>
                                 </el-select>
                             </article>
                             <article class="overview-card">
@@ -478,7 +497,19 @@
                                     </el-tag>
                                 </template>
                             </el-table-column>
-                            <el-table-column label="操作" width="180">
+                            <el-table-column prop="locked" label="登录封禁" width="110">
+                                <template #default="{ row }">
+                                    <el-tag :type="row.locked ? 'danger' : 'success'">
+                                        {{ row.locked ? '已封禁' : '正常' }}
+                                    </el-tag>
+                                </template>
+                            </el-table-column>
+                            <el-table-column prop="unlockTime" label="解封时间" width="180">
+                                <template #default="{ row }">
+                                    <span>{{ row.unlockTime ? formatDateTime(row.unlockTime) : '-' }}</span>
+                                </template>
+                            </el-table-column>
+                            <el-table-column label="操作" width="240">
                                 <template #default="{ row }">
                                     <el-tooltip content="编辑用户信息或角色" placement="top" effect="light">
                                         <el-button v-if="hasApiPermission('API_USER_MANAGE')" size="small" @click="editUser(row)">
@@ -489,6 +520,9 @@
                                         <el-button v-if="hasApiPermission('API_USER_MANAGE')" size="small" type="danger" @click="deleteUser(row)">
                                             <el-icon><Delete /></el-icon>
                                         </el-button>
+                                    </el-tooltip>
+                                    <el-tooltip v-if="isSuperAdmin && row.locked" content="手动解封该用户的登录限制" placement="top" effect="light">
+                                        <el-button size="small" type="warning" @click="unlockUser(row)">解封</el-button>
                                     </el-tooltip>
                                 </template>
                             </el-table-column>
@@ -784,9 +818,56 @@
             </div>
         </el-dialog>
 
+        <el-dialog
+            v-model="showPreviewDialog"
+            :title="previewTitle || '文件预览'"
+            width="960px"
+            class="preview-dialog"
+            destroy-on-close
+            @closed="closePreviewDialog"
+        >
+            <div v-loading="previewLoading" style="min-height: 420px;">
+                <div v-if="previewKind === 'unsupported'" style="min-height: 420px; display: flex; align-items: center; justify-content: center; color: #909399; text-align: center; padding: 24px;">
+                    <div>
+                        <div style="font-size: 16px; font-weight: 600; color: #303133; margin-bottom: 8px;">当前文件类型不支持在线预览</div>
+                        <div>{{ previewSupportHint }}</div>
+                    </div>
+                </div>
+                <div v-else-if="previewKind === 'text'" style="min-height: 420px;">
+                    <pre style="margin: 0; min-height: 420px; max-height: 70vh; overflow: auto; padding: 16px; border-radius: 14px; background: #0f172a; color: #e2e8f0; font-size: 13px; line-height: 1.6; white-space: pre-wrap; word-break: break-word;">{{ previewText }}</pre>
+                </div>
+                <div v-else-if="previewKind === 'image'" style="min-height: 420px; display: flex; align-items: center; justify-content: center; background: #f5f7fa; border-radius: 14px; overflow: hidden;">
+                    <img v-if="previewUrl" :src="previewUrl" :alt="previewTitle" style="max-width: 100%; max-height: 70vh; object-fit: contain;" />
+                </div>
+                <div v-else-if="previewKind === 'pdf'" style="min-height: 420px;">
+                    <iframe v-if="previewUrl" :src="previewUrl" style="width: 100%; height: 70vh; border: 0; border-radius: 14px; background: #fff;"></iframe>
+                </div>
+                <div v-else-if="previewKind === 'audio'" style="min-height: 420px; display: flex; align-items: center; justify-content: center; background: #f5f7fa; border-radius: 14px;">
+                    <audio v-if="previewUrl" :src="previewUrl" controls style="width: 100%; max-width: 720px;"></audio>
+                </div>
+                <div v-else-if="previewKind === 'video'" style="min-height: 420px; display: flex; align-items: center; justify-content: center; background: #000; border-radius: 14px; overflow: hidden;">
+                    <video v-if="previewUrl" :src="previewUrl" controls style="width: 100%; max-height: 70vh;"></video>
+                </div>
+            </div>
+            <template #footer>
+                <div style="display: flex; justify-content: space-between; align-items: center; gap: 16px; flex-wrap: wrap;">
+                    <span style="color: #909399; font-size: 13px;">{{ previewSupportHint }}</span>
+                    <el-button @click="showPreviewDialog = false">关闭</el-button>
+                </div>
+            </template>
+        </el-dialog>
+
         <!-- User Dialog -->
         <el-dialog v-model="showUserDialog" :title="userForm.id ? '编辑用户' : '添加用户'" width="500px">
             <el-form :model="userForm" label-width="80px">
+                <el-alert
+                    v-if="userForm.id && userForm.locked"
+                    type="warning"
+                    :closable="false"
+                    style="margin-bottom: 16px;"
+                >
+                    当前用户已被登录限制封禁，将在 {{ userForm.unlockTime ? formatDateTime(userForm.unlockTime) : '未知时间' }} 自动解封。
+                </el-alert>
                 <el-form-item label="用户名">
                     <el-input v-model="userForm.username" :disabled="!!userForm.id"></el-input>
                 </el-form-item>
@@ -817,6 +898,7 @@
                 </el-form-item>
             </el-form>
             <template #footer>
+                <el-button v-if="isSuperAdmin && userForm.id && userForm.locked" type="warning" plain @click="unlockUser(userForm)">手动解封</el-button>
                 <el-button @click="showUserDialog = false">取消</el-button>
                 <el-button type="primary" @click="saveUser">保存</el-button>
             </template>
@@ -1073,6 +1155,8 @@
         console.log('ElementPlusIconsVue loaded:', typeof ElementPlusIconsVue);
     </script>
     <script src="/js/axios.min.js"></script>
+    <script src="/vendor/sha512.min.js"></script>
+    <script src="/vendor/bcryptjs.min.js"></script>
     <script>
         console.log('Axios loaded:', typeof axios);
     </script>
