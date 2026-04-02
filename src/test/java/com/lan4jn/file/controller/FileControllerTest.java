@@ -110,6 +110,20 @@ class FileControllerTest {
     }
 
     @Test
+    void shouldReturnUploadConfigForFileOperators() throws Exception {
+        when(configService.getAllowedExtensions()).thenReturn(Set.of("txt", "pdf"));
+        when(configService.getMaxFileSize()).thenReturn(2048L);
+
+        mockMvc.perform(get("/api/file/upload-config"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.code").value(200))
+                .andExpect(jsonPath("$.data.maxFileSize").value(2048))
+                .andExpect(jsonPath("$.data.allowedExtensions.length()").value(2));
+
+        verify(permissionAssertService).assertApiPermission("API_FILE_OPERATE");
+    }
+
+    @Test
     void shouldReturnBadRequestWhenObjectNameIsBlank() throws Exception {
         mockMvc.perform(get("/api/file/info").param("objectName", " "))
                 .andExpect(status().isOk())

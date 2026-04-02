@@ -164,11 +164,11 @@
                         <el-tooltip v-if="canAccessMenu('shares')" content="创建文件分享链接，支持设置密码和有效期" placement="right" effect="light" :show-after="700">
                             <el-menu-item index="shares">
                                 <el-icon><Share /></el-icon>
-                                <span style="display: inline-flex; align-items: center; gap: 8px;">
+                                <span style="display: inline-flex; width: 100%; align-items: center; justify-content: space-between; gap: 12px;">
                                     <span>我的分享</span>
                                     <el-badge
                                         v-if="inboxUnreadSourceCount > 0"
-                                        :value="inboxUnreadSourceCount + '人'"
+                                        :value="'有' + inboxUnreadSourceCount + '人分享给你'"
                                         type="danger"
                                     />
                                 </span>
@@ -993,7 +993,7 @@
                 <div v-if="previewKind === 'unsupported'" style="min-height: 420px; display: flex; align-items: center; justify-content: center; color: #909399; text-align: center; padding: 24px;">
                     <div>
                         <div style="font-size: 16px; font-weight: 600; color: #303133; margin-bottom: 8px;">当前文件类型不支持在线预览</div>
-                        <div>{{ previewSupportHint }}</div>
+                        <div>请下载后查看，支持范围可在右下角查看。</div>
                     </div>
                 </div>
                 <div v-else-if="previewKind === 'text'" style="min-height: 420px;">
@@ -1013,8 +1013,20 @@
                 </div>
             </div>
             <template #footer>
-                <div style="display: flex; justify-content: space-between; align-items: center; gap: 16px; flex-wrap: wrap;">
-                    <span style="color: #909399; font-size: 13px;">{{ previewSupportHint }}</span>
+                <div style="display: flex; justify-content: flex-end; align-items: center; gap: 16px; flex-wrap: wrap;">
+                    <div style="display: inline-flex; align-items: center; gap: 6px; color: #909399; font-size: 13px;">
+                        <span>可预览文件</span>
+                        <el-tooltip placement="top-end" effect="light">
+                            <template #content>
+                                <div style="max-width: 420px; font-size: 13px; line-height: 1.7;">
+                                    <div v-for="group in previewHintGroups" :key="group.label">
+                                        <strong>{{ group.label }}</strong>：{{ group.extensions.join('、') }}
+                                    </div>
+                                </div>
+                            </template>
+                            <el-icon><question-filled /></el-icon>
+                        </el-tooltip>
+                    </div>
                     <el-button @click="showPreviewDialog = false">关闭</el-button>
                 </div>
             </template>

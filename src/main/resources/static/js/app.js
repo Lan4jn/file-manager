@@ -1027,9 +1027,26 @@ const app = createApp({
             loadFiles();
         };
 
+        const loadUploadConfig = async () => {
+            try {
+                const res = await api.get('/file/upload-config');
+                if (res.code === 200) {
+                    const extensions = res.data.allowedExtensions || [];
+                    fileConfig.value.allowedExtensionsText = extensions.join(',');
+                    if (res.data.maxFileSize === -1) {
+                        fileConfig.value.maxFileSizeMB = -1;
+                    } else {
+                        fileConfig.value.maxFileSizeMB = Math.floor((res.data.maxFileSize || 104857600) / 1024 / 1024);
+                    }
+                }
+            } catch (error) {
+                ElementPlus.ElMessage.error('加载上传配置失败');
+            }
+        };
+
         // 打开上传对话框时加载配置
         const openUploadDialog = () => {
-            loadFileConfig();
+            loadUploadConfig();
             showUploadDialog.value = true;
         };
 
@@ -2514,6 +2531,7 @@ const app = createApp({
             previewKind,
             previewUrl,
             previewText,
+            previewHintGroups,
             previewSupportHint,
             closePreviewDialog,
             minioKeyForm,

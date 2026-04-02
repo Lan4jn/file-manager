@@ -36,6 +36,7 @@ import java.io.UnsupportedEncodingException;
 import java.net.URLEncoder;
 import java.util.Arrays;
 import java.util.Collections;
+import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
@@ -104,6 +105,15 @@ public class FileController {
     public Result<String> getDefaultBucket() {
         permissionAssertService.assertApiPermission(PermissionCodes.API_FILE_BROWSE);
         return Result.success(fileService.getDefaultBucket());
+    }
+
+    @GetMapping("/upload-config")
+    public Result<Map<String, Object>> getUploadConfig() {
+        permissionAssertService.assertApiPermission(PermissionCodes.API_FILE_OPERATE);
+        Map<String, Object> config = new HashMap<>();
+        config.put("allowedExtensions", configService.getAllowedExtensions());
+        config.put("maxFileSize", configService.getMaxFileSize());
+        return Result.success(config);
     }
 
     @PostMapping("/upload")
