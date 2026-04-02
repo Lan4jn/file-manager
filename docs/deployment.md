@@ -5,7 +5,7 @@
 - Jar 部署
 - Docker 部署
 
-本文基于当前版本 `1.6-dev`，运行环境为 `Java 17`。
+本文基于当前版本 `1.6`，运行环境为 `Java 17`。
 
 ## 一、部署前准备
 
@@ -27,7 +27,7 @@
 - `data/`：SQLite 数据库文件
 - `logs/`：应用日志
 
-v1.6-dev 额外关注点：
+v1.6 额外关注点：
 
 - 站内信与审计日志数据同样落在 SQLite 中，无需额外挂载新目录
 - 链接分享默认会生成 4 位提取码，分享页访问链接可带 `password` 查询参数
@@ -38,7 +38,7 @@ v1.6-dev 额外关注点：
 ```text
 /opt/file-manager/
 ├── app/
-│   └── file-manager-1.6-dev.jar
+│   └── file-manager-1.6.jar
 ├── config/
 │   ├── application.yml
 │   ├── application-prod.yml
@@ -162,14 +162,14 @@ mvn clean package
 产物位于：
 
 ```text
-target/file-manager-1.6-dev.jar
+target/file-manager-1.6.jar
 ```
 
 ### 2. 复制部署文件
 
 将以下内容复制到目标服务器：
 
-- `target/file-manager-1.6-dev.jar`
+- `target/file-manager-1.6.jar`
 - `config/`
 
 如果目标机器还没有对应目录，请提前创建：
@@ -185,14 +185,14 @@ mkdir -p /opt/file-manager/logs
 
 ```bash
 cd /opt/file-manager/app
-ENV_FILE=prod java -jar file-manager-1.6-dev.jar
+ENV_FILE=prod java -jar file-manager-1.6.jar
 ```
 
 后台运行示例：
 
 ```bash
 cd /opt/file-manager/app
-nohup env ENV_FILE=prod java -jar file-manager-1.6-dev.jar > ../logs/stdout.log 2>&1 &
+nohup env ENV_FILE=prod java -jar file-manager-1.6.jar > ../logs/stdout.log 2>&1 &
 ```
 
 首次启动后建议立即验证：
@@ -214,7 +214,7 @@ After=network.target
 Type=simple
 WorkingDirectory=/opt/file-manager/app
 Environment=ENV_FILE=prod
-ExecStart=/usr/bin/java -jar /opt/file-manager/app/file-manager-1.6-dev.jar
+ExecStart=/usr/bin/java -jar /opt/file-manager/app/file-manager-1.6.jar
 Restart=always
 RestartSec=5
 User=www-data
@@ -246,7 +246,7 @@ FROM eclipse-temurin:17-jre
 
 WORKDIR /app
 
-COPY target/file-manager-1.6-dev.jar /app/file-manager.jar
+COPY target/file-manager-1.6.jar /app/file-manager.jar
 
 EXPOSE 8080 19080
 
@@ -259,7 +259,7 @@ ENTRYPOINT ["java", "-jar", "/app/file-manager.jar"]
 
 ```bash
 mvn clean package
-docker build -t file-manager:1.6-dev .
+docker build -t file-manager:1.6 .
 ```
 
 ### 3. 运行容器
@@ -272,7 +272,7 @@ docker run -d \
   -v /opt/file-manager/data:/app/data \
   -v /opt/file-manager/logs:/app/logs \
   -e ENV_FILE=prod \
-  file-manager:1.6-dev
+  file-manager:1.6
 ```
 
 说明：
@@ -289,7 +289,7 @@ docker run -d \
 ```yaml
 services:
   file-manager:
-    image: file-manager:1.6-dev
+    image: file-manager:1.6
     container_name: file-manager
     restart: always
     ports:
