@@ -116,6 +116,10 @@ final class ShareLinkService {
         return resolveShare(shareCode, password, true);
     }
 
+    ShareLink peekShareInfo(String shareCode, String password) {
+        return resolveShare(shareCode, password, false);
+    }
+
     boolean validateShareCode(String shareCode) {
         Optional<ShareLink> shareLink = shareLinkRepository.findByShareCode(shareCode);
         return shareLink.isPresent() && !LocalDateTime.now().isAfter(shareLink.get().getExpireTime());
@@ -156,6 +160,12 @@ final class ShareLinkService {
             shareLinkRepository.save(shareLink);
         }
         return shareLink;
+    }
+
+    void incrementViewCount(String shareCode) {
+        ShareLink shareLink = findValidShare(shareCode);
+        shareLink.setViewCount((shareLink.getViewCount() == null ? 0L : shareLink.getViewCount()) + 1);
+        shareLinkRepository.save(shareLink);
     }
 
     private ShareLink findValidShare(String shareCode) {

@@ -40,6 +40,10 @@ public class FileService {
         return bucketService.listBuckets(sortBy, order);
     }
 
+    public List<BucketInfo> listBuckets(List<String> bucketNames, String sortBy, String order) {
+        return bucketService.listBuckets(bucketNames, sortBy, order);
+    }
+
     public BucketInfo createBucket(String bucketName) {
         return bucketService.createBucket(bucketName);
     }
@@ -66,6 +70,10 @@ public class FileService {
 
     public void deleteFile(String objectName, String bucket) {
         fileCommandService.deleteFile(objectName, bucket, defaultBucket);
+    }
+
+    public void deleteFiles(List<String> objectNames, String bucket) {
+        fileCommandService.deleteFiles(objectNames, bucket, defaultBucket);
     }
 
     public void createFolder(String folderPath, String bucket, boolean createTestFile) {
@@ -110,6 +118,18 @@ public class FileService {
 
     public void downloadBatchAsZip(List<String> objectNames, String bucket, OutputStream outputStream) {
         archiveService.downloadBatchAsZip(objectNames, bucket, defaultBucket, outputStream);
+    }
+
+    public List<FileInfo> resolveFolderArchiveEntries(String folder, String bucket) {
+        return archiveService.resolveFolderEntries(support.normalizeFolder(folder), support.resolveBucket(bucket, defaultBucket));
+    }
+
+    public List<FileInfo> resolveBatchArchiveEntries(List<String> objectNames, String bucket) {
+        return archiveService.resolveBatchEntries(objectNames, support.resolveBucket(bucket, defaultBucket));
+    }
+
+    public void downloadResolvedFilesAsZip(List<FileInfo> files, String bucket, OutputStream outputStream) throws Exception {
+        archiveService.streamFilesAsZip(files, support.resolveBucket(bucket, defaultBucket), defaultBucket, outputStream);
     }
 
     private String getFileName(String objectName) {

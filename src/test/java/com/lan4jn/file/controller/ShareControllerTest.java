@@ -3,6 +3,7 @@ package com.lan4jn.file.controller;
 import com.lan4jn.file.common.GlobalExceptionHandler;
 import com.lan4jn.file.model.FileInfo;
 import com.lan4jn.file.model.ShareAccessInfo;
+import com.lan4jn.file.model.ShareLink;
 import com.lan4jn.file.service.FileService;
 import com.lan4jn.file.service.PermissionAssertService;
 import com.lan4jn.file.service.ShareService;
@@ -14,7 +15,9 @@ import org.springframework.test.web.servlet.setup.MockMvcBuilders;
 import java.time.LocalDateTime;
 import java.util.List;
 
+import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
@@ -71,5 +74,22 @@ class ShareControllerTest {
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.code").value(400))
                 .andExpect(jsonPath("$.message").value("shareCode不能为空"));
+    }
+
+    @Test
+    void shouldNotIncrementViewCountWhenPrepareShareArchiveFails() throws Exception {
+        ShareLink shareLink = new ShareLink();
+        shareLink.setShareCode("SHARE001");
+        shareLink.setIsFolder(true);
+
+        when(shareService.peekShareInfo("SHARE001", null)).thenReturn(shareLink);
+        when(shareService.prepareShareArchive("SHARE001", null)).thenThrow(new RuntimeException("分享下载失败"));
+
+        mockMvc.perform(get("/api/share/download-all").param("shareCode", "SHARE001"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.code").value(500))
+                .andExpect(jsonPath("$.message").value("分享下载失败"));
+
+        verify(shareService, never()).incrementViewCount("SHARE001");
     }
 }

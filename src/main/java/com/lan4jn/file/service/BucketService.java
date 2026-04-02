@@ -34,52 +34,31 @@ final class BucketService {
             List<BucketInfo> result = new ArrayList<>();
 
             for (Bucket bucket : buckets) {
-                BucketInfo info = new BucketInfo();
-                info.setName(bucket.name());
-                info.setCompatible(isS3CompatibleBucketName(bucket.name()));
+                BucketInfo info = describeBucket(bucket.name());
                 info.setCreationDate(LocalDateTime.ofInstant(
                         bucket.creationDate().toInstant(), ZoneId.systemDefault()));
-
-                try {
-                    Iterable<Result<Item>> objects = minioClient.listObjects(
-                            ListObjectsArgs.builder().bucket(bucket.name()).recursive(true).build());
-                    long objectCount = 0;
-                    long totalSize = 0;
-                    for (Result<Item> obj : objects) {
-                        Item item = obj.get();
-                        if (!item.isDir()) {
-                            objectCount++;
-                            totalSize += item.size();
-                        }
-                    }
-                    info.setObjectCount(objectCount);
-                    info.setTotalSize(totalSize);
-                } catch (Exception e) {
-                    info.setObjectCount(0L);
-                    info.setTotalSize(0L);
-                }
-
                 result.add(info);
             }
 
-            result.sort((b1, b2) -> {
-                int resultVal;
-                switch (sortBy) {
-                    case "size":
-                        resultVal = Long.compare(valueOf(b1.getTotalSize()), valueOf(b2.getTotalSize()));
-                        break;
-                    case "time":
-                        resultVal = valueOf(b1.getCreationDate()).compareTo(valueOf(b2.getCreationDate()));
-                        break;
-                    default:
-                        resultVal = valueOf(b1.getName()).compareTo(valueOf(b2.getName()));
-                }
-                return "desc".equalsIgnoreCase(order) ? -resultVal : resultVal;
-            });
-
-            return result;
+            return sortBuckets(result, sortBy, order);
         } catch (Exception e) {
             log.error("Failed to list buckets", e);
+            throw new RuntimeException("获取Bucket列表失败: " + e.getMessage(), e);
+        }
+    }
+
+    List<BucketInfo> listBuckets(List<String> bucketNames, String sortBy, String order) {
+        try {
+            List<BucketInfo> result = new ArrayList<>();
+            for (String bucketName : new java.util.LinkedHashSet<>(bucketNames)) {
+                if (bucketName == null || bucketName.isBlank()) {
+                    continue;
+                }
+                result.add(describeBucket(bucketName));
+            }
+            return sortBuckets(result, sortBy, order);
+        } catch (Exception e) {
+            log.error("Failed to list authorized buckets", e);
             throw new RuntimeException("获取Bucket列表失败: " + e.getMessage(), e);
         }
     }
@@ -149,5 +128,50 @@ final class BucketService {
             return false;
         }
         return !bucketName.matches("^\\d+\\.\\d+\\.\\d+\\.\\d+$");
+    }
+
+    private BucketInfo describeBucket(String bucketName) {
+        BucketInfo info = new BucketInfo();
+        info.setName(bucketName);
+        info.setCompatible(isS3CompatibleBucketName(bucketName));
+        info.setObjectCount(0L);
+        info.setTotalSize(0L);
+
+        try {
+            Iterable<Result<Item>> objects = minioClient.listObjects(
+                    ListObjectsArgs.builder().bucket(bucketName).recursive(true).build());
+            long objectCount = 0;
+            long totalSize = 0;
+            for (Result<Item> obj : objects) {
+                Item item = obj.get();
+                if (!item.isDir()) {
+                    objectCount++;
+                    totalSize += item.size();
+                }
+            }
+            info.setObjectCount(objectCount);
+            info.setTotalSize(totalSize);
+        } catch (Exception e) {
+            log.warn("Failed to load stats for bucket: {}", bucketName, e);
+        }
+        return info;
+    }
+
+    private List<BucketInfo> sortBuckets(List<BucketInfo> buckets, String sortBy, String order) {
+        buckets.sort((b1, b2) -> {
+            int resultVal;
+            switch (sortBy) {
+                case "size":
+                    resultVal = Long.compare(valueOf(b1.getTotalSize()), valueOf(b2.getTotalSize()));
+                    break;
+                case "time":
+                    resultVal = valueOf(b1.getCreationDate()).compareTo(valueOf(b2.getCreationDate()));
+                    break;
+                default:
+                    resultVal = valueOf(b1.getName()).compareTo(valueOf(b2.getName()));
+            }
+            return "desc".equalsIgnoreCase(order) ? -resultVal : resultVal;
+        });
+        return buckets;
     }
 }

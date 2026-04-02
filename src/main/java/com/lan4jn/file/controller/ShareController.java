@@ -7,6 +7,7 @@ import com.lan4jn.file.model.ShareAccessInfo;
 import com.lan4jn.file.model.ShareLink;
 import com.lan4jn.file.service.FileService;
 import com.lan4jn.file.service.PermissionAssertService;
+import com.lan4jn.file.service.ShareArchivePlan;
 import com.lan4jn.file.service.ShareService;
 import com.lan4jn.file.utils.RequestValidationUtils;
 import com.lan4jn.file.rbac.BucketAction;
@@ -138,10 +139,12 @@ public class ShareController {
             throw new RuntimeException("目录请使用批量下载接口");
         }
 
+        ShareLink link = shareService.peekShareInfo(shareCode, password);
         InputStream stream = fileService.getFileStream(
                 fileInfo.getObjectName(),
-                shareService.getShareInfo(shareCode, password).getBucket()
+                link.getBucket()
         );
+        shareService.incrementViewCount(shareCode);
         String filename = URLEncoder.encode(fileInfo.getFileName(), "UTF-8");
 
         return ResponseEntity.ok()
@@ -158,18 +161,20 @@ public class ShareController {
         shareCode = RequestValidationUtils.requireText(shareCode, "shareCode");
         password = RequestValidationUtils.nullableText(password, "password");
 
-        ShareLink shareLink = shareService.getShareInfo(shareCode, password);
+        ShareLink shareLink = shareService.peekShareInfo(shareCode, password);
         if (!Boolean.TRUE.equals(shareLink.getIsFolder())) {
             throw new RuntimeException("仅目录分享支持批量下载");
         }
+        ShareArchivePlan plan = shareService.prepareShareArchive(shareCode, password);
+        shareService.incrementViewCount(shareCode);
 
+        final ShareArchivePlan validatedPlan = plan;
         final String validatedShareCode = shareCode;
-        final String validatedPassword = password;
         PipedInputStream stream = new PipedInputStream();
         PipedOutputStream outputStream = new PipedOutputStream(stream);
         new Thread(() -> {
             try {
-                shareService.downloadShareAsZip(validatedShareCode, validatedPassword, outputStream);
+                shareService.downloadPreparedShareAsZip(validatedPlan, outputStream);
             } catch (Exception e) {
                 log.error("Failed to stream share archive: {}", validatedShareCode, e);
             } finally {
@@ -195,13 +200,14 @@ public class ShareController {
         password = RequestValidationUtils.nullableText(password, "password");
 
         log.info("Processing download request for share: {}", shareCode);
-        ShareLink link = shareService.getShareInfo(shareCode, password);
+        ShareLink link = shareService.peekShareInfo(shareCode, password);
         if (Boolean.TRUE.equals(link.getIsFolder())) {
             throw new RuntimeException("目录分享请使用 download-all 接口");
         }
 
         FileInfo fileInfo = fileService.getFileInfo(link.getObjectName(), link.getBucket());
         InputStream stream = fileService.getFileStream(link.getObjectName(), link.getBucket());
+        shareService.incrementViewCount(shareCode);
         String filename = URLEncoder.encode(fileInfo.getFileName(), "UTF-8");
 
         return ResponseEntity.ok()

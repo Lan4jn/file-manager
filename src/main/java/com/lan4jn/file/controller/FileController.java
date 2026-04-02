@@ -8,6 +8,7 @@ import com.lan4jn.file.model.FileInfo;
 import com.lan4jn.file.service.ConfigService;
 import com.lan4jn.file.service.FileService;
 import com.lan4jn.file.service.PermissionAssertService;
+import com.lan4jn.file.service.PermissionSnapshot;
 import com.lan4jn.file.utils.RequestValidationUtils;
 import com.lan4jn.file.rbac.BucketAction;
 import com.lan4jn.file.rbac.PermissionCodes;
@@ -32,8 +33,10 @@ import java.io.PipedOutputStream;
 import java.io.UnsupportedEncodingException;
 import java.net.URLEncoder;
 import java.util.Arrays;
+import java.util.Collections;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 
@@ -61,13 +64,20 @@ public class FileController {
             @RequestParam(value = "sortBy", required = false, defaultValue = "name") String sortBy,
             @RequestParam(value = "order", required = false, defaultValue = "asc") String order) {
         permissionAssertService.assertApiPermission(PermissionCodes.API_FILE_BROWSE);
-        List<BucketInfo> buckets = fileService.listBuckets(sortBy, order);
-        if (permissionAssertService.isSuperAdmin()) {
-            return Result.success(buckets);
+        PermissionSnapshot snapshot = permissionAssertService.currentSnapshot();
+        if (snapshot.superAdmin() || hasGlobalBucketListPermission(snapshot)) {
+            return Result.success(fileService.listBuckets(sortBy, order));
         }
-        return Result.success(buckets.stream()
-                .filter(bucket -> canAccessBucket(bucket.getName(), BucketAction.LIST_BUCKET))
-                .toList());
+        List<String> accessibleBuckets = snapshot.bucketPermissions().entrySet().stream()
+                .filter(entry -> !BucketAction.ALL_BUCKETS.equals(entry.getKey()))
+                .filter(entry -> hasBucketListPermission(entry.getValue()))
+                .map(Map.Entry::getKey)
+                .distinct()
+                .toList();
+        if (accessibleBuckets.isEmpty()) {
+            return Result.success(Collections.emptyList());
+        }
+        return Result.success(fileService.listBuckets(accessibleBuckets, sortBy, order));
     }
 
     @PostMapping("/buckets")
@@ -161,9 +171,7 @@ public class FileController {
         List<String> objectNames = RequestValidationUtils.requireTextList(
                 Arrays.asList(objectNamesStr.split(",")), "objectNames");
         log.info("Batch deleting {} files, bucket: {}", objectNames.size(), bucket);
-        for (String objectName : objectNames) {
-            fileService.deleteFile(objectName, bucket);
-        }
+        fileService.deleteFiles(objectNames, bucket);
         return Result.success();
     }
 
@@ -213,6 +221,7 @@ public class FileController {
         permissionAssertService.assertApiPermission(PermissionCodes.API_FILE_OPERATE);
         permissionAssertService.assertBucketPermission(resolveBucket(bucket), BucketAction.DOWNLOAD);
         log.info("Downloading folder: {}, bucket: {}", objectName, bucket);
+        List<FileInfo> files = fileService.resolveFolderArchiveEntries(objectName, bucket);
 
         String folderName = objectName.endsWith("/") ? objectName.substring(0, objectName.length() - 1) : objectName;
         int lastSlash = folderName.lastIndexOf('/');
@@ -226,11 +235,12 @@ public class FileController {
         PipedOutputStream pipedOut = new PipedOutputStream();
         PipedInputStream pipedIn = new PipedInputStream(pipedOut);
 
-        final String validatedObjectName = objectName;
+        final List<FileInfo> validatedFiles = files;
         final String validatedBucket = bucket;
+        final String validatedObjectName = objectName;
         executorService.submit(() -> {
             try {
-                fileService.downloadFolderAsZip(validatedObjectName, validatedBucket, pipedOut);
+                fileService.downloadResolvedFilesAsZip(validatedFiles, validatedBucket, pipedOut);
             } catch (Exception e) {
                 log.error("Failed to create ZIP for folder: {}", validatedObjectName, e);
             } finally {
@@ -259,28 +269,8 @@ public class FileController {
         List<String> objectNames = RequestValidationUtils.requireTextList(
                 Arrays.asList(objectNamesStr.split(",")), "objectNames");
         log.info("Batch downloading {} items, bucket: {}", objectNames.size(), bucket);
-
-        long totalSize = 0;
-        for (String objectName : objectNames) {
-            boolean isFolder = objectName.endsWith("/");
-            if (isFolder) {
-                try {
-                    List<FileInfo> folderFiles = fileService.listFilesRecursive(objectName, bucket);
-                    for (FileInfo subFile : folderFiles) {
-                        totalSize += subFile.getSize() != null ? subFile.getSize() : 0;
-                    }
-                } catch (Exception e) {
-                    log.warn("Failed to list folder {}: {}", objectName, e.getMessage());
-                }
-            } else {
-                try {
-                    FileInfo fileInfo = fileService.getFileInfo(objectName, bucket);
-                    totalSize += fileInfo.getSize() != null ? fileInfo.getSize() : 0;
-                } catch (Exception e) {
-                    log.warn("Failed to get file info {}: {}", objectName, e.getMessage());
-                }
-            }
-        }
+        List<FileInfo> files = fileService.resolveBatchArchiveEntries(objectNames, bucket);
+        long totalSize = files.stream().mapToLong(file -> file.getSize() != null ? file.getSize() : 0L).sum();
 
         Long maxSize = configService.getBatchDownloadMaxSize();
         if (maxSize > 0 && totalSize > maxSize) {
@@ -289,11 +279,11 @@ public class FileController {
 
         PipedOutputStream pipedOut = new PipedOutputStream();
         PipedInputStream pipedIn = new PipedInputStream(pipedOut);
-        final List<String> validatedObjectNames = objectNames;
+        final List<FileInfo> validatedFiles = files;
         final String validatedBucket = bucket;
         executorService.submit(() -> {
             try {
-                fileService.downloadBatchAsZip(validatedObjectNames, validatedBucket, pipedOut);
+                fileService.downloadResolvedFilesAsZip(validatedFiles, validatedBucket, pipedOut);
             } catch (Exception e) {
                 log.error("Failed to create batch ZIP", e);
             } finally {
@@ -380,17 +370,16 @@ public class FileController {
         return Result.success();
     }
 
-    private boolean canAccessBucket(String bucketName, String action) {
-        try {
-            permissionAssertService.assertBucketPermission(bucketName, action);
-            return true;
-        } catch (SecurityException ignored) {
-            return false;
-        }
-    }
-
     private String resolveBucket(String bucket) {
         return (bucket == null || bucket.isBlank()) ? fileService.getDefaultBucket() : bucket;
+    }
+
+    private boolean hasGlobalBucketListPermission(PermissionSnapshot snapshot) {
+        return hasBucketListPermission(snapshot.bucketPermissions().get(BucketAction.ALL_BUCKETS));
+    }
+
+    private boolean hasBucketListPermission(Set<String> actions) {
+        return actions != null && (actions.contains(BucketAction.LIST_BUCKET) || actions.contains(BucketAction.ALL_ACTIONS));
     }
 
     private String formatSize(long bytes) {

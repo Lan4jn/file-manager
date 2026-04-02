@@ -11,12 +11,14 @@ import org.springframework.web.multipart.MultipartFile;
 import java.util.List;
 import java.util.Set;
 
-import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
+import static org.mockito.ArgumentMatchers.argThat;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.Mockito.doNothing;
+import static org.mockito.Mockito.doThrow;
+import static org.mockito.Mockito.atLeastOnce;
 import static org.mockito.Mockito.mock;
-import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.verifyNoInteractions;
 import static org.mockito.Mockito.when;
@@ -54,14 +56,60 @@ class FileCommandServiceTest {
         Result<Item> nestedFileResult = result(item("docs/readme.txt", false));
         when(support.resolveBucket("", "bucket-a")).thenReturn("bucket-a");
         when(minioClient.listObjects(any())).thenReturn(List.of(nestedFileResult));
+        when(support.objectExists("bucket-a", "docs/")).thenReturn(true);
 
         fileCommandService.deleteFile("docs/", "", "bucket-a");
 
         ArgumentCaptor<io.minio.RemoveObjectArgs> captor = ArgumentCaptor.forClass(io.minio.RemoveObjectArgs.class);
-        verify(minioClient, times(2)).removeObject(captor.capture());
+        verify(minioClient, atLeastOnce()).removeObject(captor.capture());
         List<io.minio.RemoveObjectArgs> removeArgs = captor.getAllValues();
-        assertEquals("docs/readme.txt", removeArgs.get(0).object());
-        assertEquals("docs/", removeArgs.get(1).object());
+        assertTrue(removeArgs.stream().anyMatch(args -> "docs/readme.txt".equals(args.object())));
+        assertTrue(removeArgs.stream().anyMatch(args -> "docs/".equals(args.object())));
+    }
+
+    @Test
+    void shouldRollbackCopiedTargetWhenMoveDeleteFails() throws Exception {
+        when(support.resolveBucket("source-bucket", "bucket-a")).thenReturn("source-bucket");
+        when(support.resolveBucket("dest-bucket", "bucket-a")).thenReturn("dest-bucket");
+        doThrow(new RuntimeException("delete failed")).when(minioClient)
+                .removeObject(argThat(args -> "source.txt".equals(args.object())));
+
+        RuntimeException exception = assertThrows(RuntimeException.class,
+                () -> fileCommandService.moveFile("source.txt", "dest.txt", "source-bucket", "dest-bucket", "bucket-a"));
+
+        assertTrue(exception.getMessage().contains("移动失败"));
+        ArgumentCaptor<io.minio.RemoveObjectArgs> removeCaptor = ArgumentCaptor.forClass(io.minio.RemoveObjectArgs.class);
+        verify(minioClient, atLeastOnce()).removeObject(removeCaptor.capture());
+        assertTrue(removeCaptor.getAllValues().stream().anyMatch(args -> "dest.txt".equals(args.object())));
+    }
+
+    @Test
+    void shouldRollbackFolderCreationWhenTestFileCreationFails() throws Exception {
+        when(support.resolveBucket("", "bucket-a")).thenReturn("bucket-a");
+        doNothing().when(support).createFolderMarker("docs/", "bucket-a");
+        doThrow(new RuntimeException("test file failed")).when(support).createTestFile("docs/", "bucket-a");
+
+        RuntimeException exception = assertThrows(RuntimeException.class,
+                () -> fileCommandService.createFolder("docs", "", "bucket-a", true));
+
+        assertTrue(exception.getMessage().contains("创建文件夹失败"));
+        verify(support).deleteObjectQuietly("docs/", "bucket-a");
+        verify(support).deleteObjectQuietly("docs/test.txt", "bucket-a");
+    }
+
+    @Test
+    void shouldRestoreDeletedObjectsWhenBatchDeleteFails() throws Exception {
+        when(support.resolveBucket("", "bucket-a")).thenReturn("bucket-a");
+        doThrow(new RuntimeException("delete failed")).when(minioClient)
+                .removeObject(argThat(args -> "b.txt".equals(args.object())));
+
+        RuntimeException exception = assertThrows(RuntimeException.class,
+                () -> fileCommandService.deleteFiles(List.of("a.txt", "b.txt"), "", "bucket-a"));
+
+        assertTrue(exception.getMessage().contains("批量删除失败"));
+        ArgumentCaptor<io.minio.CopyObjectArgs> copyCaptor = ArgumentCaptor.forClass(io.minio.CopyObjectArgs.class);
+        verify(minioClient, atLeastOnce()).copyObject(copyCaptor.capture());
+        assertTrue(copyCaptor.getAllValues().stream().anyMatch(args -> "a.txt".equals(args.object())));
     }
 
     @SuppressWarnings("unchecked")

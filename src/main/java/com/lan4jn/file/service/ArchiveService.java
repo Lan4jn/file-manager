@@ -29,22 +29,7 @@ final class ArchiveService {
         String resolvedBucket = support.resolveBucket(bucket, defaultBucket);
         String normalizedFolder = support.normalizeFolder(folder);
         try {
-            List<FileInfo> files = fileQueryService.listFilesRecursive(normalizedFolder, resolvedBucket, resolvedBucket);
-            long totalSize = 0;
-            for (FileInfo file : files) {
-                totalSize += file.getSize() != null ? file.getSize() : 0;
-            }
-            if (totalSize > MAX_ARCHIVE_SIZE) {
-                throw new RuntimeException("目录压缩后大小超过2GB，无法下载");
-            }
-
-            try (ZipOutputStream zos = new ZipOutputStream(outputStream, StandardCharsets.UTF_8)) {
-                byte[] buffer = new byte[8192];
-                for (FileInfo file : files) {
-                    addFileToZip(zos, file, resolvedBucket, defaultBucket, buffer);
-                }
-                zos.finish();
-            }
+            streamFilesAsZip(resolveFolderEntries(normalizedFolder, resolvedBucket), resolvedBucket, defaultBucket, outputStream);
             log.info("Folder downloaded as ZIP: {}", normalizedFolder);
         } catch (RuntimeException e) {
             throw e;
@@ -57,29 +42,7 @@ final class ArchiveService {
     void downloadBatchAsZip(List<String> objectNames, String bucket, String defaultBucket, OutputStream outputStream) {
         String resolvedBucket = support.resolveBucket(bucket, defaultBucket);
         try {
-            try (ZipOutputStream zos = new ZipOutputStream(outputStream, StandardCharsets.UTF_8)) {
-                byte[] buffer = new byte[8192];
-                for (String objectName : objectNames) {
-                    if (objectName.endsWith("/")) {
-                        try {
-                            List<FileInfo> folderFiles = fileQueryService.listFilesRecursive(objectName, resolvedBucket, resolvedBucket);
-                            for (FileInfo subFile : folderFiles) {
-                                addFileToZip(zos, subFile, resolvedBucket, defaultBucket, buffer);
-                            }
-                        } catch (Exception e) {
-                            log.warn("Failed to list folder {}: {}", objectName, e.getMessage());
-                        }
-                    } else {
-                        try {
-                            FileInfo fileInfo = fileQueryService.getFileInfo(objectName, resolvedBucket, resolvedBucket, "");
-                            addFileToZip(zos, fileInfo, resolvedBucket, defaultBucket, buffer);
-                        } catch (Exception e) {
-                            log.warn("Failed to get file {}: {}", objectName, e.getMessage());
-                        }
-                    }
-                }
-                zos.finish();
-            }
+            streamFilesAsZip(resolveBatchEntries(objectNames, resolvedBucket), resolvedBucket, defaultBucket, outputStream);
             log.info("Batch files downloaded as ZIP: {} items", objectNames.size());
         } catch (RuntimeException e) {
             throw e;
@@ -89,27 +52,72 @@ final class ArchiveService {
         }
     }
 
+    List<FileInfo> resolveFolderEntries(String folder, String bucket) {
+        List<FileInfo> files = fileQueryService.listFilesRecursive(folder, bucket, bucket);
+        assertArchiveWithinLimit(files, "目录压缩后大小超过2GB，无法下载");
+        return files;
+    }
+
+    List<FileInfo> resolveBatchEntries(List<String> objectNames, String bucket) {
+        java.util.ArrayList<FileInfo> files = new java.util.ArrayList<>();
+        for (String objectName : objectNames) {
+            if (objectName.endsWith("/")) {
+                files.addAll(fileQueryService.listFilesRecursive(objectName, bucket, bucket));
+            } else {
+                files.add(fileQueryService.getFileInfo(objectName, bucket, bucket, ""));
+            }
+        }
+        assertArchiveWithinLimit(files, "批量下载总大小超过限制(2.00 GB)");
+        return files;
+    }
+
+    void streamFilesAsZip(List<FileInfo> files, String bucket, String defaultBucket, OutputStream outputStream) throws Exception {
+        try (ZipOutputStream zos = new ZipOutputStream(outputStream, StandardCharsets.UTF_8)) {
+            byte[] buffer = new byte[8192];
+            long totalWritten = 0L;
+            for (FileInfo file : files) {
+                totalWritten = addFileToZip(zos, file, bucket, defaultBucket, buffer, totalWritten);
+            }
+            zos.finish();
+        }
+    }
+
     private void addFileToZip(ZipOutputStream zos, FileInfo fileInfo, String bucket, String defaultBucket, byte[] buffer)
             throws Exception {
+        addFileToZip(zos, fileInfo, bucket, defaultBucket, buffer, 0L);
+    }
+
+    private long addFileToZip(ZipOutputStream zos, FileInfo fileInfo, String bucket, String defaultBucket, byte[] buffer,
+                              long totalWritten) throws Exception {
         try (InputStream is = support.getFileStream(fileInfo.getObjectName(), bucket, defaultBucket)) {
             String entryName = fileInfo.getObjectName();
             if (StrUtil.isBlank(entryName) || entryName.endsWith("/")) {
-                return;
+                return totalWritten;
             }
             ZipEntry zipEntry = new ZipEntry(entryName);
             zos.putNextEntry(zipEntry);
 
-            long bytesWritten = 0;
             int len;
             while ((len = is.read(buffer)) > 0) {
-                bytesWritten += len;
-                if (bytesWritten > MAX_ARCHIVE_SIZE) {
+                totalWritten += len;
+                if (totalWritten > MAX_ARCHIVE_SIZE) {
                     throw new RuntimeException("批量下载压缩后大小超过2GB，无法下载");
                 }
                 zos.write(buffer, 0, len);
             }
 
             zos.closeEntry();
+            return totalWritten;
+        }
+    }
+
+    private void assertArchiveWithinLimit(List<FileInfo> files, String message) {
+        long totalSize = 0L;
+        for (FileInfo file : files) {
+            totalSize += file.getSize() != null ? file.getSize() : 0L;
+        }
+        if (totalSize > MAX_ARCHIVE_SIZE) {
+            throw new RuntimeException(message);
         }
     }
 }

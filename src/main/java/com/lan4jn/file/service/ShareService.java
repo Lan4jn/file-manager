@@ -47,6 +47,10 @@ public class ShareService {
         return shareLinkService.getShareInfo(shareCode, password);
     }
 
+    public ShareLink peekShareInfo(String shareCode, String password) {
+        return shareLinkService.peekShareInfo(shareCode, password);
+    }
+
     public FileInfo getFileByShareCode(String shareCode, String password) {
         return shareAccessService.getFileByShareCode(shareCode, password);
     }
@@ -63,8 +67,20 @@ public class ShareService {
         shareAccessService.downloadShareAsZip(shareCode, password, outputStream);
     }
 
+    public ShareArchivePlan prepareShareArchive(String shareCode, String password) {
+        return shareAccessService.prepareShareArchive(shareCode, password);
+    }
+
+    public void downloadPreparedShareAsZip(ShareArchivePlan plan, OutputStream outputStream) {
+        shareAccessService.downloadShareAsZip(plan, outputStream);
+    }
+
     public String getShareArchiveName(String shareCode, String password) {
         return shareAccessService.getShareArchiveName(shareCode, password);
+    }
+
+    public void incrementViewCount(String shareCode) {
+        shareLinkService.incrementViewCount(shareCode);
     }
 
     public boolean validateShareCode(String shareCode) {

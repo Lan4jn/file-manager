@@ -16,6 +16,10 @@ import org.slf4j.LoggerFactory;
 import org.springframework.web.multipart.MultipartFile;
 
 import java.util.Set;
+import java.util.ArrayList;
+import java.util.LinkedHashSet;
+import java.util.List;
+import java.util.UUID;
 
 final class FileCommandService {
 
@@ -69,44 +73,56 @@ final class FileCommandService {
     }
 
     void deleteFile(String objectName, String bucket, String defaultBucket) {
+        deleteFiles(List.of(objectName), bucket, defaultBucket);
+    }
+
+    void deleteFiles(List<String> objectNames, String bucket, String defaultBucket) {
         String resolvedBucket = support.resolveBucket(bucket, defaultBucket);
         try {
-            boolean isFolder = objectName.endsWith("/");
-            if (isFolder) {
-                Iterable<Result<Item>> results = minioClient.listObjects(
-                        ListObjectsArgs.builder()
-                                .bucket(resolvedBucket)
-                                .prefix(objectName)
-                                .recursive(true)
-                                .build()
-                );
-                for (Result<Item> result : results) {
-                    Item item = result.get();
-                    if (!item.isDir()) {
-                        minioClient.removeObject(RemoveObjectArgs.builder()
-                                .bucket(resolvedBucket)
-                                .object(item.objectName())
-                                .build());
-                    }
-                }
+            List<String> actualObjects = resolveDeleteTargets(objectNames, resolvedBucket);
+            String rollbackPrefix = ".rollback/" + UUID.randomUUID() + "/";
+            try {
+                backupObjects(actualObjects, resolvedBucket, rollbackPrefix);
+            } catch (Exception e) {
+                cleanupRollbackObjects(actualObjects, resolvedBucket, rollbackPrefix);
+                throw e;
             }
-
-            minioClient.removeObject(RemoveObjectArgs.builder()
-                    .bucket(resolvedBucket)
-                    .object(objectName)
-                    .build());
-            log.info("File deleted: {}", objectName);
+            try {
+                for (String actualObject : actualObjects) {
+                    minioClient.removeObject(RemoveObjectArgs.builder()
+                            .bucket(resolvedBucket)
+                            .object(actualObject)
+                            .build());
+                }
+            } catch (Exception e) {
+                restoreObjects(actualObjects, resolvedBucket, rollbackPrefix);
+                throw e;
+            } finally {
+                cleanupRollbackObjects(actualObjects, resolvedBucket, rollbackPrefix);
+            }
+            log.info("Files deleted: {}", actualObjects);
         } catch (Exception e) {
-            log.error("Failed to delete file: {}", objectName, e);
-            throw new RuntimeException("文件删除失败: " + e.getMessage(), e);
+            log.error("Failed to delete files: {}", objectNames, e);
+            throw new RuntimeException(
+                    objectNames.size() > 1 ? "批量删除失败: " + e.getMessage() : "文件删除失败: " + e.getMessage(), e);
         }
     }
 
     void createFolder(String folderPath, String bucket, String defaultBucket, boolean createTestFile) {
         String resolvedBucket = support.resolveBucket(bucket, defaultBucket);
+        String normalizedPath = folderPath.endsWith("/") ? folderPath : folderPath + "/";
         try {
-            support.createFolderObject(folderPath, resolvedBucket, createTestFile);
-            log.info("Folder created: {}", folderPath);
+            support.createFolderMarker(normalizedPath, resolvedBucket);
+            if (createTestFile) {
+                try {
+                    support.createTestFile(normalizedPath, resolvedBucket);
+                } catch (Exception e) {
+                    support.deleteObjectQuietly(normalizedPath + "test.txt", resolvedBucket);
+                    support.deleteObjectQuietly(normalizedPath, resolvedBucket);
+                    throw e;
+                }
+            }
+            log.info("Folder created: {}", normalizedPath);
         } catch (Exception e) {
             log.error("Failed to create folder: {}", folderPath, e);
             throw new RuntimeException("创建文件夹失败: " + e.getMessage(), e);
@@ -138,8 +154,89 @@ final class FileCommandService {
 
     void moveFile(String sourceObjectName, String destObjectName,
                   String sourceBucket, String destBucket, String defaultBucket) {
+        String resolvedDestBucket = support.resolveBucket(destBucket, defaultBucket);
         copyFile(sourceObjectName, destObjectName, sourceBucket, destBucket, defaultBucket);
-        deleteFile(sourceObjectName, sourceBucket, defaultBucket);
-        log.info("File moved from {}/{} to {}/{}", sourceBucket, sourceObjectName, destBucket, destObjectName);
+        try {
+            deleteFile(sourceObjectName, sourceBucket, defaultBucket);
+            log.info("File moved from {}/{} to {}/{}", sourceBucket, sourceObjectName, destBucket, destObjectName);
+        } catch (RuntimeException e) {
+            try {
+                minioClient.removeObject(RemoveObjectArgs.builder()
+                        .bucket(resolvedDestBucket)
+                        .object(destObjectName)
+                        .build());
+            } catch (Exception rollbackError) {
+                log.error("Failed to rollback moved target {}/{}", resolvedDestBucket, destObjectName, rollbackError);
+            }
+            throw new RuntimeException("移动失败: " + e.getMessage(), e);
+        }
+    }
+
+    private List<String> resolveDeleteTargets(List<String> objectNames, String bucket) throws Exception {
+        LinkedHashSet<String> targets = new LinkedHashSet<>();
+        for (String objectName : objectNames) {
+            if (objectName.endsWith("/")) {
+                Iterable<Result<Item>> results = minioClient.listObjects(
+                        ListObjectsArgs.builder()
+                                .bucket(bucket)
+                                .prefix(objectName)
+                                .recursive(true)
+                                .build()
+                );
+                for (Result<Item> result : results) {
+                    Item item = result.get();
+                    if (!item.isDir()) {
+                        targets.add(item.objectName());
+                    }
+                }
+                if (support.objectExists(bucket, objectName)) {
+                    targets.add(objectName);
+                }
+            } else {
+                targets.add(objectName);
+            }
+        }
+        return new ArrayList<>(targets);
+    }
+
+    private void backupObjects(List<String> objectNames, String bucket, String rollbackPrefix) throws Exception {
+        for (String objectName : objectNames) {
+            minioClient.copyObject(
+                    CopyObjectArgs.builder()
+                            .bucket(bucket)
+                            .object(rollbackPrefix + objectName)
+                            .source(CopySource.builder().bucket(bucket).object(objectName).build())
+                            .build()
+            );
+        }
+    }
+
+    private void restoreObjects(List<String> objectNames, String bucket, String rollbackPrefix) {
+        for (String objectName : objectNames) {
+            try {
+                minioClient.copyObject(
+                        CopyObjectArgs.builder()
+                                .bucket(bucket)
+                                .object(objectName)
+                                .source(CopySource.builder().bucket(bucket).object(rollbackPrefix + objectName).build())
+                                .build()
+                );
+            } catch (Exception restoreError) {
+                log.error("Failed to restore object {} from rollback backup", objectName, restoreError);
+            }
+        }
+    }
+
+    private void cleanupRollbackObjects(List<String> objectNames, String bucket, String rollbackPrefix) {
+        for (String objectName : objectNames) {
+            try {
+                minioClient.removeObject(RemoveObjectArgs.builder()
+                        .bucket(bucket)
+                        .object(rollbackPrefix + objectName)
+                        .build());
+            } catch (Exception cleanupError) {
+                log.warn("Failed to cleanup rollback object {}", rollbackPrefix + objectName, cleanupError);
+            }
+        }
     }
 }

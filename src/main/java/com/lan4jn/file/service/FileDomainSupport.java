@@ -5,6 +5,7 @@ import com.lan4jn.file.dto.UploadResponse;
 import com.lan4jn.file.model.FileInfo;
 import io.minio.GetObjectArgs;
 import io.minio.MinioClient;
+import io.minio.RemoveObjectArgs;
 import io.minio.PutObjectArgs;
 import io.minio.StatObjectArgs;
 import io.minio.StatObjectResponse;
@@ -151,6 +152,14 @@ final class FileDomainSupport {
 
     void createFolderObject(String folderPath, String bucket, boolean createTestFile) throws Exception {
         String normalizedPath = folderPath.endsWith("/") ? folderPath : folderPath + "/";
+        createFolderMarker(normalizedPath, bucket);
+
+        if (createTestFile) {
+            createTestFile(normalizedPath, bucket);
+        }
+    }
+
+    void createFolderMarker(String normalizedPath, String bucket) throws Exception {
         minioClient.putObject(
                 PutObjectArgs.builder()
                         .bucket(bucket)
@@ -158,20 +167,27 @@ final class FileDomainSupport {
                         .stream(new ByteArrayInputStream(new byte[0]), 0, -1)
                         .build()
         );
+    }
 
-        if (createTestFile) {
-            String testFilePath = normalizedPath + "test.txt";
-            String testContent = "This is a test file.";
-            ByteArrayInputStream testStream = new ByteArrayInputStream(
-                    testContent.getBytes(java.nio.charset.StandardCharsets.UTF_8));
-            minioClient.putObject(
-                    PutObjectArgs.builder()
-                            .bucket(bucket)
-                            .object(testFilePath)
-                            .stream(testStream, testContent.length(), -1)
-                            .contentType("text/plain")
-                            .build()
-            );
+    void createTestFile(String normalizedPath, String bucket) throws Exception {
+        String testFilePath = normalizedPath + "test.txt";
+        String testContent = "This is a test file.";
+        ByteArrayInputStream testStream = new ByteArrayInputStream(
+                testContent.getBytes(java.nio.charset.StandardCharsets.UTF_8));
+        minioClient.putObject(
+                PutObjectArgs.builder()
+                        .bucket(bucket)
+                        .object(testFilePath)
+                        .stream(testStream, testContent.length(), -1)
+                        .contentType("text/plain")
+                        .build()
+        );
+    }
+
+    void deleteObjectQuietly(String objectName, String bucket) {
+        try {
+            minioClient.removeObject(RemoveObjectArgs.builder().bucket(bucket).object(objectName).build());
+        } catch (Exception ignored) {
         }
     }
 
@@ -219,6 +235,10 @@ final class FileDomainSupport {
     }
 
     private boolean fileExists(String objectName, String bucket) {
+        return objectExists(bucket, objectName);
+    }
+
+    boolean objectExists(String bucket, String objectName) {
         try {
             minioClient.statObject(StatObjectArgs.builder().bucket(bucket).object(objectName).build());
             return true;

@@ -81,8 +81,6 @@ public class SecurityConfig {
                         .requestMatchers("/full").permitAll()
                         .requestMatchers("/lite").permitAll()
                         .requestMatchers("/api/auth/**").permitAll()
-                        .requestMatchers("/api/file/download/**").permitAll()
-                        .requestMatchers("/api/file/preview/**").permitAll()
                         .requestMatchers("/api/share/info").permitAll()
                         .requestMatchers("/api/share/access-info").permitAll()
                         .requestMatchers("/api/share/file").permitAll()

@@ -10,6 +10,7 @@ import java.io.InputStream;
 import java.io.OutputStream;
 import java.nio.charset.StandardCharsets;
 import java.util.ArrayList;
+import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.zip.ZipEntry;
@@ -78,11 +79,15 @@ final class ShareAccessService {
     }
 
     void downloadShareAsZip(String shareCode, String password, OutputStream outputStream) {
+        ShareArchivePlan plan = prepareShareArchive(shareCode, password);
+        downloadShareAsZip(plan, outputStream);
+    }
+
+    ShareArchivePlan prepareShareArchive(String shareCode, String password) {
         ShareLink shareLink = shareLinkService.resolveShare(shareCode, password, false);
         if (!shareSupport.isCollectionShare(shareLink)) {
             throw new RuntimeException("当前分享不是目录或集合分享");
         }
-
         try {
             Map<String, FileInfo> entries = collectShareDownloadEntries(shareLink);
             long totalSize = 0L;
@@ -94,10 +99,21 @@ final class ShareAccessService {
             if (maxSize > 0 && totalSize > maxSize) {
                 throw new RuntimeException("分享打包大小超过限制(" + shareSupport.formatSize(maxSize) + ")");
             }
+            return new ShareArchivePlan(shareLink, new LinkedHashMap<>(entries));
+        } catch (RuntimeException e) {
+            throw e;
+        } catch (Exception e) {
+            log.error("Failed to prepare share archive: {}", shareCode, e);
+            throw new RuntimeException("分享下载失败: " + e.getMessage(), e);
+        }
+    }
 
+    void downloadShareAsZip(ShareArchivePlan plan, OutputStream outputStream) {
+        ShareLink shareLink = plan.getShareLink();
+        try {
             try (ZipOutputStream zos = new ZipOutputStream(outputStream, StandardCharsets.UTF_8)) {
                 byte[] buffer = new byte[8192];
-                for (Map.Entry<String, FileInfo> entry : entries.entrySet()) {
+                for (Map.Entry<String, FileInfo> entry : plan.getEntries().entrySet()) {
                     if (entry.getValue() == null || StrUtil.isBlank(entry.getValue().getObjectName())
                             || entry.getValue().getObjectName().endsWith("/")) {
                         continue;
@@ -116,7 +132,7 @@ final class ShareAccessService {
         } catch (RuntimeException e) {
             throw e;
         } catch (Exception e) {
-            log.error("Failed to download share as zip: {}", shareCode, e);
+            log.error("Failed to download share as zip: {}", shareLink.getShareCode(), e);
             throw new RuntimeException("分享下载失败: " + e.getMessage(), e);
         }
     }
