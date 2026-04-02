@@ -1,6 +1,7 @@
 package com.lan4jn.file.controller;
 
 import com.lan4jn.file.common.GlobalExceptionHandler;
+import com.lan4jn.file.common.Result;
 import com.lan4jn.file.model.FileInfo;
 import com.lan4jn.file.model.ShareAccessInfo;
 import com.lan4jn.file.model.ShareLink;
@@ -12,6 +13,7 @@ import com.lan4jn.file.service.ShareArchivePlan;
 import com.lan4jn.file.service.ShareService;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
+import org.springframework.security.authentication.UsernamePasswordAuthenticationToken;
 import org.springframework.test.web.servlet.MockMvc;
 import org.springframework.test.web.servlet.setup.MockMvcBuilders;
 
@@ -29,6 +31,7 @@ import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
@@ -125,6 +128,7 @@ class ShareControllerTest {
         when(shareService.peekShareInfo("SHARE001", null)).thenReturn(shareLink);
         when(shareService.prepareShareArchive("SHARE001", null))
                 .thenReturn(new ShareArchivePlan(shareLink, new LinkedHashMap<>()));
+        when(shareService.getShareArchiveName("SHARE001", null)).thenReturn("docs.zip");
         PermissionAssertService permissionAssertService = mock(PermissionAssertService.class);
         when(permissionAssertService.currentSnapshot()).thenReturn(new PermissionSnapshot(
                 1L, "admin", true, Set.of("ADMIN"), Set.of(), Set.of(), Map.of()
@@ -150,5 +154,35 @@ class ShareControllerTest {
                 org.mockito.Mockito.eq("docs/"),
                 any()
         );
+    }
+
+    @Test
+    void shouldPassUserTargetTypeAndRecipientsToBatchShareService() throws Exception {
+        FileService fileService = mock(FileService.class);
+        PermissionAssertService permissionAssertService = mock(PermissionAssertService.class);
+        ShareController controller = new ShareController(shareService, fileService, permissionAssertService, operationLogService);
+        ShareLink shareLink = new ShareLink();
+        shareLink.setShareCode("BATCH001");
+        shareLink.setTargetType("USER");
+        shareLink.setHasPassword(false);
+        when(shareService.createBatchShareLink(
+                org.mockito.ArgumentMatchers.<List<String>>argThat(objectNames -> objectNames.size() == 2 && objectNames.contains("docs/") && objectNames.contains("images/logo.png")),
+                org.mockito.Mockito.eq("bucket-a"),
+                org.mockito.Mockito.eq("admin"),
+                org.mockito.Mockito.eq(48),
+                org.mockito.Mockito.isNull(),
+                org.mockito.Mockito.eq("USER"),
+                org.mockito.ArgumentMatchers.<List<Long>>argThat(userIds -> userIds.size() == 2 && userIds.contains(2L) && userIds.contains(3L))
+        )).thenReturn(shareLink);
+
+        Result<ShareLink> result = controller.createBatchShare(Map.of(
+                "objectNames", List.of("docs/", "images/logo.png"),
+                "bucket", "bucket-a",
+                "expirationHours", 48,
+                "targetType", "USER",
+                "recipientUserIds", List.of(2, 3)
+        ), new UsernamePasswordAuthenticationToken("admin", "N/A"));
+
+        assertEquals("BATCH001", result.getData().getShareCode());
     }
 }

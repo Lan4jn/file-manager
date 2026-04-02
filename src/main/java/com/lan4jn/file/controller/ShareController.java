@@ -93,14 +93,24 @@ public class ShareController {
         String password = params.get("password") != null
                 ? params.get("password").toString()
                 : null;
+        String targetType = params.get("targetType") != null
+                ? params.get("targetType").toString()
+                : null;
+        List<Long> recipientUserIds = params.get("recipientUserIds") instanceof List<?> rawRecipientUserIds
+                ? rawRecipientUserIds.stream()
+                .filter(java.util.Objects::nonNull)
+                .map(item -> Long.valueOf(item.toString()))
+                .collect(Collectors.toList())
+                : List.of();
 
         expirationHours = RequestValidationUtils.optionalPositive(expirationHours, "expirationHours");
         password = RequestValidationUtils.nullableText(password, "password");
+        targetType = RequestValidationUtils.nullableText(targetType, "targetType");
         permissionAssertService.assertApiPermission(PermissionCodes.API_SHARE_MANAGE);
         permissionAssertService.assertBucketPermission(resolveBucket(bucket), BucketAction.SHARE);
 
         ShareLink shareLink = shareService.createBatchShareLink(
-                objectNames, bucket, authentication.getName(), expirationHours, password);
+                objectNames, bucket, authentication.getName(), expirationHours, password, targetType, recipientUserIds);
         return Result.success(shareLink);
     }
 

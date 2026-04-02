@@ -37,7 +37,7 @@ class ShareServiceTest {
                 userRepository, userShareMessageRepository, configService, 24);
 
         ShareLink shareLink = shareService.createBatchShareLink(
-                List.of("docs/", "readme.txt"), "bucket-a", "tester", null, "1234");
+                List.of("docs/", "readme.txt"), "bucket-a", "tester", null, "1234", "LINK", List.of());
 
         assertTrue(shareLink.getObjectName().startsWith(ShareSupport.BATCH_PREFIX));
         assertEquals("bucket-a", shareLink.getBucket());

@@ -99,7 +99,8 @@ final class ShareLinkService {
     }
 
     ShareLink createBatchShareLink(List<String> objectNames, String bucket, String createBy,
-                                   Integer expirationHours, String password) {
+                                   Integer expirationHours, String password,
+                                   String targetType, List<Long> recipientUserIds) {
         if (objectNames == null || objectNames.isEmpty()) {
             throw new RuntimeException("分享对象不能为空");
         }
@@ -108,7 +109,8 @@ final class ShareLinkService {
         if (expirationHours == null || expirationHours <= 0) {
             expirationHours = defaultExpiration;
         }
-        String resolvedPassword = resolvePassword(TARGET_TYPE_LINK, password);
+        String normalizedTargetType = normalizeTargetType(targetType);
+        String resolvedPassword = resolvePassword(normalizedTargetType, password);
 
         ShareLink shareLink = new ShareLink();
         shareLink.setShareCode(shareCode);
@@ -121,11 +123,14 @@ final class ShareLinkService {
         shareLink.setViewCount(0L);
         shareLink.setHasPassword(StrUtil.isNotEmpty(resolvedPassword));
         shareLink.setPassword(resolvedPassword);
-        shareLink.setTargetType(TARGET_TYPE_LINK);
+        shareLink.setTargetType(normalizedTargetType);
         shareLink.setIsFolder(true);
         shareLink.setZipFileName(null);
 
         ShareLink saved = shareLinkRepository.save(shareLink);
+        if (TARGET_TYPE_USER.equals(normalizedTargetType)) {
+            dispatchUserShareMessages(saved, recipientUserIds);
+        }
         log.info("Batch share link created: {}", shareCode);
         return saved;
     }
@@ -246,6 +251,7 @@ final class ShareLinkService {
                     .orElseThrow(() -> new RuntimeException("收件人不存在: " + recipientUserId));
             UserShareMessage message = new UserShareMessage();
             message.setRecipientUserId(user.getId());
+            message.setSenderUsername(shareLink.getCreateBy());
             message.setShareCode(shareLink.getShareCode());
             message.setTitle(shareLink.getFileName());
             message.setRead(false);

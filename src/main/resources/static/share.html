@@ -296,7 +296,7 @@
 <script>
     (function () {
         var params = new URLSearchParams(window.location.search);
-        var shareCode = params.get('code');
+        var shareCode = params.get('shareCode') || params.get('code');
         var password = params.get('password') || '';
         var shareInfo = null;
         var shareDisplayPath = '';
@@ -372,6 +372,9 @@
                     if (shareInfo.hasPassword) {
                         verifyBlock.classList.remove('hidden');
                         hintEl.textContent = '该分享已设置提取码，验证后即可访问。';
+                        if (passwordInput.value) {
+                            verifyShare();
+                        }
                     } else {
                         verifyShare();
                     }

@@ -17,6 +17,7 @@ public class UserShareMessage {
     private Long id;
 
     private Long recipientUserId;
+    private String senderUsername;
     private String shareCode;
     private String title;
     private Boolean read;
@@ -42,6 +43,14 @@ public class UserShareMessage {
 
     public String getShareCode() {
         return shareCode;
+    }
+
+    public String getSenderUsername() {
+        return senderUsername;
+    }
+
+    public void setSenderUsername(String senderUsername) {
+        this.senderUsername = senderUsername;
     }
 
     public void setShareCode(String shareCode) {

@@ -99,7 +99,12 @@ const app = createApp({
             recipientUserIds: [],
             isFolder: false
         });
-        const batchShareForm = ref({ expirationHours: 24, password: '' });
+        const batchShareForm = ref({
+            expirationHours: 24,
+            password: '',
+            targetType: 'LINK',
+            recipientUserIds: []
+        });
         const createEmptyUserForm = () => ({
             username: '',
             nickname: '',
@@ -328,8 +333,30 @@ const app = createApp({
         const currentPageSize = computed(() => {
             return fileList.value.reduce((total, item) => total + (item.isFolder ? 0 : (item.size || 0)), 0);
         });
+        const previewHintGroups = [
+            { label: '图片', extensions: ['png', 'jpg', 'jpeg', 'gif', 'webp', 'bmp', 'svg'] },
+            { label: '文档', extensions: ['pdf', 'txt', 'md', 'log', 'csv'] },
+            { label: '配置文件', extensions: ['yml', 'yaml', 'properties', 'xml', 'json'] },
+            { label: '代码与脚本', extensions: ['java', 'js', 'ts', 'css', 'html', 'htm', 'sql', 'sh'] },
+            { label: '音频', extensions: ['mp3', 'wav', 'ogg', 'm4a', 'aac', 'flac'] },
+            { label: '视频', extensions: ['mp4', 'webm', 'ogg', 'mov', 'm4v'] }
+        ];
         const previewSupportHint = computed(() => {
-            return '支持预览：图片、PDF、文本、音频、视频';
+            return previewHintGroups
+                .map(group => group.label + '（' + group.extensions.join(', ') + '）')
+                .join('；');
+        });
+        const inboxUnreadCount = computed(() => {
+            return inboxList.value.filter(item => !item.read).length;
+        });
+        const inboxUnreadSourceCount = computed(() => {
+            const senderSet = new Set(
+                inboxList.value
+                    .filter(item => !item.read)
+                    .map(item => item.senderUsername || '')
+                    .filter(Boolean)
+            );
+            return senderSet.size;
         });
         const textPreviewMaxSize = 2 * 1024 * 1024;
         const httpsSuggestionUrl = computed(() => {
@@ -383,6 +410,10 @@ const app = createApp({
             } finally {
                 document.body.removeChild(textarea);
             }
+        };
+
+        const generateSharePassword = () => {
+            return String(Math.floor(Math.random() * 10000)).padStart(4, '0');
         };
 
         const hasMenuPermission = (code) => {
@@ -656,6 +687,7 @@ const app = createApp({
                     isLoggedIn.value = true;
                     await loadCurrentPermissions();
                     await loadPermissions();
+                    await loadInbox();
                     handleMenuSelect(currentMenu.value);
                 } else {
                     ElementPlus.ElMessage.error(res.message || '登录失败');
@@ -688,8 +720,11 @@ const app = createApp({
                 bucketPermissions: []
             };
             permissionList.value = [];
+            inboxList.value = [];
+            recipientList.value = [];
             isLoggedIn.value = false;
             currentMenu.value = 'buckets';
+            shareTab.value = 'my-shares';
             loginForm.value = { username: '', password: '' };
         };
 
@@ -758,6 +793,7 @@ const app = createApp({
                     isLoggedIn.value = true;
                     await loadCurrentPermissions();
                     await loadPermissions();
+                    await loadInbox();
                     handleMenuSelect(currentMenu.value);
                 } else {
                     logout();
@@ -1361,29 +1397,53 @@ const app = createApp({
             }
             batchShareForm.value = {
                 expirationHours: shareConfig.value.expireHours || 24,
-                password: ''
+                password: generateSharePassword(),
+                targetType: 'LINK',
+                recipientUserIds: []
             };
             showBatchShareDialog.value = true;
         };
 
+        const handleBatchShareTargetTypeChange = async (targetType) => {
+            if (targetType === 'USER') {
+                batchShareForm.value.password = '';
+                await loadRecipients();
+            } else if (!batchShareForm.value.password) {
+                batchShareForm.value.password = generateSharePassword();
+                batchShareForm.value.recipientUserIds = [];
+            }
+        };
+
         const createBatchShare = async () => {
             try {
+                if (batchShareForm.value.targetType === 'USER'
+                    && (!batchShareForm.value.recipientUserIds || batchShareForm.value.recipientUserIds.length === 0)) {
+                    ElementPlus.ElMessage.warning('请选择至少一个接收用户');
+                    return;
+                }
                 const objectNames = selectedFiles.value.map(f => f.objectName);
                 const res = await api.post('/share/batch-create', {
                     objectNames: objectNames,
                     bucket: currentBucket.value,
                     expirationHours: batchShareForm.value.expirationHours,
-                    password: batchShareForm.value.password
+                    password: batchShareForm.value.targetType === 'USER' ? '' : batchShareForm.value.password,
+                    targetType: batchShareForm.value.targetType,
+                    recipientUserIds: batchShareForm.value.targetType === 'USER' ? batchShareForm.value.recipientUserIds : []
                 });
                 if (res.code === 200) {
-                    ElementPlus.ElMessage.success('分享创建成功');
-                    try {
-                        await copyText(buildShareCopyText(res.data, 'notice'));
-                        ElementPlus.ElMessage.info('分享链接说明已复制到剪贴板');
-                    } catch (copyError) {
-                        ElementPlus.ElMessage.warning('分享已创建，但自动复制失败：' + copyError.message);
+                    if (batchShareForm.value.targetType === 'USER') {
+                        ElementPlus.ElMessage.success('批量站内分享已发送给指定用户');
+                    } else {
+                        ElementPlus.ElMessage.success('分享创建成功');
+                        try {
+                            await copyText(buildShareCopyText(res.data, 'notice'));
+                            ElementPlus.ElMessage.info('分享链接说明已复制到剪贴板');
+                        } catch (copyError) {
+                            ElementPlus.ElMessage.warning('分享已创建，但自动复制失败：' + copyError.message);
+                        }
                     }
                     showBatchShareDialog.value = false;
+                    await loadInbox();
                     loadShares();
                 }
             } catch (error) {
@@ -1489,6 +1549,7 @@ const app = createApp({
                 recipientUserIds: [],
                 isFolder: file.isFolder || false
             };
+            shareForm.value.password = generateSharePassword();
             showShareDialog.value = true;
         };
 
@@ -1498,6 +1559,9 @@ const app = createApp({
                 await loadRecipients();
             } else {
                 shareForm.value.recipientUserIds = [];
+                if (!shareForm.value.password) {
+                    shareForm.value.password = generateSharePassword();
+                }
             }
         };
 
@@ -1532,6 +1596,7 @@ const app = createApp({
                         }
                     }
                     showShareDialog.value = false;
+                    await loadInbox();
                     loadShares();
                 }
             } catch (error) {
@@ -1752,7 +1817,7 @@ const app = createApp({
             try {
                 const res = await api.get('/messages/' + message.id + '/share');
                 if (res.code === 200 && res.data?.shareCode) {
-                    window.open('/share/' + res.data.shareCode, '_blank');
+                    window.open(buildShareUrl(res.data, !!res.data.password), '_blank');
                     await loadInbox();
                 }
             } catch (error) {
@@ -2463,6 +2528,8 @@ const app = createApp({
             shareTab,
             inboxList,
             inboxLoading,
+            inboxUnreadCount,
+            inboxUnreadSourceCount,
             recipientList,
             recipientLoading,
             userForm,
@@ -2546,6 +2613,7 @@ const app = createApp({
             createFolder,
             shareFile,
             handleShareTargetTypeChange,
+            handleBatchShareTargetTypeChange,
             createShare,
             handleSelectionChange,
             submitUpload,

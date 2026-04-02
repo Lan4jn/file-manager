@@ -42,8 +42,10 @@ public class ShareService {
     }
 
     public ShareLink createBatchShareLink(List<String> objectNames, String bucket, String createBy,
-                                          Integer expirationHours, String password) {
-        return shareLinkService.createBatchShareLink(objectNames, bucket, createBy, expirationHours, password);
+                                          Integer expirationHours, String password,
+                                          String targetType, List<Long> recipientUserIds) {
+        return shareLinkService.createBatchShareLink(
+                objectNames, bucket, createBy, expirationHours, password, targetType, recipientUserIds);
     }
 
     public ShareAccessInfo getShareAccessInfo(String shareCode) {

@@ -95,7 +95,41 @@ class ShareServiceV16Test {
             }
             return materialized.size() == 2
                     && materialized.stream().allMatch(message ->
-                    shareLink.getShareCode().equals(message.getShareCode()));
+                    shareLink.getShareCode().equals(message.getShareCode())
+                            && "admin".equals(message.getSenderUsername()));
+        }));
+    }
+
+    @Test
+    void shouldCreateBatchUserShareAndDispatchMessagesWithoutPassword() {
+        FileService fileService = mock(FileService.class);
+        ShareLinkRepository shareLinkRepository = mock(ShareLinkRepository.class);
+        ShareFileRecordRepository shareFileRecordRepository = mock(ShareFileRecordRepository.class);
+        UserRepository userRepository = mock(UserRepository.class);
+        UserShareMessageRepository userShareMessageRepository = mock(UserShareMessageRepository.class);
+        ConfigService configService = mock(ConfigService.class);
+
+        when(shareLinkRepository.save(any(ShareLink.class))).thenAnswer(invocation -> invocation.getArgument(0));
+        when(userRepository.findById(2L)).thenReturn(Optional.of(buildUser(2L, "alice")));
+
+        ShareService shareService = new ShareService(
+                fileService, shareLinkRepository, shareFileRecordRepository,
+                userRepository, userShareMessageRepository, configService, 24);
+
+        ShareLink shareLink = shareService.createBatchShareLink(
+                List.of("docs/", "images/logo.png"), "bucket-a", "admin", 24, null, "USER", List.of(2L));
+
+        assertEquals("USER", shareLink.getTargetType());
+        assertEquals(Boolean.FALSE, shareLink.getHasPassword());
+        assertEquals(null, shareLink.getPassword());
+        verify(userShareMessageRepository).saveAll(argThat(messages -> {
+            List<com.lan4jn.file.model.UserShareMessage> materialized = new ArrayList<>();
+            for (Object message : messages) {
+                materialized.add((com.lan4jn.file.model.UserShareMessage) message);
+            }
+            return materialized.size() == 1
+                    && shareLink.getShareCode().equals(materialized.get(0).getShareCode())
+                    && "admin".equals(materialized.get(0).getSenderUsername());
         }));
     }
 
