@@ -390,6 +390,29 @@ body {
     color: rgba(255, 255, 255, 0.76);
 }
 
+.sidebar-menu-label {
+    width: 100%;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 12px;
+}
+
+.sidebar-menu-pill {
+    flex: 0 0 auto;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    min-height: 22px;
+    padding: 0 8px;
+    border-radius: 999px;
+    background: #ef4444;
+    color: #fff;
+    font-size: 12px;
+    line-height: 22px;
+    white-space: nowrap;
+}
+
 .sidebar .el-menu-item:hover,
 .sidebar .el-menu-item.is-active {
     background: rgba(255, 255, 255, 0.12);

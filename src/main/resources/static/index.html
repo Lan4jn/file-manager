@@ -164,13 +164,11 @@
                         <el-tooltip v-if="canAccessMenu('shares')" content="创建文件分享链接，支持设置密码和有效期" placement="right" effect="light" :show-after="700">
                             <el-menu-item index="shares">
                                 <el-icon><Share /></el-icon>
-                                <span style="display: inline-flex; width: 100%; align-items: center; justify-content: space-between; gap: 12px;">
+                                <span class="sidebar-menu-label">
                                     <span>我的分享</span>
-                                    <el-badge
-                                        v-if="inboxUnreadSourceCount > 0"
-                                        :value="'有' + inboxUnreadSourceCount + '人分享给你'"
-                                        type="danger"
-                                    />
+                                    <span v-if="inboxUnreadSourceCount > 0" class="sidebar-menu-pill">
+                                        {{ '有' + inboxUnreadSourceCount + '人分享给你' }}
+                                    </span>
                                 </span>
                             </el-menu-item>
                         </el-tooltip>
