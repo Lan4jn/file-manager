@@ -27,6 +27,12 @@
 - `data/`：SQLite 数据库文件
 - `logs/`：应用日志
 
+v1.6-dev 额外关注点：
+
+- 站内信与审计日志数据同样落在 SQLite 中，无需额外挂载新目录
+- 链接分享默认会生成 4 位提取码，分享页访问链接可带 `password` 查询参数
+- 审计日志默认保留 30 天，建议结合数据库备份策略一并规划
+
 建议部署目录示例：
 
 ```text
@@ -141,6 +147,7 @@ app:
 - `minio.endpoint` 必须是后端服务实际可访问的 MinIO API 地址
 - `minio.public-url` 是对外访问、分享页展示使用的地址
 - `jwt.secret` 请使用至少 32 字符的高强度密钥
+- 如果需要展示完整版审计日志菜单，请确保管理员角色已初始化 `MENU_AUDIT_LOG` 与 `API_AUDIT_LOG_READ`
 
 ## 三、Jar 部署
 
@@ -187,6 +194,12 @@ ENV_FILE=prod java -jar file-manager-1.6-dev.jar
 cd /opt/file-manager/app
 nohup env ENV_FILE=prod java -jar file-manager-1.6-dev.jar > ../logs/stdout.log 2>&1 &
 ```
+
+首次启动后建议立即验证：
+
+- 管理员可看到“审计日志”菜单
+- 创建链接分享时会自动生成 4 位提取码
+- 目标用户可在“我的分享 > 收件箱”中收到站内分享
 
 ### 4. systemd 示例
 

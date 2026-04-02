@@ -5,6 +5,8 @@ import com.lan4jn.file.model.FileInfo;
 import com.lan4jn.file.model.ShareLink;
 import com.lan4jn.file.repository.ShareFileRecordRepository;
 import com.lan4jn.file.repository.ShareLinkRepository;
+import com.lan4jn.file.repository.UserRepository;
+import com.lan4jn.file.repository.UserShareMessageRepository;
 import org.junit.jupiter.api.Test;
 
 import java.time.LocalDateTime;
@@ -24,12 +26,15 @@ class ShareServiceTest {
         FileService fileService = mock(FileService.class);
         ShareLinkRepository shareLinkRepository = mock(ShareLinkRepository.class);
         ShareFileRecordRepository shareFileRecordRepository = mock(ShareFileRecordRepository.class);
+        UserRepository userRepository = mock(UserRepository.class);
+        UserShareMessageRepository userShareMessageRepository = mock(UserShareMessageRepository.class);
         ConfigService configService = mock(ConfigService.class);
 
         when(shareLinkRepository.save(any(ShareLink.class))).thenAnswer(invocation -> invocation.getArgument(0));
 
         ShareService shareService = new ShareService(
-                fileService, shareLinkRepository, shareFileRecordRepository, configService, 24);
+                fileService, shareLinkRepository, shareFileRecordRepository,
+                userRepository, userShareMessageRepository, configService, 24);
 
         ShareLink shareLink = shareService.createBatchShareLink(
                 List.of("docs/", "readme.txt"), "bucket-a", "tester", null, "1234");
@@ -40,6 +45,7 @@ class ShareServiceTest {
         assertEquals(Boolean.TRUE, shareLink.getIsFolder());
         assertEquals(Boolean.TRUE, shareLink.getHasPassword());
         assertEquals("1234", shareLink.getPassword());
+        assertEquals("LINK", shareLink.getTargetType());
     }
 
     @Test
@@ -47,6 +53,8 @@ class ShareServiceTest {
         FileService fileService = mock(FileService.class);
         ShareLinkRepository shareLinkRepository = mock(ShareLinkRepository.class);
         ShareFileRecordRepository shareFileRecordRepository = mock(ShareFileRecordRepository.class);
+        UserRepository userRepository = mock(UserRepository.class);
+        UserShareMessageRepository userShareMessageRepository = mock(UserShareMessageRepository.class);
         ConfigService configService = mock(ConfigService.class);
 
         ShareLink shareLink = new ShareLink();
@@ -68,7 +76,8 @@ class ShareServiceTest {
         when(fileService.getFileInfo("alpha.txt", "bucket-a")).thenReturn(alpha);
 
         ShareService shareService = new ShareService(
-                fileService, shareLinkRepository, shareFileRecordRepository, configService, 24);
+                fileService, shareLinkRepository, shareFileRecordRepository,
+                userRepository, userShareMessageRepository, configService, 24);
 
         List<FileInfo> items = shareService.listSharedItems("ABCD1234", null, "");
 

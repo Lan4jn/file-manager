@@ -90,7 +90,15 @@ const app = createApp({
         // Form data
         const newFolderName = ref('');
         const createTestFile = ref(false);
-        const shareForm = ref({ objectName: '', expirationHours: 24, password: '' });
+        const shareForm = ref({
+            objectName: '',
+            bucket: '',
+            expirationHours: 24,
+            password: '',
+            targetType: 'LINK',
+            recipientUserIds: [],
+            isFolder: false
+        });
         const batchShareForm = ref({ expirationHours: 24, password: '' });
         const createEmptyUserForm = () => ({
             username: '',
@@ -172,10 +180,28 @@ const app = createApp({
 
         // Lists
         const shareList = ref([]);
+        const shareTab = ref('my-shares');
+        const inboxList = ref([]);
+        const inboxLoading = ref(false);
+        const recipientList = ref([]);
+        const recipientLoading = ref(false);
         const userList = ref([]);
         const roleList = ref([]);
         const minioKeyList = ref([]);
         const minioKeyLoading = ref(false);
+        const auditLogList = ref([]);
+        const auditLogLoading = ref(false);
+        const auditLogPage = ref(1);
+        const auditLogPageSize = ref(20);
+        const auditLogTotal = ref(0);
+        const auditLogQuery = ref({
+            username: '',
+            module: '',
+            action: '',
+            success: '',
+            startTime: '',
+            endTime: ''
+        });
 
         // Loading states
         const shareLoading = ref(false);
@@ -273,6 +299,7 @@ const app = createApp({
                 buckets: '存储空间',
                 files: '我的文件',
                 shares: '共享中心',
+                'audit-logs': '审计日志',
                 users: '团队成员',
                 roles: '权限角色',
                 'minio-keys': '访问密钥',
@@ -285,7 +312,8 @@ const app = createApp({
             const descriptions = {
                 buckets: '统一管理对象存储桶与容量分布。',
                 files: '按目录组织文件，上传、分享、下载一体化处理。',
-                shares: '集中查看外链、提取码与访问记录。',
+                shares: '集中查看我的分享、站内收件箱与提取码信息。',
+                'audit-logs': '审计文件操作、分享行为与关键系统动作。',
                 users: '维护系统用户、启停状态与角色分配。',
                 roles: '定义可复用的权限集合。',
                 'minio-keys': '发放受限访问凭据并控制桶级权限。',
@@ -385,6 +413,7 @@ const app = createApp({
                 buckets: 'MENU_BUCKETS',
                 files: 'MENU_FILES',
                 shares: 'MENU_SHARES',
+                'audit-logs': 'MENU_AUDIT_LOG',
                 users: 'MENU_USERS',
                 roles: 'MENU_ROLES',
                 'minio-keys': 'MENU_MINIO_KEYS',
@@ -403,7 +432,7 @@ const app = createApp({
         };
 
         const syncCurrentMenu = () => {
-            const menuOrder = ['buckets', 'files', 'shares', 'users', 'roles', 'minio-keys', 'config'];
+            const menuOrder = ['buckets', 'files', 'shares', 'audit-logs', 'users', 'roles', 'minio-keys', 'config'];
             if (canAccessMenu(currentMenu.value)) {
                 return;
             }
@@ -768,6 +797,9 @@ const app = createApp({
                 loadFiles();
             } else if (index === 'shares') {
                 loadShares();
+                loadInbox();
+            } else if (index === 'audit-logs') {
+                loadAuditLogs();
             } else if (index === 'users') {
                 loadUsers();
                 loadRoles();
@@ -1277,6 +1309,29 @@ const app = createApp({
             }
         };
 
+        const buildShareUrl = (share, includePassword = false) => {
+            const url = new URL('/share/' + share.shareCode, window.location.origin);
+            if (includePassword && share.hasPassword && share.password) {
+                url.searchParams.set('password', share.password);
+            }
+            return url.toString();
+        };
+
+        const buildShareCopyText = (share, mode = 'notice') => {
+            const baseUrl = buildShareUrl(share, mode === 'with-password');
+            if (!share.hasPassword || !share.password) {
+                return baseUrl;
+            }
+            if (mode === 'with-password') {
+                return baseUrl;
+            }
+            return baseUrl + ' （分享已加密，提取码：' + share.password + '）';
+        };
+
+        const formatShareTargetType = (share) => {
+            return share.targetType === 'USER' ? '分享到用户' : '分享到链接';
+        };
+
         const deleteFile = async (file) => {
             try {
                 await ElementPlus.ElMessageBox.confirm(
@@ -1322,14 +1377,14 @@ const app = createApp({
                 });
                 if (res.code === 200) {
                     ElementPlus.ElMessage.success('分享创建成功');
-                    const link = window.location.origin + '/share/' + res.data.shareCode;
                     try {
-                        await copyText(link);
-                        ElementPlus.ElMessage.info('分享链接已复制到剪贴板');
+                        await copyText(buildShareCopyText(res.data, 'notice'));
+                        ElementPlus.ElMessage.info('分享链接说明已复制到剪贴板');
                     } catch (copyError) {
                         ElementPlus.ElMessage.warning('分享已创建，但自动复制失败：' + copyError.message);
                     }
                     showBatchShareDialog.value = false;
+                    loadShares();
                 }
             } catch (error) {
                 ElementPlus.ElMessage.error('创建分享失败: ' + (error.response?.data?.message || error.message));
@@ -1428,35 +1483,56 @@ const app = createApp({
             shareForm.value = {
                 objectName: file.objectName,
                 bucket: currentBucket.value,
-                expirationHours: 24,
+                expirationHours: shareConfig.value.expireHours || 24,
                 password: '',
+                targetType: 'LINK',
+                recipientUserIds: [],
                 isFolder: file.isFolder || false
             };
             showShareDialog.value = true;
         };
 
+        const handleShareTargetTypeChange = async (targetType) => {
+            if (targetType === 'USER') {
+                shareForm.value.password = '';
+                await loadRecipients();
+            } else {
+                shareForm.value.recipientUserIds = [];
+            }
+        };
+
         const createShare = async () => {
             try {
+                if (shareForm.value.targetType === 'USER' && (!shareForm.value.recipientUserIds || shareForm.value.recipientUserIds.length === 0)) {
+                    ElementPlus.ElMessage.warning('请选择至少一个接收用户');
+                    return;
+                }
                 const res = await api.post('/share/create', {
                     objectName: shareForm.value.objectName,
                     bucket: shareForm.value.bucket,
                     expirationHours: shareForm.value.expirationHours,
-                    password: shareForm.value.password
+                    password: shareForm.value.targetType === 'USER' ? '' : shareForm.value.password,
+                    targetType: shareForm.value.targetType,
+                    recipientUserIds: shareForm.value.targetType === 'USER' ? shareForm.value.recipientUserIds : []
                 });
                 if (res.code === 200) {
-                    let successMsg = '分享创建成功';
-                    if (shareForm.value.isFolder) {
-                        successMsg += '（支持在线浏览当前目录内容）';
-                    }
-                    ElementPlus.ElMessage.success(successMsg);
-                    const link = window.location.origin + '/share/' + res.data.shareCode;
-                    try {
-                        await copyText(link);
-                        ElementPlus.ElMessage.info('分享链接已复制到剪贴板');
-                    } catch (copyError) {
-                        ElementPlus.ElMessage.warning('分享已创建，但自动复制失败：' + copyError.message);
+                    if (shareForm.value.targetType === 'USER') {
+                        ElementPlus.ElMessage.success('站内分享已发送给指定用户');
+                    } else {
+                        let successMsg = '分享创建成功';
+                        if (shareForm.value.isFolder) {
+                            successMsg += '（支持在线浏览当前目录内容）';
+                        }
+                        ElementPlus.ElMessage.success(successMsg);
+                        try {
+                            await copyText(buildShareCopyText(res.data, 'notice'));
+                            ElementPlus.ElMessage.info('分享链接说明已复制到剪贴板');
+                        } catch (copyError) {
+                            ElementPlus.ElMessage.warning('分享已创建，但自动复制失败：' + copyError.message);
+                        }
                     }
                     showShareDialog.value = false;
+                    loadShares();
                 }
             } catch (error) {
                 ElementPlus.ElMessage.error('创建分享失败: ' + (error.response?.data?.message || error.message));
@@ -1608,8 +1684,13 @@ const app = createApp({
                         ...item,
                         createTimeText: formatDateTime(item.createTime),
                         expireTimeText: formatDateTime(item.expireTime),
-                        hasPasswordText: item.hasPassword ? '有密码' : '公开访问',
-                        shareUrl: window.location.origin + '/share/' + item.shareCode,
+                        hasPasswordText: item.targetType === 'USER'
+                            ? '站内信'
+                            : (item.hasPassword && item.password ? '提取码：' + item.password : '公开访问'),
+                        shareTargetTypeText: formatShareTargetType(item),
+                        shareUrl: buildShareUrl(item, false),
+                        shareUrlWithPassword: buildShareUrl(item, true),
+                        shareNoticeText: buildShareCopyText(item, 'notice'),
                         shareItems: [],
                         shareItemsLoaded: false,
                         shareItemsLoading: false
@@ -1622,15 +1703,82 @@ const app = createApp({
             }
         };
 
-        const copyShareLink = (share) => {
-            const link = window.location.origin + '/share/' + share.shareCode;
-            copyText(link)
+        const copyShareLink = (share, mode = 'notice') => {
+            const content = buildShareCopyText(share, mode);
+            copyText(content)
                 .then(() => {
                     ElementPlus.ElMessage.success('链接已复制到剪贴板');
                 })
                 .catch((error) => {
                     ElementPlus.ElMessage.error('复制失败: ' + error.message);
                 });
+        };
+
+        const loadRecipients = async () => {
+            recipientLoading.value = true;
+            try {
+                const res = await api.get('/messages/recipients');
+                if (res.code === 200) {
+                    recipientList.value = res.data || [];
+                }
+            } catch (error) {
+                ElementPlus.ElMessage.error('加载接收用户失败');
+            } finally {
+                recipientLoading.value = false;
+            }
+        };
+
+        const loadInbox = async () => {
+            inboxLoading.value = true;
+            try {
+                const res = await api.get('/messages/inbox', {
+                    params: { page: 1, size: 100 }
+                });
+                if (res.code === 200) {
+                    inboxList.value = (res.data.items || []).map(item => ({
+                        ...item,
+                        createTimeText: formatDateTime(item.createTime),
+                        readTimeText: formatDateTime(item.readTime)
+                    }));
+                }
+            } catch (error) {
+                ElementPlus.ElMessage.error('加载收件箱失败');
+            } finally {
+                inboxLoading.value = false;
+            }
+        };
+
+        const openInboxShare = async (message) => {
+            try {
+                const res = await api.get('/messages/' + message.id + '/share');
+                if (res.code === 200 && res.data?.shareCode) {
+                    window.open('/share/' + res.data.shareCode, '_blank');
+                    await loadInbox();
+                }
+            } catch (error) {
+                ElementPlus.ElMessage.error(error.response?.data?.message || error.message || '打开分享失败');
+            }
+        };
+
+        const markInboxRead = async (message) => {
+            try {
+                const res = await api.post('/messages/' + message.id + '/read');
+                if (res.code === 200) {
+                    await loadInbox();
+                }
+            } catch (error) {
+                ElementPlus.ElMessage.error('标记已读失败');
+            }
+        };
+
+        const deleteInboxMessage = async (message) => {
+            try {
+                await api.delete('/messages/' + message.id);
+                ElementPlus.ElMessage.success('删除成功');
+                await loadInbox();
+            } catch (error) {
+                ElementPlus.ElMessage.error('删除站内信失败');
+            }
         };
 
         const deleteShare = async (share) => {
@@ -1681,6 +1829,70 @@ const app = createApp({
             if (expanded) {
                 loadShareItemsForManage(row);
             }
+        };
+
+        const loadAuditLogs = async () => {
+            auditLogLoading.value = true;
+            try {
+                const params = {
+                    page: auditLogPage.value,
+                    size: auditLogPageSize.value
+                };
+                if (auditLogQuery.value.username) {
+                    params.username = auditLogQuery.value.username;
+                }
+                if (auditLogQuery.value.module) {
+                    params.module = auditLogQuery.value.module;
+                }
+                if (auditLogQuery.value.action) {
+                    params.action = auditLogQuery.value.action;
+                }
+                if (auditLogQuery.value.success !== '') {
+                    params.success = auditLogQuery.value.success;
+                }
+                if (auditLogQuery.value.startTime) {
+                    params.startTime = auditLogQuery.value.startTime;
+                }
+                if (auditLogQuery.value.endTime) {
+                    params.endTime = auditLogQuery.value.endTime;
+                }
+                const res = await api.get('/audit-logs', { params });
+                if (res.code === 200) {
+                    auditLogList.value = (res.data.items || []).map(item => ({
+                        ...item,
+                        createTimeText: formatDateTime(item.createTime)
+                    }));
+                    auditLogTotal.value = res.data.total || 0;
+                }
+            } catch (error) {
+                ElementPlus.ElMessage.error('加载审计日志失败');
+            } finally {
+                auditLogLoading.value = false;
+            }
+        };
+
+        const resetAuditLogQuery = () => {
+            auditLogQuery.value = {
+                username: '',
+                module: '',
+                action: '',
+                success: '',
+                startTime: '',
+                endTime: ''
+            };
+            auditLogPage.value = 1;
+            loadAuditLogs();
+        };
+
+        const handleAuditLogPageChange = (page) => {
+            auditLogPage.value = page;
+            loadAuditLogs();
+        };
+
+        const handleAuditLogSizeChange = (size) => {
+            auditLogPageSize.value = size;
+            auditLogPage.value = 1;
+            loadAuditLogs();
         };
 
         // User management
@@ -2248,10 +2460,21 @@ const app = createApp({
             createTestFile,
             shareForm,
             batchShareForm,
+            shareTab,
+            inboxList,
+            inboxLoading,
+            recipientList,
+            recipientLoading,
             userForm,
             profileForm,
             roleForm,
             shareList,
+            auditLogList,
+            auditLogLoading,
+            auditLogPage,
+            auditLogPageSize,
+            auditLogTotal,
+            auditLogQuery,
             userList,
             roleList,
             shareLoading,
@@ -2322,6 +2545,7 @@ const app = createApp({
             batchDelete,
             createFolder,
             shareFile,
+            handleShareTargetTypeChange,
             createShare,
             handleSelectionChange,
             submitUpload,
@@ -2334,6 +2558,14 @@ const app = createApp({
             copyShareLink,
             deleteShare,
             handleShareExpand,
+            loadInbox,
+            openInboxShare,
+            markInboxRead,
+            deleteInboxMessage,
+            loadAuditLogs,
+            resetAuditLogQuery,
+            handleAuditLogPageChange,
+            handleAuditLogSizeChange,
             openCreateUserDialog,
             editUser,
             saveUser,

@@ -6,10 +6,13 @@ import com.lan4jn.file.model.FileInfo;
 import com.lan4jn.file.model.ShareAccessInfo;
 import com.lan4jn.file.model.ShareLink;
 import com.lan4jn.file.service.FileService;
+import com.lan4jn.file.service.OperationLogService;
 import com.lan4jn.file.service.PermissionAssertService;
+import com.lan4jn.file.service.PermissionSnapshot;
 import com.lan4jn.file.service.ShareArchivePlan;
 import com.lan4jn.file.service.ShareService;
 import com.lan4jn.file.utils.RequestValidationUtils;
+import jakarta.servlet.http.HttpServletRequest;
 import com.lan4jn.file.rbac.BucketAction;
 import com.lan4jn.file.rbac.PermissionCodes;
 import org.slf4j.Logger;
@@ -34,6 +37,8 @@ import java.io.UnsupportedEncodingException;
 import java.net.URLEncoder;
 import java.util.List;
 import java.util.Map;
+import java.util.Objects;
+import java.util.stream.Collectors;
 
 @RestController
 @RequestMapping("/api/share")
@@ -44,13 +49,16 @@ public class ShareController {
     private final ShareService shareService;
     private final FileService fileService;
     private final PermissionAssertService permissionAssertService;
+    private final OperationLogService operationLogService;
 
     public ShareController(ShareService shareService,
                            FileService fileService,
-                           PermissionAssertService permissionAssertService) {
+                           PermissionAssertService permissionAssertService,
+                           OperationLogService operationLogService) {
         this.shareService = shareService;
         this.fileService = fileService;
         this.permissionAssertService = permissionAssertService;
+        this.operationLogService = operationLogService;
     }
 
     @PostMapping("/create")
@@ -59,6 +67,12 @@ public class ShareController {
         request.setBucket(RequestValidationUtils.nullableText(request.getBucket(), "bucket"));
         request.setPassword(RequestValidationUtils.nullableText(request.getPassword(), "password"));
         request.setExpirationHours(RequestValidationUtils.optionalPositive(request.getExpirationHours(), "expirationHours"));
+        request.setTargetType(RequestValidationUtils.nullableText(request.getTargetType(), "targetType"));
+        if (request.getRecipientUserIds() != null) {
+            request.setRecipientUserIds(request.getRecipientUserIds().stream()
+                    .filter(Objects::nonNull)
+                    .collect(Collectors.toList()));
+        }
         permissionAssertService.assertApiPermission(PermissionCodes.API_SHARE_MANAGE);
         permissionAssertService.assertBucketPermission(resolveBucket(request.getBucket()), BucketAction.SHARE);
 
@@ -157,7 +171,8 @@ public class ShareController {
     @GetMapping("/download-all")
     public ResponseEntity<InputStreamResource> downloadAllSharedItems(
             @RequestParam("shareCode") String shareCode,
-            @RequestParam(value = "password", required = false) String password) throws Exception {
+            @RequestParam(value = "password", required = false) String password,
+            HttpServletRequest request) throws Exception {
         shareCode = RequestValidationUtils.requireText(shareCode, "shareCode");
         password = RequestValidationUtils.nullableText(password, "password");
 
@@ -167,6 +182,7 @@ public class ShareController {
         }
         ShareArchivePlan plan = shareService.prepareShareArchive(shareCode, password);
         shareService.incrementViewCount(shareCode);
+        recordAudit("SHARE", "DOWNLOAD_ALL", "SHARE", shareCode, shareLink.getFileName(), shareLink.getBucket(), shareLink.getObjectName(), request, true, null);
 
         final ShareArchivePlan validatedPlan = plan;
         final String validatedShareCode = shareCode;
@@ -249,5 +265,42 @@ public class ShareController {
 
     private String resolveBucket(String bucket) {
         return (bucket == null || bucket.isBlank()) ? fileService.getDefaultBucket() : bucket;
+    }
+
+    private void recordAudit(String module,
+                             String action,
+                             String targetType,
+                             String targetId,
+                             String targetName,
+                             String bucketName,
+                             String objectName,
+                             HttpServletRequest request,
+                             boolean success,
+                             String errorMessage) {
+        if (operationLogService == null) {
+            return;
+        }
+        operationLogService.safeRecord(
+                resolveOperatorUsername(),
+                module,
+                action,
+                targetType,
+                targetId,
+                targetName,
+                success,
+                errorMessage,
+                bucketName,
+                objectName,
+                request
+        );
+    }
+
+    private String resolveOperatorUsername() {
+        try {
+            PermissionSnapshot snapshot = permissionAssertService.currentSnapshot();
+            return snapshot != null ? snapshot.username() : null;
+        } catch (RuntimeException ignored) {
+            return null;
+        }
     }
 }

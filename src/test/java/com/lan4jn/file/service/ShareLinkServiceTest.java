@@ -18,6 +18,13 @@ import static org.mockito.Mockito.when;
 class ShareLinkServiceTest {
 
     @Test
+    void shouldTreatLegacyNullTargetTypeAsLink() {
+        ShareLink shareLink = new ShareLink();
+
+        assertEquals("LINK", shareLink.getTargetType());
+    }
+
+    @Test
     void shouldCreateFolderShareUsingFolderNameAsDisplayName() {
         FileService fileService = mock(FileService.class);
         ShareLinkRepository shareLinkRepository = mock(ShareLinkRepository.class);

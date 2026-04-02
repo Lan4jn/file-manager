@@ -61,6 +61,7 @@ public class DataInitializer implements CommandLineRunner {
         adminChanged |= grant(adminRole, PermissionCodes.MENU_ROLES, "角色管理", PermissionType.MENU);
         adminChanged |= grant(adminRole, PermissionCodes.MENU_MINIO_KEYS, "MinIO密钥", PermissionType.MENU);
         adminChanged |= grant(adminRole, PermissionCodes.MENU_CONFIG, "系统配置", PermissionType.MENU);
+        adminChanged |= grant(adminRole, PermissionCodes.MENU_AUDIT_LOG, "操作日志", PermissionType.MENU);
         adminChanged |= grant(adminRole, PermissionCodes.API_BUCKET_MANAGE, "存储桶接口权限", PermissionType.API);
         adminChanged |= grant(adminRole, PermissionCodes.API_FILE_BROWSE, "文件浏览接口权限", PermissionType.API);
         adminChanged |= grant(adminRole, PermissionCodes.API_FILE_OPERATE, "文件操作接口权限", PermissionType.API);
@@ -70,6 +71,7 @@ public class DataInitializer implements CommandLineRunner {
         adminChanged |= grant(adminRole, PermissionCodes.API_MINIO_KEY_MANAGE, "MinIO密钥接口权限", PermissionType.API);
         adminChanged |= grant(adminRole, PermissionCodes.API_CONFIG_MANAGE, "系统配置接口权限", PermissionType.API);
         adminChanged |= grant(adminRole, PermissionCodes.API_PERMISSION_READ, "权限读取接口权限", PermissionType.API);
+        adminChanged |= grant(adminRole, PermissionCodes.API_AUDIT_LOG_READ, "操作日志读取接口权限", PermissionType.API);
         adminChanged |= grant(adminRole, PermissionCodes.SYSTEM_CONFIG_ACCESS, "系统配置专属权限", PermissionType.SYSTEM);
         if (adminChanged) {
             roleRepository.save(adminRole);

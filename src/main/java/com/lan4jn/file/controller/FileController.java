@@ -7,9 +7,11 @@ import com.lan4jn.file.model.BucketInfo;
 import com.lan4jn.file.model.FileInfo;
 import com.lan4jn.file.service.ConfigService;
 import com.lan4jn.file.service.FileService;
+import com.lan4jn.file.service.OperationLogService;
 import com.lan4jn.file.service.PermissionAssertService;
 import com.lan4jn.file.service.PermissionSnapshot;
 import com.lan4jn.file.utils.RequestValidationUtils;
+import jakarta.servlet.http.HttpServletRequest;
 import com.lan4jn.file.rbac.BucketAction;
 import com.lan4jn.file.rbac.PermissionCodes;
 import org.slf4j.Logger;
@@ -49,14 +51,17 @@ public class FileController {
     private final FileService fileService;
     private final ConfigService configService;
     private final PermissionAssertService permissionAssertService;
+    private final OperationLogService operationLogService;
     private final ExecutorService executorService = Executors.newCachedThreadPool();
 
     public FileController(FileService fileService,
                           ConfigService configService,
-                          PermissionAssertService permissionAssertService) {
+                          PermissionAssertService permissionAssertService,
+                          OperationLogService operationLogService) {
         this.fileService = fileService;
         this.configService = configService;
         this.permissionAssertService = permissionAssertService;
+        this.operationLogService = operationLogService;
     }
 
     @GetMapping("/buckets")
@@ -179,13 +184,20 @@ public class FileController {
     public Result<Void> createFolder(
             @RequestParam("path") String path,
             @RequestParam(value = "bucket", required = false, defaultValue = "") String bucket,
-            @RequestParam(value = "createTestFile", required = false, defaultValue = "true") boolean createTestFile) {
+            @RequestParam(value = "createTestFile", required = false, defaultValue = "true") boolean createTestFile,
+            HttpServletRequest request) {
         path = RequestValidationUtils.requireText(path, "path");
         bucket = RequestValidationUtils.optionalText(bucket, "bucket");
         permissionAssertService.assertApiPermission(PermissionCodes.API_FILE_OPERATE);
         permissionAssertService.assertBucketPermission(resolveBucket(bucket), BucketAction.CREATE_FOLDER);
         log.info("Creating folder: {}, bucket: {}, createTestFile: {}", path, bucket, createTestFile);
-        fileService.createFolder(path, bucket, createTestFile);
+        try {
+            fileService.createFolder(path, bucket, createTestFile);
+            recordAudit("FILE", "CREATE_FOLDER", "FOLDER", path, path, bucket, path, request, true, null);
+        } catch (RuntimeException e) {
+            recordAudit("FILE", "CREATE_FOLDER", "FOLDER", path, path, bucket, path, request, false, e.getMessage());
+            throw e;
+        }
         return Result.success();
     }
 
@@ -304,7 +316,8 @@ public class FileController {
     @GetMapping("/preview")
     public ResponseEntity<InputStreamResource> preview(
             @RequestParam("objectName") String objectName,
-            @RequestParam(value = "bucket", required = false, defaultValue = "") String bucket)
+            @RequestParam(value = "bucket", required = false, defaultValue = "") String bucket,
+            HttpServletRequest request)
             throws UnsupportedEncodingException {
         objectName = RequestValidationUtils.requireText(objectName, "objectName");
         bucket = RequestValidationUtils.optionalText(bucket, "bucket");
@@ -313,8 +326,10 @@ public class FileController {
         log.info("Previewing file: {}, bucket: {}", objectName, bucket);
 
         FileInfo fileInfo = fileService.getFileInfo(objectName, bucket);
+        fileService.assertPreviewSupported(fileInfo);
         InputStream stream = fileService.getFileStream(objectName, bucket);
         String filename = URLEncoder.encode(fileInfo.getFileName(), "UTF-8");
+        recordAudit("FILE", "PREVIEW", "FILE", objectName, fileInfo.getFileName(), bucket, objectName, request, true, null);
 
         return ResponseEntity.ok()
                 .header(HttpHeaders.CONTENT_DISPOSITION, "inline; filename=\"" + filename + "\"")
@@ -393,5 +408,42 @@ public class FileController {
             return String.format("%.2f MB", bytes / (1024.0 * 1024));
         }
         return String.format("%.2f GB", bytes / (1024.0 * 1024 * 1024));
+    }
+
+    private void recordAudit(String module,
+                             String action,
+                             String targetType,
+                             String targetId,
+                             String targetName,
+                             String bucketName,
+                             String objectName,
+                             HttpServletRequest request,
+                             boolean success,
+                             String errorMessage) {
+        if (operationLogService == null) {
+            return;
+        }
+        operationLogService.safeRecord(
+                resolveOperatorUsername(),
+                module,
+                action,
+                targetType,
+                targetId,
+                targetName,
+                success,
+                errorMessage,
+                bucketName,
+                objectName,
+                request
+        );
+    }
+
+    private String resolveOperatorUsername() {
+        try {
+            PermissionSnapshot snapshot = permissionAssertService.currentSnapshot();
+            return snapshot != null ? snapshot.username() : null;
+        } catch (RuntimeException ignored) {
+            return null;
+        }
     }
 }

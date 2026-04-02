@@ -167,6 +167,12 @@
                                 <span>我的分享</span>
                             </el-menu-item>
                         </el-tooltip>
+                        <el-tooltip v-if="canAccessMenu('audit-logs')" content="查看系统文件操作与关键业务行为日志" placement="right" effect="light" :show-after="700">
+                            <el-menu-item index="audit-logs">
+                                <el-icon><Document /></el-icon>
+                                <span>审计日志</span>
+                            </el-menu-item>
+                        </el-tooltip>
                         <el-tooltip v-if="canAccessMenu('users')" content="管理系统用户，创建、编辑、删除用户账号" placement="right" effect="light" :show-after="700">
                             <el-menu-item index="users">
                                 <el-icon><User /></el-icon>
@@ -419,58 +425,151 @@
                                 <el-icon class="inline-help"><question-filled /></el-icon>
                             </el-tooltip>
                         </div>
-                        <el-table :data="shareList" v-loading="shareLoading" @expand-change="handleShareExpand">
-                            <el-table-column type="expand" width="54">
-                                <template #default="{ row }">
-                                    <div style="padding: 8px 16px; display: grid; grid-template-columns: 360px 1fr; gap: 24px; align-items: start;">
-                                        <div style="line-height: 1.9;">
-                                            <div><strong>分享链接：</strong>{{ row.shareUrl }}</div>
-                                            <div><strong>分享时间：</strong>{{ row.createTimeText }}</div>
-                                            <div><strong>过期时间：</strong>{{ row.expireTimeText }}</div>
-                                            <div><strong>访问方式：</strong>{{ row.hasPasswordText }}</div>
-                                            <div><strong>浏览次数：</strong>{{ row.viewCount || 0 }}</div>
-                                        </div>
-                                        <div>
-                                            <div style="font-weight: 600; margin-bottom: 10px;">分享内容</div>
-                                            <div v-if="!row.isFolder" style="color: #606266;">单文件分享，无额外目录结构。</div>
-                                            <div v-else-if="row.shareItemsLoading" style="color: #909399;">正在加载分享内容...</div>
-                                            <div v-else-if="!row.shareItems.length" style="color: #909399;">当前分享没有可展示的根目录内容。</div>
-                                            <div v-else style="display: flex; flex-wrap: wrap; gap: 10px;">
-                                                <el-tag
-                                                    v-for="item in row.shareItems"
-                                                    :key="item.objectName"
-                                                    :type="item.isFolder ? 'warning' : 'info'"
-                                                    effect="plain"
-                                                    size="large"
-                                                >
-                                                    {{ item.isFolder ? '目录' : '文件' }} / {{ item.fileName }}
-                                                </el-tag>
+                        <el-tabs v-model="shareTab">
+                            <el-tab-pane label="我的分享" name="my-shares">
+                                <el-table :data="shareList" v-loading="shareLoading" @expand-change="handleShareExpand">
+                                    <el-table-column type="expand" width="54">
+                                        <template #default="{ row }">
+                                            <div style="padding: 8px 16px; display: grid; grid-template-columns: 360px 1fr; gap: 24px; align-items: start;">
+                                                <div style="line-height: 1.9;">
+                                                    <div><strong>分享方式：</strong>{{ row.shareTargetTypeText }}</div>
+                                                    <div v-if="row.targetType !== 'USER'"><strong>分享链接：</strong>{{ row.shareUrl }}</div>
+                                                    <div v-if="row.targetType !== 'USER' && row.password"><strong>提取码：</strong>{{ row.password }}</div>
+                                                    <div><strong>分享时间：</strong>{{ row.createTimeText }}</div>
+                                                    <div><strong>过期时间：</strong>{{ row.expireTimeText }}</div>
+                                                    <div><strong>访问方式：</strong>{{ row.hasPasswordText }}</div>
+                                                    <div><strong>浏览次数：</strong>{{ row.viewCount || 0 }}</div>
+                                                </div>
+                                                <div>
+                                                    <div style="font-weight: 600; margin-bottom: 10px;">分享内容</div>
+                                                    <div v-if="!row.isFolder" style="color: #606266;">单文件分享，无额外目录结构。</div>
+                                                    <div v-else-if="row.shareItemsLoading" style="color: #909399;">正在加载分享内容...</div>
+                                                    <div v-else-if="!row.shareItems.length" style="color: #909399;">当前分享没有可展示的根目录内容。</div>
+                                                    <div v-else style="display: flex; flex-wrap: wrap; gap: 10px;">
+                                                        <el-tag
+                                                            v-for="item in row.shareItems"
+                                                            :key="item.objectName"
+                                                            :type="item.isFolder ? 'warning' : 'info'"
+                                                            effect="plain"
+                                                            size="large"
+                                                        >
+                                                            {{ item.isFolder ? '目录' : '文件' }} / {{ item.fileName }}
+                                                        </el-tag>
+                                                    </div>
+                                                </div>
                                             </div>
-                                        </div>
-                                    </div>
-                                </template>
-                            </el-table-column>
-                            <el-table-column prop="fileName" label="文件名"></el-table-column>
-                            <el-table-column prop="shareCode" label="分享码"></el-table-column>
-                            <el-table-column prop="createTimeText" label="分享时间" width="180"></el-table-column>
-                            <el-table-column prop="expireTimeText" label="过期时间" width="180"></el-table-column>
-                            <el-table-column prop="hasPasswordText" label="访问方式" width="110"></el-table-column>
-                            <el-table-column prop="viewCount" label="浏览次数"></el-table-column>
-                            <el-table-column label="操作" width="200">
+                                        </template>
+                                    </el-table-column>
+                                    <el-table-column prop="fileName" label="文件名"></el-table-column>
+                                    <el-table-column prop="shareTargetTypeText" label="分享方式" width="120"></el-table-column>
+                                    <el-table-column prop="shareCode" label="分享码"></el-table-column>
+                                    <el-table-column prop="createTimeText" label="分享时间" width="180"></el-table-column>
+                                    <el-table-column prop="expireTimeText" label="过期时间" width="180"></el-table-column>
+                                    <el-table-column prop="hasPasswordText" label="访问方式" width="140"></el-table-column>
+                                    <el-table-column prop="viewCount" label="浏览次数" width="100"></el-table-column>
+                                    <el-table-column label="操作" width="240">
+                                        <template #default="{ row }">
+                                            <el-dropdown v-if="row.targetType !== 'USER'" @command="command => copyShareLink(row, command)">
+                                                <el-button size="small">
+                                                    <el-icon><copy-document /></el-icon> 复制
+                                                </el-button>
+                                                <template #dropdown>
+                                                    <el-dropdown-menu>
+                                                        <el-dropdown-item command="notice">复制说明式链接</el-dropdown-item>
+                                                        <el-dropdown-item v-if="row.hasPassword" command="with-password">复制带提取码链接</el-dropdown-item>
+                                                    </el-dropdown-menu>
+                                                </template>
+                                            </el-dropdown>
+                                            <el-tag v-else type="info" effect="plain">站内信投递</el-tag>
+                                            <el-tooltip content="删除分享链接" placement="top" effect="light">
+                                                <el-button v-if="hasApiPermission('API_SHARE_MANAGE')" size="small" type="danger" @click="deleteShare(row)">
+                                                    <el-icon><Delete /></el-icon>
+                                                </el-button>
+                                            </el-tooltip>
+                                        </template>
+                                    </el-table-column>
+                                </el-table>
+                            </el-tab-pane>
+                            <el-tab-pane label="收件箱" name="inbox">
+                                <el-table :data="inboxList" v-loading="inboxLoading">
+                                    <el-table-column prop="title" label="标题"></el-table-column>
+                                    <el-table-column prop="createTimeText" label="接收时间" width="180"></el-table-column>
+                                    <el-table-column prop="read" label="状态" width="100">
+                                        <template #default="{ row }">
+                                            <el-tag :type="row.read ? 'success' : 'warning'">{{ row.read ? '已读' : '未读' }}</el-tag>
+                                        </template>
+                                    </el-table-column>
+                                    <el-table-column prop="readTimeText" label="阅读时间" width="180"></el-table-column>
+                                    <el-table-column label="操作" width="220">
+                                        <template #default="{ row }">
+                                            <el-button size="small" type="primary" @click="openInboxShare(row)">打开分享</el-button>
+                                            <el-button v-if="!row.read" size="small" @click="markInboxRead(row)">标记已读</el-button>
+                                            <el-button size="small" type="danger" @click="deleteInboxMessage(row)">删除</el-button>
+                                        </template>
+                                    </el-table-column>
+                                </el-table>
+                            </el-tab-pane>
+                        </el-tabs>
+                    </div>
+
+                    <!-- Audit Logs -->
+                    <div v-if="currentMenu === 'audit-logs' && currentMenuAccessible" class="page-content">
+                        <div class="page-header">
+                            <h3>审计日志</h3>
+                        </div>
+                        <el-form :inline="true" :model="auditLogQuery" style="margin-bottom: 16px; display: flex; gap: 12px; flex-wrap: wrap;">
+                            <el-form-item>
+                                <el-input v-model="auditLogQuery.username" placeholder="操作人"></el-input>
+                            </el-form-item>
+                            <el-form-item>
+                                <el-input v-model="auditLogQuery.module" placeholder="模块，如 FILE/SHARE"></el-input>
+                            </el-form-item>
+                            <el-form-item>
+                                <el-input v-model="auditLogQuery.action" placeholder="动作，如 PREVIEW"></el-input>
+                            </el-form-item>
+                            <el-form-item>
+                                <el-select v-model="auditLogQuery.success" placeholder="结果" clearable style="width: 140px;">
+                                    <el-option label="成功" :value="true"></el-option>
+                                    <el-option label="失败" :value="false"></el-option>
+                                </el-select>
+                            </el-form-item>
+                            <el-form-item>
+                                <el-input v-model="auditLogQuery.startTime" placeholder="开始时间 2026-04-02T10:00:00"></el-input>
+                            </el-form-item>
+                            <el-form-item>
+                                <el-input v-model="auditLogQuery.endTime" placeholder="结束时间 2026-04-02T18:00:00"></el-input>
+                            </el-form-item>
+                            <el-form-item>
+                                <el-button type="primary" @click="loadAuditLogs">查询</el-button>
+                                <el-button @click="resetAuditLogQuery">重置</el-button>
+                            </el-form-item>
+                        </el-form>
+                        <el-table :data="auditLogList" v-loading="auditLogLoading">
+                            <el-table-column prop="createTimeText" label="时间" width="180"></el-table-column>
+                            <el-table-column prop="operatorUsername" label="操作人" width="120"></el-table-column>
+                            <el-table-column prop="module" label="模块" width="120"></el-table-column>
+                            <el-table-column prop="action" label="动作" width="140"></el-table-column>
+                            <el-table-column prop="targetName" label="目标"></el-table-column>
+                            <el-table-column prop="bucketName" label="桶" width="120"></el-table-column>
+                            <el-table-column prop="objectName" label="对象路径"></el-table-column>
+                            <el-table-column prop="success" label="结果" width="90">
                                 <template #default="{ row }">
-                                    <el-tooltip content="复制分享链接到剪贴板" placement="top" effect="light">
-                                        <el-button size="small" @click="copyShareLink(row)">
-                                            <el-icon><copy-document /></el-icon> 复制
-                                        </el-button>
-                                    </el-tooltip>
-                                    <el-tooltip content="删除分享链接" placement="top" effect="light">
-                                        <el-button v-if="hasApiPermission('API_SHARE_MANAGE')" size="small" type="danger" @click="deleteShare(row)">
-                                            <el-icon><Delete /></el-icon>
-                                        </el-button>
-                                    </el-tooltip>
+                                    <el-tag :type="row.success ? 'success' : 'danger'">{{ row.success ? '成功' : '失败' }}</el-tag>
                                 </template>
                             </el-table-column>
+                            <el-table-column prop="errorMessage" label="错误信息" width="200"></el-table-column>
                         </el-table>
+                        <div class="pagination-container">
+                            <el-pagination
+                                v-model:current-page="auditLogPage"
+                                v-model:page-size="auditLogPageSize"
+                                :page-sizes="[20, 50, 100]"
+                                :total="auditLogTotal"
+                                layout="total, sizes, prev, pager, next, jumper"
+                                @size-change="handleAuditLogSizeChange"
+                                @current-change="handleAuditLogPageChange"
+                            />
+                        </div>
                     </div>
 
                     <!-- User Management -->
@@ -773,8 +872,14 @@
         </el-dialog>
 
         <!-- Share Dialog -->
-        <el-dialog v-model="showShareDialog" title="分享文件" width="400px">
+        <el-dialog v-model="showShareDialog" title="分享文件" width="520px">
             <el-form :model="shareForm">
+                <el-form-item label="分享方式">
+                    <el-radio-group v-model="shareForm.targetType" @change="handleShareTargetTypeChange">
+                        <el-radio-button label="LINK">分享到链接</el-radio-button>
+                        <el-radio-button label="USER">分享到用户</el-radio-button>
+                    </el-radio-group>
+                </el-form-item>
                 <el-form-item label="有效期">
                     <el-select v-model="shareForm.expirationHours" placeholder="选择有效期" style="width: 100%">
                         <el-option label="24小时" :value="24"></el-option>
@@ -782,8 +887,27 @@
                         <el-option label="30天" :value="720"></el-option>
                     </el-select>
                 </el-form-item>
-                <el-form-item label="密码(可选)">
-                    <el-input v-model="shareForm.password" type="password" placeholder="留空则无需密码"></el-input>
+                <el-form-item v-if="shareForm.targetType === 'LINK'" label="提取码">
+                    <el-input v-model="shareForm.password" placeholder="留空则自动生成4位提取码"></el-input>
+                </el-form-item>
+                <el-form-item v-else label="接收用户">
+                    <el-select
+                        v-model="shareForm.recipientUserIds"
+                        multiple
+                        filterable
+                        collapse-tags
+                        collapse-tags-tooltip
+                        :loading="recipientLoading"
+                        placeholder="选择接收分享的用户"
+                        style="width: 100%"
+                    >
+                        <el-option
+                            v-for="recipient in recipientList"
+                            :key="recipient.id"
+                            :label="recipient.nickname ? (recipient.nickname + '（' + recipient.username + '）') : recipient.username"
+                            :value="recipient.id"
+                        ></el-option>
+                    </el-select>
                 </el-form-item>
             </el-form>
             <template #footer>
@@ -807,8 +931,8 @@
                         <el-option label="30天" :value="720"></el-option>
                     </el-select>
                 </el-form-item>
-                <el-form-item label="密码(可选)">
-                    <el-input v-model="batchShareForm.password" type="password" placeholder="留空则无需密码"></el-input>
+                <el-form-item label="提取码">
+                    <el-input v-model="batchShareForm.password" placeholder="留空则自动生成4位提取码"></el-input>
                 </el-form-item>
             </el-form>
             <div style="display: flex; justify-content: flex-end; gap: 12px; flex-wrap: wrap; margin-top: 20px;">

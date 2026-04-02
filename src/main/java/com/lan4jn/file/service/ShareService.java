@@ -6,8 +6,11 @@ import com.lan4jn.file.model.ShareAccessInfo;
 import com.lan4jn.file.model.ShareLink;
 import com.lan4jn.file.repository.ShareFileRecordRepository;
 import com.lan4jn.file.repository.ShareLinkRepository;
+import com.lan4jn.file.repository.UserRepository;
+import com.lan4jn.file.repository.UserShareMessageRepository;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Transactional;
 
 import java.io.OutputStream;
 import java.util.List;
@@ -21,15 +24,19 @@ public class ShareService {
     public ShareService(FileService fileService,
                         ShareLinkRepository shareLinkRepository,
                         ShareFileRecordRepository shareFileRecordRepository,
+                        UserRepository userRepository,
+                        UserShareMessageRepository userShareMessageRepository,
                         ConfigService configService,
                         @Value("${share.default-expiration: 24}") Integer defaultExpiration) {
         ShareSupport shareSupport = new ShareSupport();
         this.shareLinkService = new ShareLinkService(
-                fileService, shareLinkRepository, shareFileRecordRepository, shareSupport, defaultExpiration);
+                fileService, shareLinkRepository, shareFileRecordRepository,
+                userRepository, userShareMessageRepository, shareSupport, defaultExpiration);
         this.shareAccessService = new ShareAccessService(
                 fileService, configService, shareLinkService, shareSupport);
     }
 
+    @Transactional
     public ShareLink createShareLink(CreateShareRequest request, String createBy) {
         return shareLinkService.createShareLink(request, createBy);
     }

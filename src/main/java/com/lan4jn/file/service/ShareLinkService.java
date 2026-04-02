@@ -4,38 +4,60 @@ import cn.hutool.core.util.IdUtil;
 import cn.hutool.core.util.StrUtil;
 import cn.hutool.json.JSONUtil;
 import com.lan4jn.file.dto.CreateShareRequest;
+import com.lan4jn.file.entity.User;
 import com.lan4jn.file.model.ShareAccessInfo;
 import com.lan4jn.file.model.ShareLink;
+import com.lan4jn.file.model.UserShareMessage;
 import com.lan4jn.file.repository.ShareFileRecordRepository;
 import com.lan4jn.file.repository.ShareLinkRepository;
+import com.lan4jn.file.repository.UserRepository;
+import com.lan4jn.file.repository.UserShareMessageRepository;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 import java.time.LocalDateTime;
+import java.util.ArrayList;
 import java.util.List;
 import java.util.Objects;
 import java.util.Optional;
+import java.util.concurrent.ThreadLocalRandom;
 
 final class ShareLinkService {
 
     private static final Logger log = LoggerFactory.getLogger(ShareLinkService.class);
+    private static final String TARGET_TYPE_LINK = "LINK";
+    private static final String TARGET_TYPE_USER = "USER";
 
     private final FileService fileService;
     private final ShareLinkRepository shareLinkRepository;
     private final ShareFileRecordRepository shareFileRecordRepository;
+    private final UserRepository userRepository;
+    private final UserShareMessageRepository userShareMessageRepository;
     private final ShareSupport shareSupport;
     private final Integer defaultExpiration;
 
     ShareLinkService(FileService fileService,
                      ShareLinkRepository shareLinkRepository,
                      ShareFileRecordRepository shareFileRecordRepository,
+                     UserRepository userRepository,
+                     UserShareMessageRepository userShareMessageRepository,
                      ShareSupport shareSupport,
                      Integer defaultExpiration) {
         this.fileService = fileService;
         this.shareLinkRepository = shareLinkRepository;
         this.shareFileRecordRepository = shareFileRecordRepository;
+        this.userRepository = userRepository;
+        this.userShareMessageRepository = userShareMessageRepository;
         this.shareSupport = shareSupport;
         this.defaultExpiration = defaultExpiration;
+    }
+
+    ShareLinkService(FileService fileService,
+                     ShareLinkRepository shareLinkRepository,
+                     ShareFileRecordRepository shareFileRecordRepository,
+                     ShareSupport shareSupport,
+                     Integer defaultExpiration) {
+        this(fileService, shareLinkRepository, shareFileRecordRepository, null, null, shareSupport, defaultExpiration);
     }
 
     ShareLink createShareLink(CreateShareRequest request, String createBy) {
@@ -48,6 +70,8 @@ final class ShareLinkService {
         String bucket = request.getBucket();
         String objectName = request.getObjectName();
         boolean isFolder = objectName.endsWith("/");
+        String targetType = normalizeTargetType(request.getTargetType());
+        String password = resolvePassword(targetType, request.getPassword());
 
         ShareLink shareLink = new ShareLink();
         shareLink.setShareCode(shareCode);
@@ -60,12 +84,16 @@ final class ShareLinkService {
         shareLink.setCreateTime(LocalDateTime.now());
         shareLink.setCreateBy(createBy);
         shareLink.setViewCount(0L);
-        shareLink.setHasPassword(StrUtil.isNotEmpty(request.getPassword()));
-        shareLink.setPassword(request.getPassword());
+        shareLink.setHasPassword(StrUtil.isNotEmpty(password));
+        shareLink.setPassword(password);
+        shareLink.setTargetType(targetType);
         shareLink.setIsFolder(isFolder);
         shareLink.setZipFileName(null);
 
         ShareLink saved = shareLinkRepository.save(shareLink);
+        if (TARGET_TYPE_USER.equals(targetType)) {
+            dispatchUserShareMessages(saved, request.getRecipientUserIds());
+        }
         log.info("Share link created: {}", shareCode);
         return saved;
     }
@@ -80,6 +108,7 @@ final class ShareLinkService {
         if (expirationHours == null || expirationHours <= 0) {
             expirationHours = defaultExpiration;
         }
+        String resolvedPassword = resolvePassword(TARGET_TYPE_LINK, password);
 
         ShareLink shareLink = new ShareLink();
         shareLink.setShareCode(shareCode);
@@ -90,8 +119,9 @@ final class ShareLinkService {
         shareLink.setCreateTime(LocalDateTime.now());
         shareLink.setCreateBy(createBy);
         shareLink.setViewCount(0L);
-        shareLink.setHasPassword(StrUtil.isNotEmpty(password));
-        shareLink.setPassword(password);
+        shareLink.setHasPassword(StrUtil.isNotEmpty(resolvedPassword));
+        shareLink.setPassword(resolvedPassword);
+        shareLink.setTargetType(TARGET_TYPE_LINK);
         shareLink.setIsFolder(true);
         shareLink.setZipFileName(null);
 
@@ -179,5 +209,51 @@ final class ShareLinkService {
 
     private String generateShareCode() {
         return IdUtil.fastSimpleUUID().substring(0, 8).toUpperCase();
+    }
+
+    private String normalizeTargetType(String targetType) {
+        if (StrUtil.isBlank(targetType)) {
+            return TARGET_TYPE_LINK;
+        }
+        String normalized = targetType.trim().toUpperCase();
+        if (!TARGET_TYPE_LINK.equals(normalized) && !TARGET_TYPE_USER.equals(normalized)) {
+            throw new RuntimeException("不支持的分享类型");
+        }
+        return normalized;
+    }
+
+    private String resolvePassword(String targetType, String password) {
+        if (TARGET_TYPE_USER.equals(targetType)) {
+            return null;
+        }
+        String normalized = StrUtil.trimToNull(password);
+        if (normalized != null) {
+            return normalized;
+        }
+        return String.format("%04d", ThreadLocalRandom.current().nextInt(10000));
+    }
+
+    private void dispatchUserShareMessages(ShareLink shareLink, List<Long> recipientUserIds) {
+        if (userRepository == null || userShareMessageRepository == null) {
+            throw new RuntimeException("用户分享依赖未初始化");
+        }
+        if (recipientUserIds == null || recipientUserIds.isEmpty()) {
+            throw new RuntimeException("请选择至少一个收件人");
+        }
+        List<UserShareMessage> messages = new ArrayList<>();
+        for (Long recipientUserId : recipientUserIds) {
+            User user = userRepository.findById(recipientUserId)
+                    .orElseThrow(() -> new RuntimeException("收件人不存在: " + recipientUserId));
+            UserShareMessage message = new UserShareMessage();
+            message.setRecipientUserId(user.getId());
+            message.setShareCode(shareLink.getShareCode());
+            message.setTitle(shareLink.getFileName());
+            message.setRead(false);
+            message.setReadTime(null);
+            message.setCreateTime(LocalDateTime.now());
+            message.setDeleted(false);
+            messages.add(message);
+        }
+        userShareMessageRepository.saveAll(messages);
     }
 }

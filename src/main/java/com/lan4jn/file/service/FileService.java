@@ -11,10 +11,21 @@ import org.springframework.web.multipart.MultipartFile;
 
 import java.io.InputStream;
 import java.io.OutputStream;
+import java.util.Locale;
 import java.util.List;
+import java.util.Set;
 
 @Service
 public class FileService {
+
+    private static final Set<String> PREVIEWABLE_EXTENSIONS = Set.of(
+            "png", "jpg", "jpeg", "gif", "webp", "bmp", "svg",
+            "pdf",
+            "txt", "md", "log", "json", "xml", "yml", "yaml", "properties", "csv", "java", "js",
+            "ts", "css", "html", "htm", "sql", "sh",
+            "mp3", "wav", "ogg", "m4a", "aac", "flac",
+            "mp4", "webm", "mov", "m4v"
+    );
 
     private final FileDomainSupport support;
     private final BucketService bucketService;
@@ -108,6 +119,23 @@ public class FileService {
         return fileQueryService.getPreviewUrl(objectName, bucket, defaultBucket, publicUrl);
     }
 
+    public void assertPreviewSupported(FileInfo fileInfo) {
+        if (fileInfo == null || Boolean.TRUE.equals(fileInfo.getIsFolder())) {
+            throw new IllegalArgumentException("当前对象不支持在线预览");
+        }
+        String extension = extractExtension(fileInfo.getFileName());
+        String contentType = fileInfo.getContentType() == null ? "" : fileInfo.getContentType().toLowerCase(Locale.ROOT);
+        if (contentType.startsWith("image/")
+                || contentType.startsWith("text/")
+                || contentType.startsWith("audio/")
+                || contentType.startsWith("video/")
+                || "application/pdf".equals(contentType)
+                || PREVIEWABLE_EXTENSIONS.contains(extension)) {
+            return;
+        }
+        throw new IllegalArgumentException("当前文件类型不支持在线预览");
+    }
+
     public List<FileInfo> listFilesRecursive(String folder, String bucket) {
         return fileQueryService.listFilesRecursive(folder, bucket, defaultBucket);
     }
@@ -134,5 +162,16 @@ public class FileService {
 
     private String getFileName(String objectName) {
         return support.getFileName(objectName);
+    }
+
+    private String extractExtension(String fileName) {
+        if (fileName == null) {
+            return "";
+        }
+        int dotIndex = fileName.lastIndexOf('.');
+        if (dotIndex < 0 || dotIndex == fileName.length() - 1) {
+            return "";
+        }
+        return fileName.substring(dotIndex + 1).toLowerCase(Locale.ROOT);
     }
 }

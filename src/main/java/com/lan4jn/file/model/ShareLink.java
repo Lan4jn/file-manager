@@ -6,6 +6,8 @@ import java.time.LocalDateTime;
 @Entity
 @Table(name = "sys_share_link")
 public class ShareLink {
+    private static final String DEFAULT_TARGET_TYPE = "LINK";
+
     @Id
     @GeneratedValue(strategy = GenerationType.IDENTITY)
     private Long id;
@@ -21,6 +23,7 @@ public class ShareLink {
     private Long viewCount;
     private Boolean hasPassword;
     private String password;
+    private String targetType;
     private Boolean isFolder;  // 鏄惁鏄洰褰曞垎浜?
     private String zipFileName;  // 鍘嬬缉鍖呮枃浠跺悕
 
@@ -104,6 +107,17 @@ public class ShareLink {
         this.password = password;
     }
 
+    public String getTargetType() {
+        if (targetType == null || targetType.trim().isEmpty()) {
+            return DEFAULT_TARGET_TYPE;
+        }
+        return targetType.trim().toUpperCase();
+    }
+
+    public void setTargetType(String targetType) {
+        this.targetType = targetType;
+    }
+
     public Boolean getIsFolder() {
         return isFolder;
     }
@@ -120,4 +134,3 @@ public class ShareLink {
         this.zipFileName = zipFileName;
     }
 }
-

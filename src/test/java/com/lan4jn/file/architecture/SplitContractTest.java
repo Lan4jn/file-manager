@@ -14,6 +14,8 @@ import com.lan4jn.file.service.FileService;
 import com.lan4jn.file.service.ShareService;
 import com.lan4jn.file.repository.ShareFileRecordRepository;
 import com.lan4jn.file.repository.ShareLinkRepository;
+import com.lan4jn.file.repository.UserRepository;
+import com.lan4jn.file.repository.UserShareMessageRepository;
 import io.minio.MinioClient;
 import org.junit.jupiter.api.Test;
 import org.mockito.Mockito;
@@ -101,10 +103,14 @@ class SplitContractTest {
 
         ShareLinkRepository shareLinkRepository = Mockito.mock(ShareLinkRepository.class);
         ShareFileRecordRepository shareFileRecordRepository = Mockito.mock(ShareFileRecordRepository.class);
+        UserRepository userRepository = Mockito.mock(UserRepository.class);
+        UserShareMessageRepository userShareMessageRepository = Mockito.mock(UserShareMessageRepository.class);
         assertDoesNotThrow(() -> new ShareService(
                 fileService,
                 shareLinkRepository,
                 shareFileRecordRepository,
+                userRepository,
+                userShareMessageRepository,
                 configService,
                 24
         ));

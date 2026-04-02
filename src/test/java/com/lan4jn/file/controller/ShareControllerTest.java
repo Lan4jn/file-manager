@@ -5,16 +5,25 @@ import com.lan4jn.file.model.FileInfo;
 import com.lan4jn.file.model.ShareAccessInfo;
 import com.lan4jn.file.model.ShareLink;
 import com.lan4jn.file.service.FileService;
+import com.lan4jn.file.service.OperationLogService;
 import com.lan4jn.file.service.PermissionAssertService;
+import com.lan4jn.file.service.PermissionSnapshot;
+import com.lan4jn.file.service.ShareArchivePlan;
 import com.lan4jn.file.service.ShareService;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.test.web.servlet.MockMvc;
 import org.springframework.test.web.servlet.setup.MockMvcBuilders;
 
+import java.util.Arrays;
 import java.time.LocalDateTime;
+import java.util.LinkedHashMap;
 import java.util.List;
+import java.util.Map;
+import java.util.Set;
 
+import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.verify;
@@ -27,15 +36,26 @@ class ShareControllerTest {
 
     private MockMvc mockMvc;
     private ShareService shareService;
+    private OperationLogService operationLogService;
 
     @BeforeEach
     void setUp() {
         shareService = mock(ShareService.class);
         FileService fileService = mock(FileService.class);
         PermissionAssertService permissionAssertService = mock(PermissionAssertService.class);
-        mockMvc = MockMvcBuilders.standaloneSetup(new ShareController(shareService, fileService, permissionAssertService))
+        operationLogService = mock(OperationLogService.class);
+        mockMvc = MockMvcBuilders.standaloneSetup(new ShareController(shareService, fileService, permissionAssertService, operationLogService))
                 .setControllerAdvice(new GlobalExceptionHandler())
                 .build();
+    }
+
+    @Test
+    void shouldExposeSinglePublicConstructorForSpringInjection() {
+        long publicConstructorCount = Arrays.stream(ShareController.class.getConstructors())
+                .filter(constructor -> constructor.getDeclaringClass().equals(ShareController.class))
+                .count();
+
+        assertEquals(1L, publicConstructorCount);
     }
 
     @Test
@@ -91,5 +111,44 @@ class ShareControllerTest {
                 .andExpect(jsonPath("$.message").value("分享下载失败"));
 
         verify(shareService, never()).incrementViewCount("SHARE001");
+    }
+
+    @Test
+    void shouldRecordAuditLogWhenDownloadAllSharedItemsSucceeds() throws Exception {
+        ShareLink shareLink = new ShareLink();
+        shareLink.setShareCode("SHARE001");
+        shareLink.setFileName("docs");
+        shareLink.setBucket("bucket-a");
+        shareLink.setObjectName("docs/");
+        shareLink.setIsFolder(true);
+
+        when(shareService.peekShareInfo("SHARE001", null)).thenReturn(shareLink);
+        when(shareService.prepareShareArchive("SHARE001", null))
+                .thenReturn(new ShareArchivePlan(shareLink, new LinkedHashMap<>()));
+        PermissionAssertService permissionAssertService = mock(PermissionAssertService.class);
+        when(permissionAssertService.currentSnapshot()).thenReturn(new PermissionSnapshot(
+                1L, "admin", true, Set.of("ADMIN"), Set.of(), Set.of(), Map.of()
+        ));
+        FileService fileService = mock(FileService.class);
+        mockMvc = MockMvcBuilders.standaloneSetup(new ShareController(shareService, fileService, permissionAssertService, operationLogService))
+                .setControllerAdvice(new GlobalExceptionHandler())
+                .build();
+
+        mockMvc.perform(get("/api/share/download-all").param("shareCode", "SHARE001"))
+                .andExpect(status().isOk());
+
+        verify(operationLogService).safeRecord(
+                org.mockito.Mockito.eq("admin"),
+                org.mockito.Mockito.eq("SHARE"),
+                org.mockito.Mockito.eq("DOWNLOAD_ALL"),
+                org.mockito.Mockito.eq("SHARE"),
+                org.mockito.Mockito.eq("SHARE001"),
+                org.mockito.Mockito.eq("docs"),
+                org.mockito.Mockito.eq(true),
+                org.mockito.Mockito.eq(null),
+                org.mockito.Mockito.eq("bucket-a"),
+                org.mockito.Mockito.eq("docs/"),
+                any()
+        );
     }
 }

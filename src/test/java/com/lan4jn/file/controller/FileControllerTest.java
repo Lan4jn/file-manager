@@ -6,6 +6,7 @@ import com.lan4jn.file.model.BucketInfo;
 import com.lan4jn.file.model.FileInfo;
 import com.lan4jn.file.service.ConfigService;
 import com.lan4jn.file.service.FileService;
+import com.lan4jn.file.service.OperationLogService;
 import com.lan4jn.file.service.PermissionAssertService;
 import com.lan4jn.file.service.PermissionSnapshot;
 import org.junit.jupiter.api.BeforeEach;
@@ -13,11 +14,14 @@ import org.junit.jupiter.api.Test;
 import org.springframework.test.web.servlet.MockMvc;
 import org.springframework.test.web.servlet.setup.MockMvcBuilders;
 
+import java.lang.reflect.Constructor;
 import java.time.LocalDateTime;
+import java.util.Arrays;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
 
+import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.never;
@@ -34,15 +38,26 @@ class FileControllerTest {
     private FileService fileService;
     private PermissionAssertService permissionAssertService;
     private ConfigService configService;
+    private OperationLogService operationLogService;
 
     @BeforeEach
     void setUp() {
         fileService = mock(FileService.class);
         configService = mock(ConfigService.class);
         permissionAssertService = mock(PermissionAssertService.class);
-        mockMvc = MockMvcBuilders.standaloneSetup(new FileController(fileService, configService, permissionAssertService))
+        operationLogService = mock(OperationLogService.class);
+        mockMvc = MockMvcBuilders.standaloneSetup(new FileController(fileService, configService, permissionAssertService, operationLogService))
                 .setControllerAdvice(new GlobalExceptionHandler())
                 .build();
+    }
+
+    @Test
+    void shouldExposeSinglePublicConstructorForSpringInjection() {
+        long publicConstructorCount = Arrays.stream(FileController.class.getConstructors())
+                .filter(constructor -> constructor.getDeclaringClass().equals(FileController.class))
+                .count();
+
+        assertEquals(1L, publicConstructorCount);
     }
 
     @Test
@@ -118,5 +133,34 @@ class FileControllerTest {
                 .andExpect(jsonPath("$.message").value("批量下载总大小超过限制(10 B)"));
 
         verify(fileService, never()).downloadResolvedFilesAsZip(eq(List.of(fileInfo)), eq(""), any());
+    }
+
+    @Test
+    void shouldRecordAuditLogWhenCreateFolderSucceeds() throws Exception {
+        when(permissionAssertService.currentSnapshot()).thenReturn(new PermissionSnapshot(
+                1L, "admin", true, Set.of("ADMIN"), Set.of(), Set.of(), Map.of()
+        ));
+        mockMvc.perform(get("/api/file/info").param("objectName", "docs/readme.txt"));
+        mockMvc.perform(org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post("/api/file/folder")
+                        .param("path", "docs/new-folder")
+                        .param("bucket", "bucket-a")
+                        .param("createTestFile", "false"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.code").value(200));
+
+        verify(fileService).createFolder("docs/new-folder", "bucket-a", false);
+        verify(operationLogService).safeRecord(
+                eq("admin"),
+                eq("FILE"),
+                eq("CREATE_FOLDER"),
+                eq("FOLDER"),
+                eq("docs/new-folder"),
+                eq("docs/new-folder"),
+                eq(true),
+                eq(null),
+                eq("bucket-a"),
+                eq("docs/new-folder"),
+                any()
+        );
     }
 }
