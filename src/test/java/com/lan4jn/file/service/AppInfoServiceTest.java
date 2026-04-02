@@ -28,7 +28,7 @@ class AppInfoServiceTest {
         List<AppInfoService.VersionNoteInfo> versions = appInfoService.listVersionNotes();
 
         assertFalse(versions.isEmpty());
-        assertEquals("v1.5", versions.get(0).version());
-        assertEquals("v1.5.md", versions.get(0).fileName());
+        assertEquals("v1.6-dev", versions.get(0).version());
+        assertEquals("v1.6-dev.md", versions.get(0).fileName());
     }
 }

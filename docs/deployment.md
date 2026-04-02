@@ -5,7 +5,7 @@
 - Jar 部署
 - Docker 部署
 
-本文基于当前版本 `1.5`，运行环境为 `Java 17`。
+本文基于当前版本 `1.6-dev`，运行环境为 `Java 17`。
 
 ## 一、部署前准备
 
@@ -32,7 +32,7 @@
 ```text
 /opt/file-manager/
 ├── app/
-│   └── file-manager-1.5.jar
+│   └── file-manager-1.6-dev.jar
 ├── config/
 │   ├── application.yml
 │   ├── application-prod.yml
@@ -155,14 +155,14 @@ mvn clean package
 产物位于：
 
 ```text
-target/file-manager-1.5.jar
+target/file-manager-1.6-dev.jar
 ```
 
 ### 2. 复制部署文件
 
 将以下内容复制到目标服务器：
 
-- `target/file-manager-1.5.jar`
+- `target/file-manager-1.6-dev.jar`
 - `config/`
 
 如果目标机器还没有对应目录，请提前创建：
@@ -178,14 +178,14 @@ mkdir -p /opt/file-manager/logs
 
 ```bash
 cd /opt/file-manager/app
-ENV_FILE=prod java -jar file-manager-1.5.jar
+ENV_FILE=prod java -jar file-manager-1.6-dev.jar
 ```
 
 后台运行示例：
 
 ```bash
 cd /opt/file-manager/app
-nohup env ENV_FILE=prod java -jar file-manager-1.5.jar > ../logs/stdout.log 2>&1 &
+nohup env ENV_FILE=prod java -jar file-manager-1.6-dev.jar > ../logs/stdout.log 2>&1 &
 ```
 
 ### 4. systemd 示例
@@ -201,7 +201,7 @@ After=network.target
 Type=simple
 WorkingDirectory=/opt/file-manager/app
 Environment=ENV_FILE=prod
-ExecStart=/usr/bin/java -jar /opt/file-manager/app/file-manager-1.5.jar
+ExecStart=/usr/bin/java -jar /opt/file-manager/app/file-manager-1.6-dev.jar
 Restart=always
 RestartSec=5
 User=www-data
@@ -233,7 +233,7 @@ FROM eclipse-temurin:17-jre
 
 WORKDIR /app
 
-COPY target/file-manager-1.5.jar /app/file-manager.jar
+COPY target/file-manager-1.6-dev.jar /app/file-manager.jar
 
 EXPOSE 8080 19080
 
@@ -246,7 +246,7 @@ ENTRYPOINT ["java", "-jar", "/app/file-manager.jar"]
 
 ```bash
 mvn clean package
-docker build -t file-manager:1.5 .
+docker build -t file-manager:1.6-dev .
 ```
 
 ### 3. 运行容器
@@ -259,7 +259,7 @@ docker run -d \
   -v /opt/file-manager/data:/app/data \
   -v /opt/file-manager/logs:/app/logs \
   -e ENV_FILE=prod \
-  file-manager:1.5
+  file-manager:1.6-dev
 ```
 
 说明：
@@ -276,7 +276,7 @@ docker run -d \
 ```yaml
 services:
   file-manager:
-    image: file-manager:1.5
+    image: file-manager:1.6-dev
     container_name: file-manager
     restart: always
     ports:

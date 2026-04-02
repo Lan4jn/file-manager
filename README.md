@@ -4,7 +4,7 @@
 
 ## 版本信息
 
-- 当前版本：`v1.5`
+- 当前版本：`v1.6-dev`
 - JDK：`17+`
 - Spring Boot：`3.2.5`
 
@@ -103,7 +103,7 @@ ui:
 
 ```bash
 mvn clean package
-ENV_FILE=dev java -jar target/file-manager-1.5.jar
+ENV_FILE=dev java -jar target/file-manager-1.6-dev.jar
 ```
 
 开发阶段也可以直接运行：
@@ -180,7 +180,7 @@ mvn -DskipTests compile
 
 当前版本说明见：
 
-- [v1.5.md](/Users/mewcapoo/Project/file-manager/src/main/resources/version-notes/v1.5.md)
+- [v1.6-dev.md](/Users/mewcapoo/Project/file-manager/src/main/resources/version-notes/v1.6-dev.md)
 
 ## 许可证
 
