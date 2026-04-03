@@ -1145,99 +1145,105 @@
                 </el-form-item>
                 <el-form-item label="桶权限">
                     <div class="role-bucket-panel">
-                        <div class="role-bucket-panel__toolbar">
-                            <el-button plain @click="addRoleBucketPermission">添加项</el-button>
+                        <template v-if="shouldShowRoleBucketPermissionEditor">
+                            <div class="role-bucket-panel__toolbar">
+                                <el-button plain @click="addRoleBucketPermission">添加项</el-button>
+                            </div>
+                            <div class="role-bucket-panel__hint">
+                                这里用于给角色配置指定存储桶授权，适用于文件浏览、文件操作和分享接口权限。
+                            </div>
+                            <el-table
+                                class="role-bucket-table"
+                                :data="roleForm.bucketPermissions"
+                                border
+                                size="small"
+                            >
+                                <el-table-column label="生效" width="72">
+                                    <template #default="{ row }">
+                                        <el-checkbox v-model="row.enabled"></el-checkbox>
+                                    </template>
+                                </el-table-column>
+                                <el-table-column label="存储桶" min-width="180">
+                                    <template #default="{ row, $index }">
+                                        <el-select
+                                            v-if="roleBucketEditIndex === $index"
+                                            v-model="row.bucketName"
+                                            placeholder="选择存储桶"
+                                            style="width: 100%"
+                                            @change="handleRoleBucketNameChange($index, row)"
+                                        >
+                                            <el-option
+                                                v-for="bucketOption in availableBucketOptions"
+                                                :key="bucketOption.value"
+                                                :label="bucketOption.label"
+                                                :value="bucketOption.value"
+                                            ></el-option>
+                                        </el-select>
+                                        <span v-else>{{ formatBucketPermissionBuckets(row.bucketName) }}</span>
+                                    </template>
+                                </el-table-column>
+                                <el-table-column label="权限" min-width="300">
+                                    <template #default="{ row, $index }">
+                                        <el-select
+                                            v-if="roleBucketEditIndex === $index"
+                                            v-model="row.actions"
+                                            multiple
+                                            placeholder="选择权限"
+                                            style="width: 100%"
+                                            @change="handleRoleBucketActionsChange($event, row)"
+                                        >
+                                            <template #tag="{ data }">
+                                                <el-tag
+                                                    v-if="row.actions && row.actions.length && data.value === row.actions[0]"
+                                                    disable-transitions
+                                                >
+                                                    {{ getRoleBucketActionDisplayText(row.actions) }}
+                                                </el-tag>
+                                            </template>
+                                            <el-option
+                                                v-for="action in bucketActionOptions"
+                                                :key="action.value"
+                                                :label="action.label"
+                                                :value="action.value"
+                                            ></el-option>
+                                        </el-select>
+                                        <span v-else>{{ formatBucketPermissionActions(row.actions) }}</span>
+                                    </template>
+                                </el-table-column>
+                                <el-table-column label="操作" width="148" align="center">
+                                    <template #default="{ $index }">
+                                        <el-button
+                                            v-if="roleBucketEditIndex === $index"
+                                            size="small"
+                                            type="primary"
+                                            plain
+                                            @click="finishEditRoleBucketPermission"
+                                        >
+                                            完成
+                                        </el-button>
+                                        <el-button
+                                            v-else
+                                            size="small"
+                                            plain
+                                            @click="roleBucketEditIndex = $index"
+                                        >
+                                            编辑
+                                        </el-button>
+                                        <el-button
+                                            size="small"
+                                            type="danger"
+                                            plain
+                                            @click="removeRoleBucketPermission($index)"
+                                        >
+                                            删除
+                                        </el-button>
+                                    </template>
+                                </el-table-column>
+                            </el-table>
+                        </template>
+                        <div v-else class="role-bucket-panel__hint">
+                            勾选“文件浏览接口权限”、“文件操作接口权限”或“分享接口权限”后，才需要配置桶权限。已有桶权限会在保存时保留。
                         </div>
-                        <div class="role-bucket-panel__hint">
-                            这里可以给角色单独授权指定存储桶。点击右侧“编辑”后，可修改桶和允许的操作。
-                        </div>
-                        <el-table
-                            class="role-bucket-table"
-                            :data="roleForm.bucketPermissions"
-                            border
-                            size="small"
-                        >
-                            <el-table-column label="生效" width="72">
-                                <template #default="{ row }">
-                                    <el-checkbox v-model="row.enabled"></el-checkbox>
-                                </template>
-                            </el-table-column>
-                            <el-table-column label="存储桶" min-width="180">
-                                <template #default="{ row, $index }">
-                                    <el-select
-                                        v-if="roleBucketEditIndex === $index"
-                                        v-model="row.bucketName"
-                                        placeholder="选择存储桶"
-                                        style="width: 100%"
-                                    >
-                                        <el-option
-                                            v-for="bucketOption in availableBucketOptions"
-                                            :key="bucketOption.value"
-                                            :label="bucketOption.label"
-                                            :value="bucketOption.value"
-                                        ></el-option>
-                                    </el-select>
-                                    <span v-else>{{ formatBucketPermissionBuckets(row.bucketName) }}</span>
-                                </template>
-                            </el-table-column>
-                            <el-table-column label="权限" min-width="300">
-                                <template #default="{ row, $index }">
-                                    <el-select
-                                        v-if="roleBucketEditIndex === $index"
-                                        v-model="row.actions"
-                                        multiple
-                                        placeholder="选择权限"
-                                        style="width: 100%"
-                                        @change="handleRoleBucketActionsChange($event, row)"
-                                    >
-                                        <template #tag="{ data }">
-                                            <el-tag
-                                                v-if="row.actions && row.actions.length && data.value === row.actions[0]"
-                                                disable-transitions
-                                            >
-                                                {{ getRoleBucketActionDisplayText(row.actions) }}
-                                            </el-tag>
-                                        </template>
-                                        <el-option
-                                            v-for="action in bucketActionOptions"
-                                            :key="action.value"
-                                            :label="action.label"
-                                            :value="action.value"
-                                        ></el-option>
-                                    </el-select>
-                                    <span v-else>{{ formatBucketPermissionActions(row.actions) }}</span>
-                                </template>
-                            </el-table-column>
-                            <el-table-column label="操作" width="148" align="center">
-                                <template #default="{ $index }">
-                                    <el-button
-                                        v-if="roleBucketEditIndex === $index"
-                                        size="small"
-                                        type="primary"
-                                        plain
-                                        @click="finishEditRoleBucketPermission"
-                                    >
-                                        完成
-                                    </el-button>
-                                    <el-button
-                                        v-else
-                                        size="small"
-                                        plain
-                                        @click="roleBucketEditIndex = $index"
-                                    >
-                                        编辑
-                                    </el-button>
-                                    <el-button
-                                        size="small"
-                                        type="danger"
-                                        plain
-                                        @click="removeRoleBucketPermission($index)"
-                                    >
-                                        删除
-                                    </el-button>
-                                </template>
-                            </el-table-column>
-                        </el-table>
                     </div>
                 </el-form-item>
             </el-form>
@@ -1333,6 +1339,8 @@
     <script>
         console.log('Axios loaded:', typeof axios);
     </script>
+    <script src="/js/role-bucket-permission-helpers.js"></script>
+    <script src="/js/permission-ui-helpers.js"></script>
     <script src="/js/app.js"></script>
 </body>
 </html>

@@ -71,12 +71,12 @@ public class FileController {
             @RequestParam(value = "order", required = false, defaultValue = "asc") String order) {
         permissionAssertService.assertApiPermission(PermissionCodes.API_FILE_BROWSE);
         PermissionSnapshot snapshot = permissionAssertService.currentSnapshot();
-        if (snapshot.superAdmin() || hasGlobalBucketListPermission(snapshot)) {
+        if (snapshot.superAdmin() || hasGlobalBucketAccess(snapshot)) {
             return Result.success(fileService.listBuckets(sortBy, order));
         }
         List<String> accessibleBuckets = snapshot.bucketPermissions().entrySet().stream()
                 .filter(entry -> !BucketAction.ALL_BUCKETS.equals(entry.getKey()))
-                .filter(entry -> hasBucketListPermission(entry.getValue()))
+                .filter(entry -> hasBucketAccess(entry.getValue()))
                 .map(Map.Entry::getKey)
                 .distinct()
                 .toList();
@@ -399,12 +399,12 @@ public class FileController {
         return (bucket == null || bucket.isBlank()) ? fileService.getDefaultBucket() : bucket;
     }
 
-    private boolean hasGlobalBucketListPermission(PermissionSnapshot snapshot) {
-        return hasBucketListPermission(snapshot.bucketPermissions().get(BucketAction.ALL_BUCKETS));
+    private boolean hasGlobalBucketAccess(PermissionSnapshot snapshot) {
+        return snapshot.bucketPermissions().containsKey(BucketAction.ALL_BUCKETS);
     }
 
-    private boolean hasBucketListPermission(Set<String> actions) {
-        return actions != null && (actions.contains(BucketAction.LIST_BUCKET) || actions.contains(BucketAction.ALL_ACTIONS));
+    private boolean hasBucketAccess(Set<String> actions) {
+        return actions != null && !actions.isEmpty();
     }
 
     private String formatSize(long bytes) {

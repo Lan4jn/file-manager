@@ -49,7 +49,8 @@ public class LoginProtectionService {
                 long seconds = Duration.ofMinutes(Math.max(1, lockMinutes)).getSeconds();
                 return "登录失败次数过多，请在 " + seconds + " 秒后再试";
             }
-            return "用户名或密码错误";
+            int remainingAttempts = Math.max(0, Math.max(1, maxFailures) - record.failures);
+            return "用户名不存在或密码错误，剩余 " + remainingAttempts + " 次重试机会";
         }
     }
 

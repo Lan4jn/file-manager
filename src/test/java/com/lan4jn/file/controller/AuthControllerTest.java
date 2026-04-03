@@ -13,6 +13,7 @@ import com.lan4jn.file.utils.JwtTokenUtil;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
+import org.springframework.test.util.ReflectionTestUtils;
 import org.springframework.http.MediaType;
 import org.springframework.security.authentication.TestingAuthenticationToken;
 import org.springframework.security.crypto.bcrypt.BCrypt;
@@ -32,6 +33,7 @@ import java.util.Optional;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.doNothing;
+import static org.mockito.Mockito.doThrow;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
@@ -138,6 +140,71 @@ class AuthControllerTest {
                 .andExpect(jsonPath("$.data.token").value("token"));
 
         verify(loginProtectionService).reset(eq("bcrypt-user"), any());
+    }
+
+    @Test
+    void shouldReturnRemainingAttemptsWhenUserDoesNotExist() throws Exception {
+        when(userRepository.findByUsername("ghost")).thenReturn(Optional.empty());
+        when(loginProtectionService.recordFailure(eq("ghost"), any()))
+                .thenReturn("用户名不存在或密码错误，剩余 4 次重试机会");
+
+        mockMvc.perform(post("/api/auth/login")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"username\":\"ghost\",\"password\":\"bad\"}"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.code").value(401))
+                .andExpect(jsonPath("$.message").value("用户名不存在或密码错误，剩余 4 次重试机会"));
+
+        verify(loginProtectionService).recordFailure(eq("ghost"), any());
+    }
+
+    @Test
+    void shouldReturnLockMessageFromProtectionService() throws Exception {
+        doThrow(new IllegalStateException("登录失败次数过多，请在 120 秒后再试"))
+                .when(loginProtectionService).assertAllowed(eq("locked-user"), any());
+
+        mockMvc.perform(post("/api/auth/login")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"username\":\"locked-user\",\"password\":\"bad\"}"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.code").value(401))
+                .andExpect(jsonPath("$.message").value("登录失败次数过多，请在 120 秒后再试"));
+    }
+
+    @Test
+    void shouldReturnChallengeExpiredMessageWithoutMaskingIt() throws Exception {
+        LoginProtectionService realLoginProtectionService = new LoginProtectionService();
+        ReflectionTestUtils.setField(realLoginProtectionService, "maxFailures", 5);
+        ReflectionTestUtils.setField(realLoginProtectionService, "lockMinutes", 15L);
+        LoginChallengeService realLoginChallengeService = new LoginChallengeService();
+        User user = new User();
+        user.setId(3L);
+        user.setUsername("challenge-user");
+        user.setNickname("Challenge User");
+        user.setEnabled(true);
+        user.setPassword(BCrypt.hashpw("secret123", BCrypt.gensalt()));
+        user.setRoles(new LinkedHashSet<>());
+
+        UserRepository realRepository = mock(UserRepository.class);
+        when(realRepository.findByUsername("challenge-user")).thenReturn(Optional.of(user));
+
+        MockMvc localMockMvc = MockMvcBuilders.standaloneSetup(new AuthController(
+                jwtTokenUtil,
+                realRepository,
+                mock(PasswordEncoder.class),
+                mock(AppInfoService.class),
+                permissionResolverService,
+                mock(UserService.class),
+                realLoginProtectionService,
+                realLoginChallengeService
+        )).build();
+
+        localMockMvc.perform(post("/api/auth/login")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"username\":\"challenge-user\",\"challengeId\":\"expired-id\",\"passwordProof\":\"proof\"}"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.code").value(401))
+                .andExpect(jsonPath("$.message").value("登录挑战已失效，请刷新后重试"));
     }
 
     private String sha512(String value) throws Exception {

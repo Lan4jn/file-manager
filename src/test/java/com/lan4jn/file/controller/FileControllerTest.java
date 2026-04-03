@@ -24,6 +24,7 @@ import java.util.Set;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.eq;
+import static org.mockito.ArgumentMatchers.argThat;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.mock;
@@ -78,12 +79,45 @@ class FileControllerTest {
 
     @Test
     void shouldLoadOnlyAuthorizedBuckets() throws Exception {
-        BucketInfo allowed = new BucketInfo();
-        allowed.setName("bucket-a");
-        when(fileService.listBuckets(List.of("bucket-a"), "name", "asc")).thenReturn(List.of(allowed));
+        BucketInfo allowedA = new BucketInfo();
+        allowedA.setName("bucket-a");
+        BucketInfo allowedB = new BucketInfo();
+        allowedB.setName("bucket-b");
+        when(fileService.listBuckets(argThat(buckets ->
+                buckets != null
+                        && buckets.size() == 2
+                        && buckets.contains("bucket-a")
+                        && buckets.contains("bucket-b")
+        ), eq("name"), eq("asc")))
+                .thenReturn(List.of(allowedA, allowedB));
         when(permissionAssertService.currentSnapshot()).thenReturn(new PermissionSnapshot(
                 2L, "user", false, Set.of("USER"), Set.of(), Set.of(),
-                Map.of("bucket-a", Set.of("LIST_BUCKET"), "bucket-b", Set.of("DOWNLOAD"))
+                Map.of("bucket-a", Set.of("DOWNLOAD"), "bucket-b", Set.of("DOWNLOAD"))
+        ));
+
+        mockMvc.perform(get("/api/file/buckets"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.length()").value(2))
+                .andExpect(jsonPath("$.data[0].name").value("bucket-a"))
+                .andExpect(jsonPath("$.data[1].name").value("bucket-b"));
+
+        verify(fileService).listBuckets(argThat(buckets ->
+                buckets != null
+                        && buckets.size() == 2
+                        && buckets.contains("bucket-a")
+                        && buckets.contains("bucket-b")
+        ), eq("name"), eq("asc"));
+        verify(fileService, never()).listBuckets("name", "asc");
+    }
+
+    @Test
+    void shouldLoadAllBucketsWhenWildcardBucketPermissionExists() throws Exception {
+        BucketInfo allowed = new BucketInfo();
+        allowed.setName("bucket-a");
+        when(fileService.listBuckets("name", "asc")).thenReturn(List.of(allowed));
+        when(permissionAssertService.currentSnapshot()).thenReturn(new PermissionSnapshot(
+                2L, "user", false, Set.of("USER"), Set.of(), Set.of(),
+                Map.of("*", Set.of("DOWNLOAD"))
         ));
 
         mockMvc.perform(get("/api/file/buckets"))
@@ -91,8 +125,8 @@ class FileControllerTest {
                 .andExpect(jsonPath("$.data.length()").value(1))
                 .andExpect(jsonPath("$.data[0].name").value("bucket-a"));
 
-        verify(fileService).listBuckets(eq(List.of("bucket-a")), eq("name"), eq("asc"));
-        verify(fileService, never()).listBuckets("name", "asc");
+        verify(fileService).listBuckets("name", "asc");
+        verify(fileService, never()).listBuckets(eq(List.of("bucket-a")), eq("name"), eq("asc"));
     }
 
     @Test

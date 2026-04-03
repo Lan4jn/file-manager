@@ -84,17 +84,20 @@ public class AuthorizationService {
 
         roleBucketPermissionRepository.deleteByRoleId(roleId);
         if (request.getBucketPermissions() != null) {
-            Set<String> assignedBuckets = new LinkedHashSet<>();
+            Map<String, Set<String>> mergedBucketPermissions = new LinkedHashMap<>();
             for (BucketPermissionDTO bucketPermission : request.getBucketPermissions()) {
                 String bucketName = RequestValidationUtils.requireText(bucketPermission.getBucketName(), "bucketName");
-                if (!assignedBuckets.add(bucketName)) {
-                    throw new IllegalArgumentException("bucketName涓嶈兘閲嶅");
-                }
                 List<String> actions = RequestValidationUtils.requireTextList(bucketPermission.getActions(), "actions");
-                for (String action : new LinkedHashSet<>(actions)) {
+                mergedBucketPermissions
+                        .computeIfAbsent(bucketName, ignored -> new LinkedHashSet<>())
+                        .addAll(new LinkedHashSet<>(actions));
+            }
+
+            for (Map.Entry<String, Set<String>> entry : mergedBucketPermissions.entrySet()) {
+                for (String action : entry.getValue()) {
                     RoleBucketPermission relation = new RoleBucketPermission();
                     relation.setRole(role);
-                    relation.setBucketName(bucketName);
+                    relation.setBucketName(entry.getKey());
                     relation.setAction(action);
                     roleBucketPermissionRepository.save(relation);
                 }

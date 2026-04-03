@@ -1,4 +1,25 @@
 const { createApp, ref, computed, onMounted, onUnmounted, nextTick, watch } = Vue;
+const permissionUiHelpers = window.PermissionUiHelpers || {
+    shouldLoadRolesForUserDialog: (permissionCodes) => Array.isArray(permissionCodes)
+        && permissionCodes.includes('API_ROLE_MANAGE'),
+    canOpenRoleDialog: (permissionCodes) => Array.isArray(permissionCodes)
+        && permissionCodes.includes('API_ROLE_MANAGE')
+        && permissionCodes.includes('API_PERMISSION_READ'),
+    shouldShowRoleBucketPermissions: (permissionCodes) => Array.isArray(permissionCodes)
+        && (
+            permissionCodes.includes('API_FILE_BROWSE')
+            || permissionCodes.includes('API_FILE_OPERATE')
+            || permissionCodes.includes('API_SHARE_MANAGE')
+        )
+};
+const roleBucketPermissionHelpers = window.RoleBucketPermissionHelpers || {
+    mergeRoleBucketPermissionRows: (rows, currentIndex) => ({
+        rows: Array.isArray(rows) ? rows : [],
+        merged: false,
+        mergedIntoIndex: currentIndex
+    }),
+    shouldShowAllBucketsHint: (bucketName) => bucketName === '*'
+};
 
 const zhCnLocale = {
     name: 'zh-cn',
@@ -154,8 +175,7 @@ const app = createApp({
         const permissionList = ref([]);
         const bucketActionOptions = [
             { label: '所有权限', value: '*' },
-            { label: '查看桶列表', value: 'LIST_BUCKET' },
-            { label: '查看文件', value: 'READ' },
+            { label: '查看文件', value: 'LIST_FILE' },
             { label: '上传文件', value: 'UPLOAD' },
             { label: '下载文件', value: 'DOWNLOAD' },
             { label: '删除文件', value: 'DELETE' },
@@ -297,6 +317,9 @@ const app = createApp({
         });
         const currentMenuAccessible = computed(() => {
             return canAccessMenu(currentMenu.value);
+        });
+        const shouldShowRoleBucketPermissionEditor = computed(() => {
+            return permissionUiHelpers.shouldShowRoleBucketPermissions(roleForm.value.apiPermissions || []);
         });
 
         const currentViewTitle = computed(() => {
@@ -539,6 +562,24 @@ const app = createApp({
             }
             normalizeRoleBucketActions(roleForm.value.bucketPermissions[roleBucketEditIndex.value]);
             roleBucketEditIndex.value = -1;
+        };
+
+        const handleRoleBucketNameChange = (index, row) => {
+            if (!row) {
+                return;
+            }
+            const mergeResult = roleBucketPermissionHelpers.mergeRoleBucketPermissionRows(roleForm.value.bucketPermissions, index);
+            if (mergeResult.merged) {
+                roleForm.value.bucketPermissions = mergeResult.rows;
+                roleForm.value.bucketPermissions.forEach(normalizeRoleBucketActions);
+                roleBucketEditIndex.value = mergeResult.mergedIntoIndex;
+                ElementPlus.ElMessage.info('该存储桶已存在，已合并到原配置项');
+                return;
+            }
+            if (roleBucketPermissionHelpers.shouldShowAllBucketsHint(row.bucketName)) {
+                ElementPlus.ElMessage.info('已配置所有存储桶，当前用户将默认显示全部存储桶');
+            }
+            roleBucketEditIndex.value = index;
         };
 
         const isAllBucketActionsSelected = (actions) => {
@@ -838,7 +879,9 @@ const app = createApp({
                 loadAuditLogs();
             } else if (index === 'users') {
                 loadUsers();
-                loadRoles();
+                if (permissionUiHelpers.shouldLoadRolesForUserDialog(permissionInfo.value.apiPermissions || [])) {
+                    loadRoles();
+                }
             } else if (index === 'roles') {
                 loadRoles();
             } else if (index === 'config') {
@@ -1993,13 +2036,17 @@ const app = createApp({
         };
 
         const openCreateUserDialog = async () => {
-            await loadRoles();
+            if (permissionUiHelpers.shouldLoadRolesForUserDialog(permissionInfo.value.apiPermissions || [])) {
+                await loadRoles();
+            }
             userForm.value = createEmptyUserForm();
             showUserDialog.value = true;
         };
 
         const editUser = async (user) => {
-            await loadRoles();
+            if (permissionUiHelpers.shouldLoadRolesForUserDialog(permissionInfo.value.apiPermissions || [])) {
+                await loadRoles();
+            }
             userForm.value = { ...user, roles: user.roles || [], password: '' };
             showUserDialog.value = true;
         };
@@ -2082,6 +2129,10 @@ const app = createApp({
         };
 
         const openCreateRoleDialog = async () => {
+            if (!permissionUiHelpers.canOpenRoleDialog(permissionInfo.value.apiPermissions || [])) {
+                ElementPlus.ElMessage.error('缺少权限读取权限，无法编辑角色授权');
+                return;
+            }
             roleForm.value = createEmptyRoleForm();
             roleBucketEditIndex.value = -1;
             await loadPermissions();
@@ -2089,6 +2140,10 @@ const app = createApp({
         };
 
         const editRole = async (role) => {
+            if (!permissionUiHelpers.canOpenRoleDialog(permissionInfo.value.apiPermissions || [])) {
+                ElementPlus.ElMessage.error('缺少权限读取权限，无法编辑角色授权');
+                return;
+            }
             await loadPermissions();
             const detailRes = await api.get('/admin/roles/' + role.id + '/permissions-detail');
             const detail = detailRes.data || {};
@@ -2576,6 +2631,7 @@ const app = createApp({
             availableBucketOptions,
             bucketActionOptions,
             currentMenuAccessible,
+            shouldShowRoleBucketPermissionEditor,
             currentViewTitle,
             currentViewDescription,
             bucketCount,
@@ -2667,6 +2723,7 @@ const app = createApp({
             finishEditRoleBucketPermission,
             handleRoleBucketActionsChange,
             getRoleBucketActionDisplayText,
+            handleRoleBucketNameChange,
             formatBucketPermissionBuckets,
             formatBucketPermissionActions,
             canAccessMenu,

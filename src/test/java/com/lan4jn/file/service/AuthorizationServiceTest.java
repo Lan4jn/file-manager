@@ -4,6 +4,7 @@ import com.lan4jn.file.dto.BucketPermissionDTO;
 import com.lan4jn.file.dto.RolePermissionSaveRequest;
 import com.lan4jn.file.entity.Permission;
 import com.lan4jn.file.entity.Role;
+import com.lan4jn.file.entity.RoleBucketPermission;
 import com.lan4jn.file.entity.User;
 import com.lan4jn.file.repository.PermissionRepository;
 import com.lan4jn.file.repository.RoleRepository;
@@ -16,8 +17,10 @@ import java.util.Optional;
 import java.util.Set;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
-import static org.junit.jupiter.api.Assertions.assertThrows;
+import static org.mockito.ArgumentMatchers.argThat;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.Mockito.times;
+import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.when;
 
@@ -72,7 +75,7 @@ class AuthorizationServiceTest {
     }
 
     @Test
-    void shouldRejectDuplicateBucketPermissionEntries() {
+    void shouldMergeDuplicateBucketPermissionEntries() {
         UserRepository userRepository = mock(UserRepository.class);
         RoleRepository roleRepository = mock(RoleRepository.class);
         PermissionRepository permissionRepository = mock(PermissionRepository.class);
@@ -97,6 +100,14 @@ class AuthorizationServiceTest {
         RolePermissionSaveRequest request = new RolePermissionSaveRequest();
         request.setBucketPermissions(List.of(item1, item2));
 
-        assertThrows(IllegalArgumentException.class, () -> authorizationService.saveRolePermissions(1L, request));
+        authorizationService.saveRolePermissions(1L, request);
+
+        verify(roleBucketPermissionRepository, times(1)).deleteByRoleId(1L);
+        verify(roleBucketPermissionRepository, times(1)).save(argThat((RoleBucketPermission relation) ->
+                "bucket-a".equals(relation.getBucketName()) && "READ".equals(relation.getAction())
+        ));
+        verify(roleBucketPermissionRepository, times(1)).save(argThat((RoleBucketPermission relation) ->
+                "bucket-a".equals(relation.getBucketName()) && "UPLOAD".equals(relation.getAction())
+        ));
     }
 }

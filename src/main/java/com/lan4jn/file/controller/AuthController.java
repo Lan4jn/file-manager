@@ -116,9 +116,12 @@ public class AuthController {
             data.put("nickname", user.getNickname());
             data.put("roles", roles);
             return Result.success(data);
+        } catch (IllegalStateException e) {
+            log.warn("Login rejected for {}: {}", username, e.getMessage());
+            return Result.error(401, e.getMessage());
         } catch (Exception e) {
             log.error("Login failed for {}", username, e);
-            return Result.error(401, "用户名或密码错误");
+            return Result.error(401, "用户名不存在或密码错误");
         }
     }
 
