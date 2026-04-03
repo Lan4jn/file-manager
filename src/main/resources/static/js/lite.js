@@ -1,4 +1,18 @@
 const { createApp, ref, computed, onMounted } = Vue;
+const loginErrorHelpers = window.LoginErrorHelpers || {
+    extractLoginErrorMessage: (error) => {
+        if (error?.response) {
+            return error.response.data?.message || error.response.statusText || '登录失败';
+        }
+        if (error?.message) {
+            return error.message;
+        }
+        if (error?.request) {
+            return '网络错误，请检查服务器是否运行';
+        }
+        return '登录失败';
+    }
+};
 
 const api = axios.create({
     baseURL: '/api',
@@ -176,7 +190,7 @@ createApp({
                     alert(res.message || '登录失败');
                 }
             } catch (error) {
-                alert(error.response?.data?.message || '登录失败');
+                alert(loginErrorHelpers.extractLoginErrorMessage(error));
             } finally {
                 loginLoading.value = false;
             }

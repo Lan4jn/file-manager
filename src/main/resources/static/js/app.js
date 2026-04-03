@@ -20,6 +20,20 @@ const roleBucketPermissionHelpers = window.RoleBucketPermissionHelpers || {
     }),
     shouldShowAllBucketsHint: (bucketName) => bucketName === '*'
 };
+const loginErrorHelpers = window.LoginErrorHelpers || {
+    extractLoginErrorMessage: (error) => {
+        if (error?.response) {
+            return error.response.data?.message || error.response.statusText || '登录失败';
+        }
+        if (error?.message) {
+            return error.message;
+        }
+        if (error?.request) {
+            return '网络错误，请检查服务器是否运行';
+        }
+        return '登录失败';
+    }
+};
 
 const zhCnLocale = {
     name: 'zh-cn',
@@ -735,13 +749,7 @@ const app = createApp({
                 }
             } catch (error) {
                 console.error('[Login] Error:', error);
-                let errorMsg = '登录失败';
-                if (error.response) {
-                    errorMsg = error.response.data?.message || error.response.statusText || errorMsg;
-                } else if (error.request) {
-                    errorMsg = '网络错误，请检查服务器是否运行';
-                }
-                ElementPlus.ElMessage.error(errorMsg);
+                ElementPlus.ElMessage.error(loginErrorHelpers.extractLoginErrorMessage(error));
             } finally {
                 loginLoading.value = false;
             }
