@@ -111,6 +111,34 @@ class FileControllerTest {
     }
 
     @Test
+    void shouldLoadBucketWhenBucketPermissionEntryExistsWithoutActions() throws Exception {
+        BucketInfo allowed = new BucketInfo();
+        allowed.setName("bucket-a");
+        when(fileService.listBuckets(argThat(buckets ->
+                buckets != null
+                        && buckets.size() == 1
+                        && buckets.contains("bucket-a")
+        ), eq("name"), eq("asc")))
+                .thenReturn(List.of(allowed));
+        when(permissionAssertService.currentSnapshot()).thenReturn(new PermissionSnapshot(
+                2L, "user", false, Set.of("USER"), Set.of(), Set.of(),
+                Map.of("bucket-a", Set.of())
+        ));
+
+        mockMvc.perform(get("/api/file/buckets"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.length()").value(1))
+                .andExpect(jsonPath("$.data[0].name").value("bucket-a"));
+
+        verify(fileService).listBuckets(argThat(buckets ->
+                buckets != null
+                        && buckets.size() == 1
+                        && buckets.contains("bucket-a")
+        ), eq("name"), eq("asc"));
+        verify(fileService, never()).listBuckets("name", "asc");
+    }
+
+    @Test
     void shouldLoadAllBucketsWhenWildcardBucketPermissionExists() throws Exception {
         BucketInfo allowed = new BucketInfo();
         allowed.setName("bucket-a");

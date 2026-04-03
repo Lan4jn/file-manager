@@ -404,7 +404,7 @@ public class FileController {
     }
 
     private boolean hasBucketAccess(Set<String> actions) {
-        return actions != null && !actions.isEmpty();
+        return actions != null;
     }
 
     private String formatSize(long bytes) {
