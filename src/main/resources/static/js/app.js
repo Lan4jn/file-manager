@@ -536,7 +536,7 @@ const app = createApp({
             const task = addDownloadTask(createDownloadTask({
                 type: 'single-file',
                 name: file.fileName,
-                step: '正在分块下载',
+                step: '正在下载大文件',
                 totalBytes: file.size || 0
             }));
             try {
@@ -548,7 +548,7 @@ const app = createApp({
                     chunkSize: downloadHelpers.DEFAULT_CHUNK_SIZE,
                     onProgress: (progress) => {
                         updateDownloadTask(task.id, {
-                            step: '正在分块下载',
+                            step: '正在下载大文件',
                             progress: progress.progress,
                             downloadedBytes: progress.downloadedBytes,
                             totalBytes: progress.totalBytes,

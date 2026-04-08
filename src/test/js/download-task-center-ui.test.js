@@ -25,3 +25,9 @@ test('should define download helpers fallback in app js', () => {
     const appJs = fs.readFileSync('src/main/resources/static/js/app.js', 'utf8');
     assert.match(appJs, /const downloadHelpers = window\.FileManagerDownloads \|\| \{\}/);
 });
+
+test('should use large file download wording in app js', () => {
+    const appJs = fs.readFileSync('src/main/resources/static/js/app.js', 'utf8');
+    assert.match(appJs, /正在下载大文件/);
+    assert.doesNotMatch(appJs, /正在分块下载/);
+});
