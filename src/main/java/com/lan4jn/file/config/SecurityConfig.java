@@ -81,6 +81,7 @@ public class SecurityConfig {
                         .requestMatchers("/full").permitAll()
                         .requestMatchers("/lite").permitAll()
                         .requestMatchers("/api/auth/**").permitAll()
+                        .requestMatchers("/ws/messages").permitAll()
                         .requestMatchers("/api/share/info").permitAll()
                         .requestMatchers("/api/share/access-info").permitAll()
                         .requestMatchers("/api/share/file").permitAll()

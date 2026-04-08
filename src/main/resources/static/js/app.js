@@ -34,6 +34,40 @@ const loginErrorHelpers = window.LoginErrorHelpers || {
         return '登录失败';
     }
 };
+const messageCenterHelpers = window.MessageCenterHelpers || {
+    countUnreadShareSources: (messages) => {
+        if (!Array.isArray(messages)) {
+            return 0;
+        }
+        const senderSet = new Set(
+            messages
+                .filter(item => item && !item.read && (!item.messageType || String(item.messageType).toUpperCase() === 'SHARE'))
+                .map(item => (item.senderUsername || '').trim())
+                .filter(Boolean)
+        );
+        return senderSet.size;
+    },
+    buildMessageSubtitle: (message) => {
+        const originSenderUsername = (message?.originSenderUsername || '').trim();
+        const forwardedByUsername = (message?.forwardedByUsername || '').trim();
+        if (originSenderUsername && forwardedByUsername) {
+            return '初始分享人 ' + originSenderUsername + '，由 ' + forwardedByUsername + ' 转存';
+        }
+        const senderUsername = (message?.senderUsername || '').trim();
+        return senderUsername ? (senderUsername + ' 分享给你') : '系统消息';
+    },
+    mergeIncomingMessage: (existingMessages, incomingMessage) => {
+        const normalizedExisting = Array.isArray(existingMessages) ? existingMessages : [];
+        if (!incomingMessage || incomingMessage.id === null || incomingMessage.id === undefined) {
+            return normalizedExisting.slice();
+        }
+        const nextMessages = normalizedExisting.filter(item => item && item.id !== incomingMessage.id);
+        if (!incomingMessage.deleted) {
+            nextMessages.unshift(incomingMessage);
+        }
+        return nextMessages;
+    }
+};
 
 const zhCnLocale = {
     name: 'zh-cn',
@@ -111,6 +145,9 @@ const app = createApp({
         const showHelpDialog = ref(false);
         const showVersionDialog = ref(false);
         const showPreviewDialog = ref(false);
+        const messageCenterVisible = ref(false);
+        const messageCenterTab = ref('messages');
+        const showForwardDialog = ref(false);
         const helpContent = ref('');
         const versionList = ref([]);
         const selectedVersion = ref('');
@@ -224,6 +261,21 @@ const app = createApp({
         const inboxLoading = ref(false);
         const recipientList = ref([]);
         const recipientLoading = ref(false);
+        const forwardMessageTarget = ref(null);
+        const forwardRecipientUserIds = ref([]);
+        const feedbackForm = ref({
+            category: 'GENERAL',
+            title: '',
+            body: ''
+        });
+        const feedbackCategories = [
+            { label: '通用反馈', value: 'GENERAL' },
+            { label: '产品建议', value: 'SUGGESTION' },
+            { label: '故障问题', value: 'BUG' },
+            { label: '体验问题', value: 'UX' }
+        ];
+        let messageSocket = null;
+        let messageSocketReconnectTimer = null;
         const userList = ref([]);
         const roleList = ref([]);
         const minioKeyList = ref([]);
@@ -387,14 +439,9 @@ const app = createApp({
             return inboxList.value.filter(item => !item.read).length;
         });
         const inboxUnreadSourceCount = computed(() => {
-            const senderSet = new Set(
-                inboxList.value
-                    .filter(item => !item.read)
-                    .map(item => item.senderUsername || '')
-                    .filter(Boolean)
-            );
-            return senderSet.size;
+            return messageCenterHelpers.countUnreadShareSources(inboxList.value);
         });
+        const messageCenterMessages = computed(() => inboxList.value);
         const textPreviewMaxSize = 2 * 1024 * 1024;
         const httpsSuggestionUrl = computed(() => {
             const url = new URL(window.location.href);
@@ -743,6 +790,7 @@ const app = createApp({
                     await loadCurrentPermissions();
                     await loadPermissions();
                     await loadInbox();
+                    connectMessageSocket();
                     handleMenuSelect(currentMenu.value);
                 } else {
                     ElementPlus.ElMessage.error(res.message || '登录失败');
@@ -771,6 +819,13 @@ const app = createApp({
             permissionList.value = [];
             inboxList.value = [];
             recipientList.value = [];
+            disconnectMessageSocket();
+            messageCenterVisible.value = false;
+            messageCenterTab.value = 'messages';
+            showForwardDialog.value = false;
+            forwardMessageTarget.value = null;
+            forwardRecipientUserIds.value = [];
+            feedbackForm.value = { category: 'GENERAL', title: '', body: '' };
             isLoggedIn.value = false;
             currentMenu.value = 'buckets';
             shareTab.value = 'my-shares';
@@ -843,6 +898,7 @@ const app = createApp({
                     await loadCurrentPermissions();
                     await loadPermissions();
                     await loadInbox();
+                    connectMessageSocket();
                     handleMenuSelect(currentMenu.value);
                 } else {
                     logout();
@@ -850,6 +906,93 @@ const app = createApp({
             } catch (error) {
                 logout();
             }
+        };
+
+        const buildMessageSocketUrl = () => {
+            const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
+            return protocol + '//' + window.location.host + '/ws/messages?token=' + encodeURIComponent(token.value);
+        };
+
+        const clearMessageSocketReconnectTimer = () => {
+            if (messageSocketReconnectTimer) {
+                clearTimeout(messageSocketReconnectTimer);
+                messageSocketReconnectTimer = null;
+            }
+        };
+
+        const scheduleMessageSocketReconnect = () => {
+            if (!isLoggedIn.value || !token.value) {
+                return;
+            }
+            clearMessageSocketReconnectTimer();
+            messageSocketReconnectTimer = setTimeout(() => {
+                connectMessageSocket();
+            }, 2000);
+        };
+
+        const handleSocketMessageEvent = async (eventName, payload) => {
+            if (!eventName) {
+                await loadInbox();
+                return;
+            }
+            if (eventName === 'message.read' || eventName === 'message.deleted') {
+                applyIncomingInboxMessage(payload || {});
+                return;
+            }
+            if (eventName === 'message.created' || eventName === 'feedback.received') {
+                await loadInbox();
+            }
+        };
+
+        const connectMessageSocket = () => {
+            if (!isLoggedIn.value || !token.value || typeof WebSocket === 'undefined') {
+                return;
+            }
+            if (messageSocket && (
+                messageSocket.readyState === WebSocket.OPEN || messageSocket.readyState === WebSocket.CONNECTING
+            )) {
+                return;
+            }
+            try {
+                const socket = new WebSocket(buildMessageSocketUrl());
+                messageSocket = socket;
+                socket.onopen = () => {
+                    clearMessageSocketReconnectTimer();
+                };
+                socket.onmessage = (event) => {
+                    try {
+                        const data = JSON.parse(event.data || '{}');
+                        handleSocketMessageEvent(data.event, data.payload);
+                    } catch (error) {
+                        loadInbox();
+                    }
+                };
+                socket.onerror = () => {
+                    if (messageSocket === socket) {
+                        socket.close();
+                    }
+                };
+                socket.onclose = () => {
+                    if (messageSocket === socket) {
+                        messageSocket = null;
+                    }
+                    scheduleMessageSocketReconnect();
+                };
+            } catch (error) {
+                scheduleMessageSocketReconnect();
+            }
+        };
+
+        const disconnectMessageSocket = () => {
+            clearMessageSocketReconnectTimer();
+            if (!messageSocket) {
+                return;
+            }
+            messageSocket.onclose = null;
+            messageSocket.onerror = null;
+            messageSocket.onmessage = null;
+            messageSocket.close();
+            messageSocket = null;
         };
 
         const handleMenuSelect = (index) => {
@@ -1861,6 +2004,32 @@ const app = createApp({
             }
         };
 
+        const formatInboxMessage = (message) => {
+            if (!message) {
+                return message;
+            }
+            return {
+                ...message,
+                createTimeText: formatDateTime(message.createTime),
+                readTimeText: formatDateTime(message.readTime),
+                subtitle: messageCenterHelpers.buildMessageSubtitle(message)
+            };
+        };
+
+        const applyIncomingInboxMessage = (incomingMessage) => {
+            if (!incomingMessage || incomingMessage.id === null || incomingMessage.id === undefined) {
+                return;
+            }
+            const currentMessage = inboxList.value.find(item => item && item.id === incomingMessage.id);
+            const mergedMessage = currentMessage
+                ? { ...currentMessage, ...incomingMessage }
+                : incomingMessage;
+            inboxList.value = messageCenterHelpers.mergeIncomingMessage(
+                inboxList.value,
+                formatInboxMessage(mergedMessage)
+            );
+        };
+
         const loadInbox = async () => {
             inboxLoading.value = true;
             try {
@@ -1868,11 +2037,7 @@ const app = createApp({
                     params: { page: 1, size: 100 }
                 });
                 if (res.code === 200) {
-                    inboxList.value = (res.data.items || []).map(item => ({
-                        ...item,
-                        createTimeText: formatDateTime(item.createTime),
-                        readTimeText: formatDateTime(item.readTime)
-                    }));
+                    inboxList.value = (res.data.items || []).map(item => formatInboxMessage(item));
                 }
             } catch (error) {
                 ElementPlus.ElMessage.error('加载收件箱失败');
@@ -1911,6 +2076,64 @@ const app = createApp({
                 await loadInbox();
             } catch (error) {
                 ElementPlus.ElMessage.error('删除站内信失败');
+            }
+        };
+
+        const openForwardDialogForMessage = async (message) => {
+            if (!message || !message.id) {
+                return;
+            }
+            forwardMessageTarget.value = message;
+            forwardRecipientUserIds.value = [];
+            showForwardDialog.value = true;
+            if (!recipientList.value.length) {
+                await loadRecipients();
+            }
+        };
+
+        const forwardInboxMessage = async () => {
+            const targetMessageId = forwardMessageTarget.value?.id;
+            if (!targetMessageId) {
+                return;
+            }
+            if (!forwardRecipientUserIds.value.length) {
+                ElementPlus.ElMessage.warning('请选择至少一个接收人');
+                return;
+            }
+            try {
+                const res = await api.post('/messages/' + targetMessageId + '/forward', {
+                    recipientUserIds: forwardRecipientUserIds.value
+                });
+                if (res.code === 200) {
+                    ElementPlus.ElMessage.success('转发成功');
+                    showForwardDialog.value = false;
+                    forwardMessageTarget.value = null;
+                    forwardRecipientUserIds.value = [];
+                }
+            } catch (error) {
+                ElementPlus.ElMessage.error(error.response?.data?.message || error.message || '转发失败');
+            }
+        };
+
+        const submitFeedback = async () => {
+            const payload = {
+                category: (feedbackForm.value.category || '').trim() || 'GENERAL',
+                title: (feedbackForm.value.title || '').trim(),
+                body: (feedbackForm.value.body || '').trim()
+            };
+            if (!payload.body) {
+                ElementPlus.ElMessage.warning('请填写反馈内容');
+                return;
+            }
+            try {
+                const res = await api.post('/messages/feedback', payload);
+                if (res.code === 200) {
+                    ElementPlus.ElMessage.success('反馈已提交');
+                    feedbackForm.value = { category: 'GENERAL', title: '', body: '' };
+                    messageCenterTab.value = 'messages';
+                }
+            } catch (error) {
+                ElementPlus.ElMessage.error(error.response?.data?.message || error.message || '反馈提交失败');
             }
         };
 
@@ -2544,6 +2767,7 @@ const app = createApp({
         onUnmounted(() => {
             document.removeEventListener('click', handleDocumentClick);
             document.removeEventListener('keydown', handleDocumentKeydown);
+            disconnectMessageSocket();
         });
 
         return {
@@ -2584,6 +2808,9 @@ const app = createApp({
             showHelpDialog,
             showVersionDialog,
             showPreviewDialog,
+            messageCenterVisible,
+            messageCenterTab,
+            showForwardDialog,
             helpContent,
             versionList,
             selectedVersion,
@@ -2611,8 +2838,13 @@ const app = createApp({
             inboxLoading,
             inboxUnreadCount,
             inboxUnreadSourceCount,
+            messageCenterMessages,
             recipientList,
             recipientLoading,
+            forwardMessageTarget,
+            forwardRecipientUserIds,
+            feedbackForm,
+            feedbackCategories,
             userForm,
             profileForm,
             roleForm,
@@ -2712,6 +2944,9 @@ const app = createApp({
             openInboxShare,
             markInboxRead,
             deleteInboxMessage,
+            openForwardDialogForMessage,
+            forwardInboxMessage,
+            submitFeedback,
             loadAuditLogs,
             resetAuditLogQuery,
             handleAuditLogPageChange,
