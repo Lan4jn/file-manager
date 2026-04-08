@@ -665,7 +665,7 @@
                     && window.FileManagerDownloads.shouldUseChunkedDownload(file.size || 0, downloadThresholdMB)
                     && window.FileManagerDownloads.downloadInChunks) {
                     var task = addDownloadTask(createDownloadTask(file.fileName || shareInfo.fileName || '分享文件', file.size || 0));
-                    task.step = '正在分块下载';
+                    task.step = '正在下载大文件';
                     renderDownloadTasks();
                     return window.FileManagerDownloads.downloadInChunks({
                         url: buildUrl('/api/share/download', {
@@ -678,7 +678,7 @@
                         chunkSize: window.FileManagerDownloads.DEFAULT_CHUNK_SIZE,
                         onProgress: function (progress) {
                             updateDownloadTask(task.id, {
-                                step: '正在分块下载',
+                                step: '正在下载大文件',
                                 progress: progress.progress,
                                 downloadedBytes: progress.downloadedBytes,
                                 totalBytes: progress.totalBytes
@@ -704,7 +704,7 @@
                 && window.FileManagerDownloads.shouldUseChunkedDownload(item.size || 0, downloadThresholdMB)
                 && window.FileManagerDownloads.downloadInChunks) {
                 var task = addDownloadTask(createDownloadTask(item.fileName, item.size || 0));
-                updateDownloadTask(task.id, { step: '正在分块下载' });
+                updateDownloadTask(task.id, { step: '正在下载大文件' });
                 window.FileManagerDownloads.downloadInChunks({
                     url: buildUrl('/api/share/download-item', {
                         shareCode: shareCode,
@@ -717,7 +717,7 @@
                     chunkSize: window.FileManagerDownloads.DEFAULT_CHUNK_SIZE,
                     onProgress: function (progress) {
                         updateDownloadTask(task.id, {
-                            step: '正在分块下载',
+                            step: '正在下载大文件',
                             progress: progress.progress,
                             downloadedBytes: progress.downloadedBytes,
                             totalBytes: progress.totalBytes
