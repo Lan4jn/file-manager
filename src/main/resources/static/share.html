@@ -218,6 +218,23 @@
             gap: 10px;
         }
 
+        .task-action-btn {
+            width: 34px;
+            height: 34px;
+            padding: 0;
+            border-radius: 999px;
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 14px;
+            line-height: 1;
+        }
+
+        .task-action-btn--danger {
+            color: var(--danger);
+            border-color: rgba(185, 28, 28, 0.24);
+        }
+
         .empty {
             padding: 40px 22px;
             color: var(--muted);
@@ -590,7 +607,11 @@
                 progress: 0,
                 downloadedBytes: 0,
                 totalBytes: totalBytes || 0,
-                error: ''
+                error: '',
+                type: 'single-file',
+                controller: null,
+                abortController: null,
+                retryHandler: null
             };
         }
 
@@ -606,6 +627,37 @@
                 return task.id === taskId ? Object.assign({}, task, patch) : task;
             });
             renderDownloadTasks();
+        }
+
+        function getDownloadTask(taskId) {
+            return downloadTasks.find(function (task) {
+                return task.id === taskId;
+            }) || null;
+        }
+
+        function markCancelledDownloadTask(taskId) {
+            updateDownloadTask(taskId, {
+                status: 'cancelled',
+                step: '已取消',
+                error: ''
+            });
+        }
+
+        function markPausedDownloadTask(taskId) {
+            updateDownloadTask(taskId, {
+                status: 'paused',
+                step: '已暂停'
+            });
+        }
+
+        function createTaskActionButton(symbol, title, onClick, danger) {
+            var button = document.createElement('button');
+            button.type = 'button';
+            button.className = 'secondary task-action-btn' + (danger ? ' task-action-btn--danger' : '');
+            button.title = title;
+            button.textContent = symbol;
+            button.addEventListener('click', onClick);
+            return button;
         }
 
         function renderDownloadTasks() {
@@ -638,9 +690,32 @@
                 main.appendChild(sub);
                 var kind = document.createElement('div');
                 kind.className = 'item-kind';
-                kind.textContent = task.status === 'failed' ? '失败' : (task.status === 'completed' ? '完成' : '下载中');
+                kind.textContent = task.status === 'failed' ? '失败' : (task.status === 'completed' ? '完成' : (task.status === 'paused' ? '已暂停' : (task.status === 'cancelled' ? '已取消' : '下载中')));
+                var actions = document.createElement('div');
+                actions.className = 'item-actions';
+                if (task.type === 'single-file' && task.status === 'running') {
+                    actions.appendChild(createTaskActionButton('⏸', '暂停下载', function () {
+                        pauseDownloadTask(task.id);
+                    }, false));
+                }
+                if (task.type === 'single-file' && task.status === 'paused') {
+                    actions.appendChild(createTaskActionButton('▶', '继续下载', function () {
+                        resumeDownloadTask(task.id);
+                    }, false));
+                }
+                if (task.status === 'running' || task.status === 'paused') {
+                    actions.appendChild(createTaskActionButton('✕', '取消下载', function () {
+                        cancelDownloadTask(task.id);
+                    }, true));
+                }
+                if (task.status === 'completed' || task.status === 'failed' || task.status === 'cancelled') {
+                    actions.appendChild(createTaskActionButton('↻', '重新下载', function () {
+                        retryDownloadTask(task.id);
+                    }, false));
+                }
                 row.appendChild(main);
                 row.appendChild(kind);
+                row.appendChild(actions);
                 shareDownloadTaskList.appendChild(row);
             });
         }
@@ -650,7 +725,7 @@
             return token ? { Authorization: 'Bearer ' + token } : {};
         }
 
-        function startSingleShareDownload() {
+        function startSingleShareDownload(existingTaskId) {
             axios.get('/api/share/file', {
                 params: {
                     shareCode: shareCode,
@@ -663,11 +738,9 @@
                 var file = response.data.data || {};
                 if (window.FileManagerDownloads
                     && window.FileManagerDownloads.shouldUseChunkedDownload(file.size || 0, downloadThresholdMB)
-                    && window.FileManagerDownloads.downloadInChunks) {
-                    var task = addDownloadTask(createDownloadTask(file.fileName || shareInfo.fileName || '分享文件', file.size || 0));
-                    task.step = '正在下载大文件';
-                    renderDownloadTasks();
-                    return window.FileManagerDownloads.downloadInChunks({
+                    && window.FileManagerDownloads.createChunkedDownloader) {
+                    var taskId = existingTaskId || addDownloadTask(createDownloadTask(file.fileName || shareInfo.fileName || '分享文件', file.size || 0)).id;
+                    var controller = window.FileManagerDownloads.createChunkedDownloader({
                         url: buildUrl('/api/share/download', {
                             shareCode: shareCode,
                             password: passwordInput.value
@@ -677,17 +750,43 @@
                         headers: authorizedHeaders(),
                         chunkSize: window.FileManagerDownloads.DEFAULT_CHUNK_SIZE,
                         onProgress: function (progress) {
-                            updateDownloadTask(task.id, {
+                            updateDownloadTask(taskId, {
                                 step: '正在下载大文件',
+                                status: 'running',
                                 progress: progress.progress,
                                 downloadedBytes: progress.downloadedBytes,
                                 totalBytes: progress.totalBytes
                             });
                         }
-                    }).then(function () {
-                        updateDownloadTask(task.id, { status: 'completed', step: '保存完成', progress: 100 });
+                    });
+                    updateDownloadTask(taskId, {
+                        type: 'single-file',
+                        name: file.fileName || shareInfo.fileName || '分享文件',
+                        step: '正在下载大文件',
+                        status: 'running',
+                        progress: 0,
+                        downloadedBytes: 0,
+                        totalBytes: file.size || 0,
+                        error: '',
+                        controller: controller,
+                        abortController: null,
+                        retryHandler: function () {
+                            startSingleShareDownload(taskId);
+                        }
+                    });
+                    return controller.start().then(function () {
+                        var state = controller.getState();
+                        if (state.status === 'paused') {
+                            markPausedDownloadTask(taskId);
+                            return;
+                        }
+                        if (state.status === 'cancelled') {
+                            markCancelledDownloadTask(taskId);
+                            return;
+                        }
+                        updateDownloadTask(taskId, { status: 'completed', step: '保存完成', progress: 100, downloadedBytes: file.size || 0 });
                     }).catch(function (error) {
-                        updateDownloadTask(task.id, { status: 'failed', error: extractMessage(error) });
+                        updateDownloadTask(taskId, { status: 'failed', error: extractMessage(error) });
                     });
                 }
                 window.location.href = buildUrl('/api/share/download', {
@@ -699,13 +798,12 @@
             });
         }
 
-        function startSharedItemDownload(item) {
+        function startSharedItemDownload(item, existingTaskId) {
             if (window.FileManagerDownloads
                 && window.FileManagerDownloads.shouldUseChunkedDownload(item.size || 0, downloadThresholdMB)
-                && window.FileManagerDownloads.downloadInChunks) {
-                var task = addDownloadTask(createDownloadTask(item.fileName, item.size || 0));
-                updateDownloadTask(task.id, { step: '正在下载大文件' });
-                window.FileManagerDownloads.downloadInChunks({
+                && window.FileManagerDownloads.createChunkedDownloader) {
+                var taskId = existingTaskId || addDownloadTask(createDownloadTask(item.fileName, item.size || 0)).id;
+                var controller = window.FileManagerDownloads.createChunkedDownloader({
                     url: buildUrl('/api/share/download-item', {
                         shareCode: shareCode,
                         password: passwordInput.value,
@@ -716,17 +814,43 @@
                     headers: authorizedHeaders(),
                     chunkSize: window.FileManagerDownloads.DEFAULT_CHUNK_SIZE,
                     onProgress: function (progress) {
-                        updateDownloadTask(task.id, {
+                        updateDownloadTask(taskId, {
                             step: '正在下载大文件',
+                            status: 'running',
                             progress: progress.progress,
                             downloadedBytes: progress.downloadedBytes,
                             totalBytes: progress.totalBytes
                         });
                     }
-                }).then(function () {
-                    updateDownloadTask(task.id, { status: 'completed', step: '保存完成', progress: 100 });
+                });
+                updateDownloadTask(taskId, {
+                    type: 'single-file',
+                    name: item.fileName,
+                    step: '正在下载大文件',
+                    status: 'running',
+                    progress: 0,
+                    downloadedBytes: 0,
+                    totalBytes: item.size || 0,
+                    error: '',
+                    controller: controller,
+                    abortController: null,
+                    retryHandler: function () {
+                        startSharedItemDownload(item, taskId);
+                    }
+                });
+                controller.start().then(function () {
+                    var state = controller.getState();
+                    if (state.status === 'paused') {
+                        markPausedDownloadTask(taskId);
+                        return;
+                    }
+                    if (state.status === 'cancelled') {
+                        markCancelledDownloadTask(taskId);
+                        return;
+                    }
+                    updateDownloadTask(taskId, { status: 'completed', step: '保存完成', progress: 100, downloadedBytes: item.size || 0 });
                 }).catch(function (error) {
-                    updateDownloadTask(task.id, { status: 'failed', error: extractMessage(error) });
+                    updateDownloadTask(taskId, { status: 'failed', error: extractMessage(error) });
                 });
                 return;
             }
@@ -737,9 +861,24 @@
             });
         }
 
-        function startBatchShareDownload() {
-            var task = addDownloadTask(createDownloadTask((shareInfo.fileName || '分享内容') + '.zip', 0));
-            updateDownloadTask(task.id, { step: '请求服务端打包', progress: 5 });
+        function startBatchShareDownload(existingTaskId) {
+            var taskId = existingTaskId || addDownloadTask(createDownloadTask((shareInfo.fileName || '分享内容') + '.zip', 0)).id;
+            var abortController = new AbortController();
+            updateDownloadTask(taskId, {
+                type: 'batch-download',
+                name: (shareInfo.fileName || '分享内容') + '.zip',
+                step: '请求服务端打包',
+                status: 'running',
+                progress: 5,
+                downloadedBytes: 0,
+                totalBytes: 0,
+                error: '',
+                controller: null,
+                abortController: abortController,
+                retryHandler: function () {
+                    startBatchShareDownload(taskId);
+                }
+            });
             axios.get('/api/share/download-all', {
                 params: {
                     shareCode: shareCode,
@@ -747,8 +886,9 @@
                 },
                 responseType: 'blob',
                 timeout: 600000,
+                signal: abortController.signal,
                 onDownloadProgress: function (event) {
-                    updateDownloadTask(task.id, {
+                    updateDownloadTask(taskId, {
                         step: '接收压缩包',
                         progress: event.total > 0 ? Math.min(95, event.loaded / event.total * 100) : 60,
                         downloadedBytes: event.loaded || 0,
@@ -756,12 +896,79 @@
                     });
                 }
             }).then(function (response) {
-                updateDownloadTask(task.id, { step: '保存文件', progress: 98 });
+                updateDownloadTask(taskId, { step: '保存文件', progress: 98 });
                 window.FileManagerDownloads.saveBlob(response.data, (shareInfo.fileName || '分享内容') + '.zip');
-                updateDownloadTask(task.id, { status: 'completed', step: '保存完成', progress: 100 });
+                updateDownloadTask(taskId, { status: 'completed', step: '保存完成', progress: 100 });
             }).catch(function (error) {
-                updateDownloadTask(task.id, { status: 'failed', error: extractMessage(error) });
+                if (abortController.signal.aborted || error.code === 'ERR_CANCELED' || error.name === 'CanceledError') {
+                    markCancelledDownloadTask(taskId);
+                    return;
+                }
+                updateDownloadTask(taskId, { status: 'failed', error: extractMessage(error) });
             });
+        }
+
+        function pauseDownloadTask(taskId) {
+            var task = getDownloadTask(taskId);
+            if (!task || task.status !== 'running' || !task.controller || typeof task.controller.pause !== 'function') {
+                return;
+            }
+            task.controller.pause();
+            markPausedDownloadTask(taskId);
+        }
+
+        function resumeDownloadTask(taskId) {
+            var task = getDownloadTask(taskId);
+            if (!task || task.status !== 'paused' || !task.controller || typeof task.controller.resume !== 'function') {
+                return;
+            }
+            updateDownloadTask(taskId, {
+                status: 'running',
+                step: '正在下载大文件',
+                error: ''
+            });
+            task.controller.resume().then(function () {
+                var state = task.controller.getState();
+                if (state.status === 'paused') {
+                    markPausedDownloadTask(taskId);
+                    return;
+                }
+                if (state.status === 'cancelled') {
+                    markCancelledDownloadTask(taskId);
+                    return;
+                }
+                updateDownloadTask(taskId, {
+                    status: 'completed',
+                    step: '保存完成',
+                    progress: 100,
+                    downloadedBytes: task.totalBytes || state.totalBytes || 0
+                });
+            }).catch(function (error) {
+                updateDownloadTask(taskId, { status: 'failed', error: extractMessage(error) });
+            });
+        }
+
+        function cancelDownloadTask(taskId) {
+            var task = getDownloadTask(taskId);
+            if (!task || (task.status !== 'running' && task.status !== 'paused')) {
+                return;
+            }
+            if (task.controller && typeof task.controller.cancel === 'function') {
+                task.controller.cancel();
+                markCancelledDownloadTask(taskId);
+                return;
+            }
+            if (task.abortController) {
+                task.abortController.abort();
+                markCancelledDownloadTask(taskId);
+            }
+        }
+
+        function retryDownloadTask(taskId) {
+            var task = getDownloadTask(taskId);
+            if (task && typeof task.retryHandler === 'function') {
+                task.retryHandler();
+            }
         }
     })();
 </script>

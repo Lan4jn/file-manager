@@ -1134,6 +1134,13 @@ body {
     border: 1px solid rgba(226, 232, 240, 0.95);
 }
 
+.download-task-center__item-top {
+    display: flex;
+    align-items: flex-start;
+    justify-content: space-between;
+    gap: 12px;
+}
+
 .download-task-center__item + .download-task-center__item {
     margin-top: 8px;
 }
@@ -1143,6 +1150,34 @@ body {
     font-weight: 600;
     color: #0f172a;
     word-break: break-word;
+}
+
+.download-task-center__actions {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    flex-shrink: 0;
+}
+
+.download-task-center__action {
+    width: 30px;
+    height: 30px;
+    border: 1px solid rgba(191, 219, 254, 0.95);
+    border-radius: 999px;
+    background: #ffffff;
+    color: #1d4ed8;
+    cursor: pointer;
+    font-size: 14px;
+    line-height: 1;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    box-shadow: 0 4px 12px rgba(148, 163, 184, 0.16);
+}
+
+.download-task-center__action--danger {
+    color: #b91c1c;
+    border-color: rgba(254, 202, 202, 0.95);
 }
 
 .download-task-center__meta {

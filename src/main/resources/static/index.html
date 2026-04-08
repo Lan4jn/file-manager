@@ -1340,7 +1340,39 @@
                 <div class="download-task-center__body">
                     <div v-if="downloadTasks.length === 0" class="download-task-center__empty">暂无下载任务</div>
                     <div v-for="task in downloadTasks" :key="task.id" class="download-task-center__item">
-                        <div class="download-task-center__name">{{ task.name }}</div>
+                        <div class="download-task-center__item-top">
+                            <div class="download-task-center__name">{{ task.name }}</div>
+                            <div class="download-task-center__actions">
+                                <button
+                                    v-if="task.type === 'single-file' && task.status === 'running'"
+                                    type="button"
+                                    class="download-task-center__action"
+                                    title="暂停下载"
+                                    @click.stop="pauseDownloadTask(task)"
+                                >⏸</button>
+                                <button
+                                    v-if="task.type === 'single-file' && task.status === 'paused'"
+                                    type="button"
+                                    class="download-task-center__action"
+                                    title="继续下载"
+                                    @click.stop="resumeDownloadTask(task)"
+                                >▶</button>
+                                <button
+                                    v-if="task.status === 'running' || task.status === 'paused'"
+                                    type="button"
+                                    class="download-task-center__action download-task-center__action--danger"
+                                    title="取消下载"
+                                    @click.stop="cancelDownloadTask(task)"
+                                >✕</button>
+                                <button
+                                    v-if="task.status === 'completed' || task.status === 'failed' || task.status === 'cancelled'"
+                                    type="button"
+                                    class="download-task-center__action"
+                                    title="重新下载"
+                                    @click.stop="retryDownloadTask(task)"
+                                >↻</button>
+                            </div>
+                        </div>
                         <div class="download-task-center__meta">
                             {{ task.step || task.status }}
                             <span v-if="task.error"> · {{ task.error }}</span>
