@@ -29,9 +29,11 @@ public class AdminConfigController {
         ensureSuperAdmin();
         Set<String> extensions = configService.getAllowedExtensions();
         Long maxSize = configService.getMaxFileSize();
+        Long frontendDownloadThreshold = configService.getFrontendDownloadThresholdBytes();
         Map<String, Object> config = new HashMap<>();
         config.put("allowedExtensions", extensions);
         config.put("maxFileSize", maxSize);
+        config.put("frontendDownloadThresholdMB", frontendDownloadThreshold / 1024 / 1024);
         return Result.success(config);
     }
 
@@ -45,6 +47,10 @@ public class AdminConfigController {
         if (configData.containsKey("maxFileSize")) {
             Long maxSize = Long.valueOf(configData.get("maxFileSize").toString());
             configService.setMaxFileSize(maxSize);
+        }
+        if (configData.containsKey("frontendDownloadThresholdMB")) {
+            Long thresholdMb = Long.valueOf(configData.get("frontendDownloadThresholdMB").toString());
+            configService.setFrontendDownloadThresholdBytes(thresholdMb * 1024L * 1024L);
         }
         return Result.success();
     }

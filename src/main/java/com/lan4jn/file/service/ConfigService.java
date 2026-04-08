@@ -16,6 +16,7 @@ public class ConfigService {
 
     public static final String KEY_ALLOWED_EXTENSIONS = "allowed_extensions";
     public static final String KEY_MAX_FILE_SIZE = "max_file_size";
+    public static final String KEY_FRONTEND_DOWNLOAD_THRESHOLD = "frontend_download_threshold";
     public static final String KEY_BATCH_SHARE_MAX_SIZE = "batch_share_max_size";
     public static final String KEY_BATCH_DOWNLOAD_MAX_SIZE = "batch_download_max_size";
     public static final String KEY_SHARE_EXPIRE_HOURS = "share_expire_hours";
@@ -71,6 +72,16 @@ public class ConfigService {
         }
     }
 
+    public Long getFrontendDownloadThresholdBytes() {
+        String value = getConfig(KEY_FRONTEND_DOWNLOAD_THRESHOLD, "104857600");
+        try {
+            long size = Long.parseLong(value);
+            return size <= 0 ? 104857600L : size;
+        } catch (NumberFormatException e) {
+            return 104857600L;
+        }
+    }
+
     @Transactional
     public void setAllowedExtensions(List<String> extensions) {
         String value = extensions.stream()
@@ -82,6 +93,11 @@ public class ConfigService {
     @Transactional
     public void setMaxFileSize(Long sizeInBytes) {
         setConfig(KEY_MAX_FILE_SIZE, String.valueOf(sizeInBytes), "最大文件大小，-1 表示不限制");
+    }
+
+    @Transactional
+    public void setFrontendDownloadThresholdBytes(Long sizeInBytes) {
+        setConfig(KEY_FRONTEND_DOWNLOAD_THRESHOLD, String.valueOf(sizeInBytes), "前端分块下载阈值，单位字节");
     }
 
     public Long getBatchShareMaxSize() {

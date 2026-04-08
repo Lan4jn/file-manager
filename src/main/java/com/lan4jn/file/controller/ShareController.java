@@ -5,12 +5,14 @@ import com.lan4jn.file.dto.CreateShareRequest;
 import com.lan4jn.file.model.FileInfo;
 import com.lan4jn.file.model.ShareAccessInfo;
 import com.lan4jn.file.model.ShareLink;
+import com.lan4jn.file.service.ConfigService;
 import com.lan4jn.file.service.FileService;
 import com.lan4jn.file.service.OperationLogService;
 import com.lan4jn.file.service.PermissionAssertService;
 import com.lan4jn.file.service.PermissionSnapshot;
 import com.lan4jn.file.service.ShareArchivePlan;
 import com.lan4jn.file.service.ShareService;
+import com.lan4jn.file.utils.HttpRangeUtils;
 import com.lan4jn.file.utils.RequestValidationUtils;
 import jakarta.servlet.http.HttpServletRequest;
 import com.lan4jn.file.rbac.BucketAction;
@@ -20,6 +22,7 @@ import org.slf4j.LoggerFactory;
 import org.springframework.core.io.InputStreamResource;
 import org.springframework.http.HttpHeaders;
 import org.springframework.http.MediaType;
+import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.security.core.Authentication;
 import org.springframework.web.bind.annotation.DeleteMapping;
@@ -50,15 +53,18 @@ public class ShareController {
     private final FileService fileService;
     private final PermissionAssertService permissionAssertService;
     private final OperationLogService operationLogService;
+    private final ConfigService configService;
 
     public ShareController(ShareService shareService,
                            FileService fileService,
                            PermissionAssertService permissionAssertService,
-                           OperationLogService operationLogService) {
+                           OperationLogService operationLogService,
+                           ConfigService configService) {
         this.shareService = shareService;
         this.fileService = fileService;
         this.permissionAssertService = permissionAssertService;
         this.operationLogService = operationLogService;
+        this.configService = configService;
     }
 
     @PostMapping("/create")
@@ -117,7 +123,9 @@ public class ShareController {
     @GetMapping("/access-info")
     public Result<ShareAccessInfo> getShareAccessInfo(@RequestParam("shareCode") String shareCode) {
         shareCode = RequestValidationUtils.requireText(shareCode, "shareCode");
-        return Result.success(shareService.getShareAccessInfo(shareCode));
+        ShareAccessInfo accessInfo = shareService.getShareAccessInfo(shareCode);
+        accessInfo.setFrontendDownloadThresholdMB(configService.getFrontendDownloadThresholdBytes() / 1024 / 1024);
+        return Result.success(accessInfo);
     }
 
     @GetMapping("/info")
@@ -153,7 +161,8 @@ public class ShareController {
     public ResponseEntity<InputStreamResource> downloadSharedItem(
             @RequestParam("shareCode") String shareCode,
             @RequestParam("objectName") String objectName,
-            @RequestParam(value = "password", required = false) String password) throws UnsupportedEncodingException {
+            @RequestParam(value = "password", required = false) String password,
+            @org.springframework.web.bind.annotation.RequestHeader(value = HttpHeaders.RANGE, required = false) String rangeHeader) throws UnsupportedEncodingException {
         shareCode = RequestValidationUtils.requireText(shareCode, "shareCode");
         objectName = RequestValidationUtils.requireText(objectName, "objectName");
         password = RequestValidationUtils.nullableText(password, "password");
@@ -164,18 +173,8 @@ public class ShareController {
         }
 
         ShareLink link = shareService.peekShareInfo(shareCode, password);
-        InputStream stream = fileService.getFileStream(
-                fileInfo.getObjectName(),
-                link.getBucket()
-        );
         shareService.incrementViewCount(shareCode);
-        String filename = URLEncoder.encode(fileInfo.getFileName(), "UTF-8");
-
-        return ResponseEntity.ok()
-                .header(HttpHeaders.CONTENT_DISPOSITION, "attachment; filename=\"" + filename + "\"")
-                .contentType(MediaType.parseMediaType(fileInfo.getContentType()))
-                .contentLength(fileInfo.getSize())
-                .body(new InputStreamResource(stream));
+        return buildFileDownloadResponse(fileInfo, fileInfo.getObjectName(), link.getBucket(), rangeHeader);
     }
 
     @GetMapping("/download-all")
@@ -221,7 +220,8 @@ public class ShareController {
     @GetMapping("/download")
     public ResponseEntity<InputStreamResource> downloadByShareCode(
             @RequestParam("shareCode") String shareCode,
-            @RequestParam(value = "password", required = false) String password) throws UnsupportedEncodingException {
+            @RequestParam(value = "password", required = false) String password,
+            @org.springframework.web.bind.annotation.RequestHeader(value = HttpHeaders.RANGE, required = false) String rangeHeader) throws UnsupportedEncodingException {
         shareCode = RequestValidationUtils.requireText(shareCode, "shareCode");
         password = RequestValidationUtils.nullableText(password, "password");
 
@@ -232,15 +232,8 @@ public class ShareController {
         }
 
         FileInfo fileInfo = fileService.getFileInfo(link.getObjectName(), link.getBucket());
-        InputStream stream = fileService.getFileStream(link.getObjectName(), link.getBucket());
         shareService.incrementViewCount(shareCode);
-        String filename = URLEncoder.encode(fileInfo.getFileName(), "UTF-8");
-
-        return ResponseEntity.ok()
-                .header(HttpHeaders.CONTENT_DISPOSITION, "attachment; filename=\"" + filename + "\"")
-                .contentType(MediaType.parseMediaType(fileInfo.getContentType()))
-                .contentLength(fileInfo.getSize())
-                .body(new InputStreamResource(stream));
+        return buildFileDownloadResponse(fileInfo, link.getObjectName(), link.getBucket(), rangeHeader);
     }
 
     @GetMapping("/download-folder")
@@ -311,6 +304,40 @@ public class ShareController {
             return snapshot != null ? snapshot.username() : null;
         } catch (RuntimeException ignored) {
             return null;
+        }
+    }
+
+    private ResponseEntity<InputStreamResource> buildFileDownloadResponse(
+            FileInfo fileInfo, String objectName, String bucket, String rangeHeader) throws UnsupportedEncodingException {
+        String filename = URLEncoder.encode(fileInfo.getFileName(), "UTF-8");
+        MediaType mediaType = MediaType.parseMediaType(fileInfo.getContentType());
+        long fileSize = fileInfo.getSize() == null ? 0L : fileInfo.getSize();
+
+        try {
+            HttpRangeUtils.ByteRange range = HttpRangeUtils.parseSingleRange(rangeHeader, fileSize);
+            if (range == null) {
+                InputStream stream = fileService.getFileStream(objectName, bucket);
+                return ResponseEntity.ok()
+                        .header(HttpHeaders.ACCEPT_RANGES, "bytes")
+                        .header(HttpHeaders.CONTENT_DISPOSITION, "attachment; filename=\"" + filename + "\"")
+                        .contentType(mediaType)
+                        .contentLength(fileSize)
+                        .body(new InputStreamResource(stream));
+            }
+
+            InputStream stream = fileService.getFileStream(objectName, bucket, range.getStart(), range.getLength());
+            return ResponseEntity.status(HttpStatus.PARTIAL_CONTENT)
+                    .header(HttpHeaders.ACCEPT_RANGES, "bytes")
+                    .header(HttpHeaders.CONTENT_RANGE, range.toContentRange())
+                    .header(HttpHeaders.CONTENT_DISPOSITION, "attachment; filename=\"" + filename + "\"")
+                    .contentType(mediaType)
+                    .contentLength(range.getLength())
+                    .body(new InputStreamResource(stream));
+        } catch (IllegalArgumentException ex) {
+            return ResponseEntity.status(HttpStatus.REQUESTED_RANGE_NOT_SATISFIABLE)
+                    .header(HttpHeaders.ACCEPT_RANGES, "bytes")
+                    .header(HttpHeaders.CONTENT_RANGE, "bytes */" + fileSize)
+                    .build();
         }
     }
 }

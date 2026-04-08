@@ -11,10 +11,14 @@ import com.lan4jn.file.service.PermissionAssertService;
 import com.lan4jn.file.service.PermissionSnapshot;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
+import org.springframework.http.HttpHeaders;
+import org.springframework.http.HttpStatus;
 import org.springframework.test.web.servlet.MockMvc;
 import org.springframework.test.web.servlet.setup.MockMvcBuilders;
 
+import java.io.ByteArrayInputStream;
 import java.lang.reflect.Constructor;
+import java.nio.charset.StandardCharsets;
 import java.time.LocalDateTime;
 import java.util.Arrays;
 import java.util.List;
@@ -30,8 +34,10 @@ import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.when;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
+import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.header;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
+import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.content;
 
 class FileControllerTest {
 
@@ -183,6 +189,53 @@ class FileControllerTest {
                 .andExpect(jsonPath("$.data.allowedExtensions.length()").value(2));
 
         verify(permissionAssertService).assertApiPermission("API_FILE_OPERATE");
+    }
+
+    @Test
+    void shouldReturnDownloadResponseHeadersForSingleFile() throws Exception {
+        FileInfo fileInfo = new FileInfo();
+        fileInfo.setObjectName("docs/readme.txt");
+        fileInfo.setFileName("readme.txt");
+        fileInfo.setContentType("text/plain");
+        fileInfo.setSize(12L);
+
+        when(fileService.getFileInfo("docs/readme.txt", "bucket-a")).thenReturn(fileInfo);
+        when(fileService.getFileStream("docs/readme.txt", "bucket-a"))
+                .thenReturn(new ByteArrayInputStream("hello world!".getBytes(StandardCharsets.UTF_8)));
+
+        mockMvc.perform(get("/api/file/download")
+                        .param("objectName", "docs/readme.txt")
+                        .param("bucket", "bucket-a"))
+                .andExpect(status().isOk())
+                .andExpect(header().string(HttpHeaders.CONTENT_DISPOSITION, "attachment; filename=\"readme.txt\""))
+                .andExpect(header().string(HttpHeaders.CONTENT_TYPE, "text/plain"))
+                .andExpect(header().longValue(HttpHeaders.CONTENT_LENGTH, 12L));
+
+        verify(fileService).getFileInfo("docs/readme.txt", "bucket-a");
+        verify(fileService).getFileStream("docs/readme.txt", "bucket-a");
+    }
+
+    @Test
+    void shouldSupportRangeDownloadForSingleFile() throws Exception {
+        FileInfo fileInfo = new FileInfo();
+        fileInfo.setObjectName("docs/readme.txt");
+        fileInfo.setFileName("readme.txt");
+        fileInfo.setContentType("text/plain");
+        fileInfo.setSize(12L);
+
+        when(fileService.getFileInfo("docs/readme.txt", "bucket-a")).thenReturn(fileInfo);
+        when(fileService.getFileStream("docs/readme.txt", "bucket-a", 6L, 6L))
+                .thenReturn(new ByteArrayInputStream("world!".getBytes(StandardCharsets.UTF_8)));
+
+        mockMvc.perform(get("/api/file/download")
+                        .param("objectName", "docs/readme.txt")
+                        .param("bucket", "bucket-a")
+                        .header(HttpHeaders.RANGE, "bytes=6-11"))
+                .andExpect(status().is(HttpStatus.PARTIAL_CONTENT.value()))
+                .andExpect(header().string(HttpHeaders.ACCEPT_RANGES, "bytes"))
+                .andExpect(header().string(HttpHeaders.CONTENT_RANGE, "bytes 6-11/12"))
+                .andExpect(header().longValue(HttpHeaders.CONTENT_LENGTH, 6L))
+                .andExpect(content().string("world!"));
     }
 
     @Test
