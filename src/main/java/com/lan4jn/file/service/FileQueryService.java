@@ -140,6 +140,10 @@ final class FileQueryService {
         return support.getFileStream(objectName, bucket, defaultBucket);
     }
 
+    java.io.InputStream getFileStream(String objectName, String bucket, String defaultBucket, Long offset, Long length) {
+        return support.getFileStream(objectName, bucket, defaultBucket, offset, length);
+    }
+
     FileInfo getFileInfo(String objectName, String bucket, String defaultBucket, String publicUrl) {
         String resolvedBucket = support.resolveBucket(bucket, defaultBucket);
         try {
