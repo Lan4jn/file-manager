@@ -6,6 +6,7 @@ import com.lan4jn.file.model.FileInfo;
 import com.lan4jn.file.model.ShareAccessInfo;
 import com.lan4jn.file.model.ShareLink;
 import com.lan4jn.file.service.FileService;
+import com.lan4jn.file.service.ConfigService;
 import com.lan4jn.file.service.OperationLogService;
 import com.lan4jn.file.service.PermissionAssertService;
 import com.lan4jn.file.service.PermissionSnapshot;
@@ -46,6 +47,7 @@ class ShareControllerTest {
     private MockMvc mockMvc;
     private ShareService shareService;
     private OperationLogService operationLogService;
+    private ConfigService configService;
 
     @BeforeEach
     void setUp() {
@@ -53,7 +55,9 @@ class ShareControllerTest {
         FileService fileService = mock(FileService.class);
         PermissionAssertService permissionAssertService = mock(PermissionAssertService.class);
         operationLogService = mock(OperationLogService.class);
-        mockMvc = MockMvcBuilders.standaloneSetup(new ShareController(shareService, fileService, permissionAssertService, operationLogService))
+        configService = mock(ConfigService.class);
+        when(configService.getFrontendDownloadThresholdBytes()).thenReturn(104857600L);
+        mockMvc = MockMvcBuilders.standaloneSetup(new ShareController(shareService, fileService, permissionAssertService, operationLogService, configService))
                 .setControllerAdvice(new GlobalExceptionHandler())
                 .build();
     }
@@ -80,7 +84,8 @@ class ShareControllerTest {
         mockMvc.perform(get("/api/share/access-info").param("shareCode", "SHARE001"))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.data.shareCode").value("SHARE001"))
-                .andExpect(jsonPath("$.data.fileName").value("docs"));
+                .andExpect(jsonPath("$.data.fileName").value("docs"))
+                .andExpect(jsonPath("$.data.frontendDownloadThresholdMB").value(100));
     }
 
     @Test
@@ -121,7 +126,7 @@ class ShareControllerTest {
 
         FileService fileService = mock(FileService.class);
         PermissionAssertService permissionAssertService = mock(PermissionAssertService.class);
-        mockMvc = MockMvcBuilders.standaloneSetup(new ShareController(shareService, fileService, permissionAssertService, operationLogService))
+        mockMvc = MockMvcBuilders.standaloneSetup(new ShareController(shareService, fileService, permissionAssertService, operationLogService, configService))
                 .setControllerAdvice(new GlobalExceptionHandler())
                 .build();
 
@@ -157,7 +162,7 @@ class ShareControllerTest {
 
         FileService fileService = mock(FileService.class);
         PermissionAssertService permissionAssertService = mock(PermissionAssertService.class);
-        mockMvc = MockMvcBuilders.standaloneSetup(new ShareController(shareService, fileService, permissionAssertService, operationLogService))
+        mockMvc = MockMvcBuilders.standaloneSetup(new ShareController(shareService, fileService, permissionAssertService, operationLogService, configService))
                 .setControllerAdvice(new GlobalExceptionHandler())
                 .build();
 
@@ -211,7 +216,7 @@ class ShareControllerTest {
                 1L, "admin", true, Set.of("ADMIN"), Set.of(), Set.of(), Map.of()
         ));
         FileService fileService = mock(FileService.class);
-        mockMvc = MockMvcBuilders.standaloneSetup(new ShareController(shareService, fileService, permissionAssertService, operationLogService))
+        mockMvc = MockMvcBuilders.standaloneSetup(new ShareController(shareService, fileService, permissionAssertService, operationLogService, configService))
                 .setControllerAdvice(new GlobalExceptionHandler())
                 .build();
 
@@ -237,7 +242,7 @@ class ShareControllerTest {
     void shouldPassUserTargetTypeAndRecipientsToBatchShareService() throws Exception {
         FileService fileService = mock(FileService.class);
         PermissionAssertService permissionAssertService = mock(PermissionAssertService.class);
-        ShareController controller = new ShareController(shareService, fileService, permissionAssertService, operationLogService);
+        ShareController controller = new ShareController(shareService, fileService, permissionAssertService, operationLogService, configService);
         ShareLink shareLink = new ShareLink();
         shareLink.setShareCode("BATCH001");
         shareLink.setTargetType("USER");
