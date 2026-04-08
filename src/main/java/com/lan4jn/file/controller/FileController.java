@@ -10,6 +10,7 @@ import com.lan4jn.file.service.FileService;
 import com.lan4jn.file.service.OperationLogService;
 import com.lan4jn.file.service.PermissionAssertService;
 import com.lan4jn.file.service.PermissionSnapshot;
+import com.lan4jn.file.utils.HttpRangeUtils;
 import com.lan4jn.file.utils.RequestValidationUtils;
 import jakarta.servlet.http.HttpServletRequest;
 import com.lan4jn.file.rbac.BucketAction;
@@ -19,6 +20,7 @@ import org.slf4j.LoggerFactory;
 import org.springframework.core.io.InputStreamResource;
 import org.springframework.http.HttpHeaders;
 import org.springframework.http.MediaType;
+import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.DeleteMapping;
 import org.springframework.web.bind.annotation.GetMapping;
@@ -214,7 +216,8 @@ public class FileController {
     @GetMapping("/download")
     public ResponseEntity<InputStreamResource> download(
             @RequestParam("objectName") String objectName,
-            @RequestParam(value = "bucket", required = false, defaultValue = "") String bucket)
+            @RequestParam(value = "bucket", required = false, defaultValue = "") String bucket,
+            @org.springframework.web.bind.annotation.RequestHeader(value = HttpHeaders.RANGE, required = false) String rangeHeader)
             throws UnsupportedEncodingException {
         objectName = RequestValidationUtils.requireText(objectName, "objectName");
         bucket = RequestValidationUtils.optionalText(bucket, "bucket");
@@ -223,14 +226,7 @@ public class FileController {
         log.info("Downloading file: {}, bucket: {}", objectName, bucket);
 
         FileInfo fileInfo = fileService.getFileInfo(objectName, bucket);
-        InputStream stream = fileService.getFileStream(objectName, bucket);
-        String filename = URLEncoder.encode(fileInfo.getFileName(), "UTF-8");
-
-        return ResponseEntity.ok()
-                .header(HttpHeaders.CONTENT_DISPOSITION, "attachment; filename=\"" + filename + "\"")
-                .contentType(MediaType.parseMediaType(fileInfo.getContentType()))
-                .contentLength(fileInfo.getSize())
-                .body(new InputStreamResource(stream));
+        return buildFileDownloadResponse(fileInfo, objectName, bucket, rangeHeader);
     }
 
     @GetMapping("/download-folder")
@@ -397,6 +393,40 @@ public class FileController {
 
     private String resolveBucket(String bucket) {
         return (bucket == null || bucket.isBlank()) ? fileService.getDefaultBucket() : bucket;
+    }
+
+    private ResponseEntity<InputStreamResource> buildFileDownloadResponse(
+            FileInfo fileInfo, String objectName, String bucket, String rangeHeader) throws UnsupportedEncodingException {
+        String filename = URLEncoder.encode(fileInfo.getFileName(), "UTF-8");
+        MediaType mediaType = MediaType.parseMediaType(fileInfo.getContentType());
+        long fileSize = fileInfo.getSize() == null ? 0L : fileInfo.getSize();
+
+        try {
+            HttpRangeUtils.ByteRange range = HttpRangeUtils.parseSingleRange(rangeHeader, fileSize);
+            if (range == null) {
+                InputStream stream = fileService.getFileStream(objectName, bucket);
+                return ResponseEntity.ok()
+                        .header(HttpHeaders.ACCEPT_RANGES, "bytes")
+                        .header(HttpHeaders.CONTENT_DISPOSITION, "attachment; filename=\"" + filename + "\"")
+                        .contentType(mediaType)
+                        .contentLength(fileSize)
+                        .body(new InputStreamResource(stream));
+            }
+
+            InputStream stream = fileService.getFileStream(objectName, bucket, range.getStart(), range.getLength());
+            return ResponseEntity.status(HttpStatus.PARTIAL_CONTENT)
+                    .header(HttpHeaders.ACCEPT_RANGES, "bytes")
+                    .header(HttpHeaders.CONTENT_RANGE, range.toContentRange())
+                    .header(HttpHeaders.CONTENT_DISPOSITION, "attachment; filename=\"" + filename + "\"")
+                    .contentType(mediaType)
+                    .contentLength(range.getLength())
+                    .body(new InputStreamResource(stream));
+        } catch (IllegalArgumentException ex) {
+            return ResponseEntity.status(HttpStatus.REQUESTED_RANGE_NOT_SATISFIABLE)
+                    .header(HttpHeaders.ACCEPT_RANGES, "bytes")
+                    .header(HttpHeaders.CONTENT_RANGE, "bytes */" + fileSize)
+                    .build();
+        }
     }
 
     private boolean hasGlobalBucketAccess(PermissionSnapshot snapshot) {

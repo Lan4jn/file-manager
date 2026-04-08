@@ -13,11 +13,15 @@ import com.lan4jn.file.service.ShareArchivePlan;
 import com.lan4jn.file.service.ShareService;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
+import org.springframework.http.HttpHeaders;
+import org.springframework.http.HttpStatus;
 import org.springframework.security.authentication.UsernamePasswordAuthenticationToken;
 import org.springframework.test.web.servlet.MockMvc;
 import org.springframework.test.web.servlet.setup.MockMvcBuilders;
 
+import java.io.ByteArrayInputStream;
 import java.util.Arrays;
+import java.nio.charset.StandardCharsets;
 import java.time.LocalDateTime;
 import java.util.LinkedHashMap;
 import java.util.List;
@@ -32,6 +36,8 @@ import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
+import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.content;
+import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.header;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
@@ -97,6 +103,77 @@ class ShareControllerTest {
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.code").value(400))
                 .andExpect(jsonPath("$.message").value("shareCode不能为空"));
+    }
+
+    @Test
+    void shouldReturnDownloadResponseHeadersForSharedFile() throws Exception {
+        ShareLink shareLink = new ShareLink();
+        shareLink.setShareCode("SHARE001");
+        shareLink.setObjectName("docs/readme.txt");
+        shareLink.setBucket("bucket-a");
+        shareLink.setIsFolder(false);
+
+        FileInfo fileInfo = new FileInfo();
+        fileInfo.setObjectName("docs/readme.txt");
+        fileInfo.setFileName("readme.txt");
+        fileInfo.setContentType("text/plain");
+        fileInfo.setSize(12L);
+
+        FileService fileService = mock(FileService.class);
+        PermissionAssertService permissionAssertService = mock(PermissionAssertService.class);
+        mockMvc = MockMvcBuilders.standaloneSetup(new ShareController(shareService, fileService, permissionAssertService, operationLogService))
+                .setControllerAdvice(new GlobalExceptionHandler())
+                .build();
+
+        when(shareService.peekShareInfo("SHARE001", null)).thenReturn(shareLink);
+        when(fileService.getFileInfo("docs/readme.txt", "bucket-a")).thenReturn(fileInfo);
+        when(fileService.getFileStream("docs/readme.txt", "bucket-a"))
+                .thenReturn(new ByteArrayInputStream("hello world!".getBytes(StandardCharsets.UTF_8)));
+
+        mockMvc.perform(get("/api/share/download").param("shareCode", "SHARE001"))
+                .andExpect(status().isOk())
+                .andExpect(header().string(HttpHeaders.CONTENT_DISPOSITION, "attachment; filename=\"readme.txt\""))
+                .andExpect(header().string(HttpHeaders.CONTENT_TYPE, "text/plain"))
+                .andExpect(header().longValue(HttpHeaders.CONTENT_LENGTH, 12L));
+
+        verify(shareService).incrementViewCount("SHARE001");
+        verify(fileService).getFileInfo("docs/readme.txt", "bucket-a");
+        verify(fileService).getFileStream("docs/readme.txt", "bucket-a");
+    }
+
+    @Test
+    void shouldSupportRangeDownloadForSharedFile() throws Exception {
+        ShareLink shareLink = new ShareLink();
+        shareLink.setShareCode("SHARE001");
+        shareLink.setObjectName("docs/readme.txt");
+        shareLink.setBucket("bucket-a");
+        shareLink.setIsFolder(false);
+
+        FileInfo fileInfo = new FileInfo();
+        fileInfo.setObjectName("docs/readme.txt");
+        fileInfo.setFileName("readme.txt");
+        fileInfo.setContentType("text/plain");
+        fileInfo.setSize(12L);
+
+        FileService fileService = mock(FileService.class);
+        PermissionAssertService permissionAssertService = mock(PermissionAssertService.class);
+        mockMvc = MockMvcBuilders.standaloneSetup(new ShareController(shareService, fileService, permissionAssertService, operationLogService))
+                .setControllerAdvice(new GlobalExceptionHandler())
+                .build();
+
+        when(shareService.peekShareInfo("SHARE001", null)).thenReturn(shareLink);
+        when(fileService.getFileInfo("docs/readme.txt", "bucket-a")).thenReturn(fileInfo);
+        when(fileService.getFileStream("docs/readme.txt", "bucket-a", 6L, 6L))
+                .thenReturn(new ByteArrayInputStream("world!".getBytes(StandardCharsets.UTF_8)));
+
+        mockMvc.perform(get("/api/share/download")
+                        .param("shareCode", "SHARE001")
+                        .header(HttpHeaders.RANGE, "bytes=6-11"))
+                .andExpect(status().is(HttpStatus.PARTIAL_CONTENT.value()))
+                .andExpect(header().string(HttpHeaders.ACCEPT_RANGES, "bytes"))
+                .andExpect(header().string(HttpHeaders.CONTENT_RANGE, "bytes 6-11/12"))
+                .andExpect(header().longValue(HttpHeaders.CONTENT_LENGTH, 6L))
+                .andExpect(content().string("world!"));
     }
 
     @Test

@@ -4,6 +4,7 @@
 server:
   # HTTPS 服务端口
   port: 19080
+  connection-timeout: 300s
   forward-headers-strategy: framework
   ssl:
     enabled: true
@@ -33,6 +34,10 @@ minio:
   secret-key: replace-me
   default-bucket: file-manager
   public-url: https://127.0.0.1:9000
+  http:
+    connect-timeout-ms: 30000
+    write-timeout-ms: 300000
+    read-timeout-ms: 300000
 
 jwt:
   # 生产环境务必替换为足够强的 JWT 密钥

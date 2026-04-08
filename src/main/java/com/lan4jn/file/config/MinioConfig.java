@@ -26,12 +26,22 @@ public class MinioConfig {
     @Value("${minio.default-bucket}")
     private String bucketName;
 
+    @Value("${minio.http.connect-timeout-ms:30000}")
+    private long connectTimeoutMs;
+
+    @Value("${minio.http.write-timeout-ms:300000}")
+    private long writeTimeoutMs;
+
+    @Value("${minio.http.read-timeout-ms:300000}")
+    private long readTimeoutMs;
+
     @Bean
     public MinioClient minioClient() {
         MinioClient minioClient = MinioClient.builder()
                 .endpoint(endpoint)
                 .credentials(accessKey, secretKey)
                 .build();
+        minioClient.setTimeout(connectTimeoutMs, writeTimeoutMs, readTimeoutMs);
 
         // 纭繚 bucket 瀛樺湪
         try {
@@ -51,4 +61,3 @@ public class MinioConfig {
         return minioClient;
     }
 }
-

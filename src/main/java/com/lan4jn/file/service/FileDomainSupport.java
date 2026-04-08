@@ -86,14 +86,22 @@ final class FileDomainSupport {
     }
 
     InputStream getFileStream(String objectName, String bucket, String defaultBucket) {
+        return getFileStream(objectName, bucket, defaultBucket, null, null);
+    }
+
+    InputStream getFileStream(String objectName, String bucket, String defaultBucket, Long offset, Long length) {
         String resolvedBucket = resolveBucket(bucket, defaultBucket);
         try {
-            return minioClient.getObject(
-                    GetObjectArgs.builder()
-                            .bucket(resolvedBucket)
-                            .object(objectName)
-                            .build()
-            );
+            GetObjectArgs.Builder builder = GetObjectArgs.builder()
+                    .bucket(resolvedBucket)
+                    .object(objectName);
+            if (offset != null) {
+                builder.offset(offset);
+            }
+            if (length != null) {
+                builder.length(length);
+            }
+            return minioClient.getObject(builder.build());
         } catch (Exception e) {
             throw new RuntimeException("获取文件失败: " + e.getMessage(), e);
         }
