@@ -99,6 +99,10 @@ public class FileService {
         return fileQueryService.getFileStream(objectName, bucket, defaultBucket);
     }
 
+    public InputStream getFileStream(String objectName, String bucket, Long offset, Long length) {
+        return fileQueryService.getFileStream(objectName, bucket, defaultBucket, offset, length);
+    }
+
     public FileInfo getFileInfo(String objectName, String bucket) {
         return fileQueryService.getFileInfo(objectName, bucket, defaultBucket, publicUrl);
     }

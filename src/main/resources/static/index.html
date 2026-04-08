@@ -693,6 +693,13 @@
                                 <el-input-number v-model="fileConfig.maxFileSizeMB" :min="-1" :max="102400"></el-input-number>
                                 <span style="margin-left: 10px">MB (-1表示无限制)</span>
                             </el-form-item>
+                            <el-form-item label="前端分块下载阈值">
+                                <el-tooltip content="单个文件达到该大小后，前端将使用下载任务中心和分块下载模式" placement="top" effect="light">
+                                    <el-icon class="form-help"><question-filled /></el-icon>
+                                </el-tooltip>
+                                <el-input-number v-model="fileConfig.frontendDownloadThresholdMB" :min="1" :max="102400"></el-input-number>
+                                <span style="margin-left: 10px">MB</span>
+                            </el-form-item>
                             <el-form-item>
                                 <el-button v-if="isSuperAdmin" type="primary" @click="saveFileConfig">保存配置</el-button>
                             </el-form-item>
@@ -1461,6 +1468,75 @@
                 <el-button @click="showVersionDialog = false">关闭</el-button>
             </template>
         </el-dialog>
+
+        <div v-if="downloadCenterVisible" class="download-task-center">
+            <div class="download-task-center__backdrop"></div>
+            <div class="download-task-center__dialog">
+                <div class="download-task-center__header">
+                    <div>
+                        <strong>下载任务</strong>
+                        <span>{{ activeDownloadTaskCount }} 个进行中</span>
+                    </div>
+                    <el-button size="small" text @click="minimizeDownloadCenter">最小化</el-button>
+                </div>
+                <div class="download-task-center__body">
+                    <div v-if="downloadTasks.length === 0" class="download-task-center__empty">暂无下载任务</div>
+                    <div v-for="task in downloadTasks" :key="task.id" class="download-task-center__item">
+                        <div class="download-task-center__item-top">
+                            <div class="download-task-center__name">{{ task.name }}</div>
+                            <div class="download-task-center__actions">
+                                <button
+                                    v-if="task.type === 'single-file' && task.status === 'running'"
+                                    type="button"
+                                    class="download-task-center__action"
+                                    title="暂停下载"
+                                    @click.stop="pauseDownloadTask(task)"
+                                >⏸</button>
+                                <button
+                                    v-if="task.type === 'single-file' && task.status === 'paused'"
+                                    type="button"
+                                    class="download-task-center__action"
+                                    title="继续下载"
+                                    @click.stop="resumeDownloadTask(task)"
+                                >▶</button>
+                                <button
+                                    v-if="task.status === 'running' || task.status === 'paused'"
+                                    type="button"
+                                    class="download-task-center__action download-task-center__action--danger"
+                                    title="取消下载"
+                                    @click.stop="cancelDownloadTask(task)"
+                                >✕</button>
+                                <button
+                                    v-if="task.status === 'completed' || task.status === 'failed' || task.status === 'cancelled'"
+                                    type="button"
+                                    class="download-task-center__action"
+                                    title="重新下载"
+                                    @click.stop="retryDownloadTask(task)"
+                                >↻</button>
+                            </div>
+                        </div>
+                        <div class="download-task-center__meta">
+                            {{ task.step || task.status }}
+                            <span v-if="task.error"> · {{ task.error }}</span>
+                        </div>
+                        <el-progress :percentage="Math.round(task.progress || 0)" :status="task.status === 'failed' ? 'exception' : (task.status === 'completed' ? 'success' : '')"></el-progress>
+                        <div class="download-task-center__meta">
+                            {{ formatSize(task.downloadedBytes || 0) }} / {{ task.totalBytes ? formatSize(task.totalBytes) : '未知大小' }}
+                            <span v-if="task.speedBytesPerSecond"> · {{ formatSize(task.speedBytesPerSecond) }}/s</span>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <button
+            v-if="downloadCenterMinimized"
+            type="button"
+            class="download-center-toggle"
+            @click="restoreDownloadCenter"
+        >
+            {{ '下载任务 ' + activeDownloadTaskCount + (failedDownloadTaskCount > 0 ? ' / 失败 ' + failedDownloadTaskCount : '') }}
+        </button>
     </div>
 
     <script src="/js/vue.global.js"></script>
@@ -1484,7 +1560,9 @@
     <script src="/js/role-bucket-permission-helpers.js"></script>
     <script src="/js/permission-ui-helpers.js"></script>
     <script src="/js/login-error-helpers.js"></script>
+    <script src="/js/download-manager.js"></script>
     <script src="/js/message-center-helpers.js"></script>
+    <script src="/js/download-manager.js"></script>
     <script src="/js/app.js"></script>
 </body>
 </html>

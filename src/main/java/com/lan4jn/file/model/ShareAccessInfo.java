@@ -9,6 +9,7 @@ public class ShareAccessInfo {
     private Boolean isFolder;
     private LocalDateTime expireTime;
     private String displayPath;
+    private Long frontendDownloadThresholdMB;
 
     public String getShareCode() {
         return shareCode;
@@ -56,5 +57,13 @@ public class ShareAccessInfo {
 
     public void setDisplayPath(String displayPath) {
         this.displayPath = displayPath;
+    }
+
+    public Long getFrontendDownloadThresholdMB() {
+        return frontendDownloadThresholdMB;
+    }
+
+    public void setFrontendDownloadThresholdMB(Long frontendDownloadThresholdMB) {
+        this.frontendDownloadThresholdMB = frontendDownloadThresholdMB;
     }
 }
