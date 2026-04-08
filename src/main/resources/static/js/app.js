@@ -34,6 +34,7 @@ const loginErrorHelpers = window.LoginErrorHelpers || {
         return '登录失败';
     }
 };
+const downloadHelpers = window.FileManagerDownloads || {};
 
 const zhCnLocale = {
     name: 'zh-cn',
@@ -111,6 +112,9 @@ const app = createApp({
         const showHelpDialog = ref(false);
         const showVersionDialog = ref(false);
         const showPreviewDialog = ref(false);
+        const downloadTasks = ref([]);
+        const downloadCenterVisible = ref(false);
+        const downloadCenterMinimized = ref(false);
         const helpContent = ref('');
         const versionList = ref([]);
         const selectedVersion = ref('');
@@ -250,7 +254,8 @@ const app = createApp({
         // File config
         const fileConfig = ref({
             allowedExtensionsText: '',
-            maxFileSizeMB: 100
+            maxFileSizeMB: 100,
+            frontendDownloadThresholdMB: 100
         });
 
         // Share config
@@ -370,6 +375,9 @@ const app = createApp({
         const currentPageSize = computed(() => {
             return fileList.value.reduce((total, item) => total + (item.isFolder ? 0 : (item.size || 0)), 0);
         });
+        const activeDownloadTaskCount = computed(() => downloadTasks.value.filter(task => task.status === 'running').length);
+        const failedDownloadTaskCount = computed(() => downloadTasks.value.filter(task => task.status === 'failed').length);
+        const primaryDownloadTask = computed(() => downloadTasks.value.find(task => task.status === 'running') || downloadTasks.value[0] || null);
         const previewHintGroups = [
             { label: '图片', extensions: ['png', 'jpg', 'jpeg', 'gif', 'webp', 'bmp', 'svg'] },
             { label: '文档', extensions: ['pdf', 'txt', 'md', 'log', 'csv'] },
@@ -446,6 +454,162 @@ const app = createApp({
                 }
             } finally {
                 document.body.removeChild(textarea);
+            }
+        };
+
+        const createDownloadTask = (payload) => ({
+            id: 'download-' + Date.now() + '-' + Math.random().toString(36).slice(2, 8),
+            type: payload.type || 'file',
+            name: payload.name || '下载任务',
+            status: 'running',
+            step: payload.step || '准备中',
+            progress: payload.progress || 0,
+            downloadedBytes: payload.downloadedBytes || 0,
+            totalBytes: payload.totalBytes || 0,
+            speedBytesPerSecond: 0,
+            error: ''
+        });
+
+        const addDownloadTask = (task) => {
+            downloadTasks.value.unshift(task);
+            openDownloadCenter();
+            return task;
+        };
+
+        const updateDownloadTask = (taskId, patch) => {
+            const index = downloadTasks.value.findIndex(task => task.id === taskId);
+            if (index < 0) {
+                return;
+            }
+            downloadTasks.value[index] = {
+                ...downloadTasks.value[index],
+                ...patch
+            };
+        };
+
+        const completeDownloadTask = (taskId, patch = {}) => {
+            updateDownloadTask(taskId, {
+                status: 'completed',
+                progress: 100,
+                ...patch
+            });
+        };
+
+        const failDownloadTask = (taskId, errorMessage) => {
+            updateDownloadTask(taskId, {
+                status: 'failed',
+                error: errorMessage || '下载失败'
+            });
+            openDownloadCenter();
+        };
+
+        const buildAuthorizedHeaders = () => {
+            if (!token.value) {
+                return {};
+            }
+            return {
+                Authorization: 'Bearer ' + token.value
+            };
+        };
+
+        const toQueryUrl = (basePath, params) => {
+            const url = new URL('/api' + basePath, window.location.origin);
+            Object.entries(params || {}).forEach(([key, value]) => {
+                if (value !== undefined && value !== null && value !== '') {
+                    url.searchParams.set(key, value);
+                }
+            });
+            return url.toString();
+        };
+
+        const shouldUseTaskCenterForFile = (file) => {
+            if (!file || file.isFolder || !downloadHelpers.shouldUseChunkedDownload) {
+                return false;
+            }
+            return downloadHelpers.shouldUseChunkedDownload(
+                file.size || 0,
+                fileConfig.value.frontendDownloadThresholdMB || 100
+            );
+        };
+
+        const runChunkedFileDownload = async (file, urlBuilder) => {
+            const task = addDownloadTask(createDownloadTask({
+                type: 'single-file',
+                name: file.fileName,
+                step: '正在分块下载',
+                totalBytes: file.size || 0
+            }));
+            try {
+                await downloadHelpers.downloadInChunks({
+                    url: urlBuilder(),
+                    fileName: file.fileName,
+                    totalSize: file.size || 0,
+                    headers: buildAuthorizedHeaders(),
+                    chunkSize: downloadHelpers.DEFAULT_CHUNK_SIZE,
+                    onProgress: (progress) => {
+                        updateDownloadTask(task.id, {
+                            step: '正在分块下载',
+                            progress: progress.progress,
+                            downloadedBytes: progress.downloadedBytes,
+                            totalBytes: progress.totalBytes,
+                            speedBytesPerSecond: progress.speedBytesPerSecond
+                        });
+                    }
+                });
+                completeDownloadTask(task.id, {
+                    step: '保存完成',
+                    downloadedBytes: file.size || 0
+                });
+                ElementPlus.ElMessage.success('下载完成');
+            } catch (error) {
+                failDownloadTask(task.id, error.message || '下载失败');
+                ElementPlus.ElMessage.error('下载失败: ' + (error.message || ''));
+            }
+        };
+
+        const runBatchDownloadTask = async (objectNames, fileName) => {
+            const task = addDownloadTask(createDownloadTask({
+                type: 'batch-download',
+                name: fileName,
+                step: downloadHelpers.BATCH_DOWNLOAD_STEPS ? downloadHelpers.BATCH_DOWNLOAD_STEPS[0] : '校验文件'
+            }));
+            try {
+                updateDownloadTask(task.id, {
+                    step: downloadHelpers.BATCH_DOWNLOAD_STEPS ? downloadHelpers.BATCH_DOWNLOAD_STEPS[1] : '请求服务端打包',
+                    progress: 5
+                });
+                await downloadHelpers.downloadBlob({
+                    fileName,
+                    request: (onProgress) => api.get('/file/batch-download', {
+                        params: { objectNames: objectNames.join(','), bucket: currentBucket.value },
+                        responseType: 'blob',
+                        timeout: 600000,
+                        onDownloadProgress: (event) => {
+                            updateDownloadTask(task.id, {
+                                step: downloadHelpers.BATCH_DOWNLOAD_STEPS ? downloadHelpers.BATCH_DOWNLOAD_STEPS[2] : '接收压缩包',
+                                progress: event.total > 0 ? Math.min(95, (event.loaded / event.total) * 100) : 60
+                            });
+                            onProgress(event);
+                        }
+                    }),
+                    onProgress: (progress) => {
+                        updateDownloadTask(task.id, {
+                            downloadedBytes: progress.downloadedBytes,
+                            totalBytes: progress.totalBytes,
+                            speedBytesPerSecond: progress.speedBytesPerSecond
+                        });
+                    }
+                });
+                updateDownloadTask(task.id, {
+                    step: downloadHelpers.BATCH_DOWNLOAD_STEPS ? downloadHelpers.BATCH_DOWNLOAD_STEPS[3] : '保存文件',
+                    progress: 98
+                });
+                completeDownloadTask(task.id, { step: '保存完成' });
+                ElementPlus.ElMessage.success('下载完成');
+            } catch (error) {
+                const message = error.response?.data?.message || error.message || '下载失败';
+                failDownloadTask(task.id, message);
+                ElementPlus.ElMessage.error('下载失败: ' + message);
             }
         };
 
@@ -1300,6 +1464,13 @@ const app = createApp({
             }
 
             // 文件下载
+            if (shouldUseTaskCenterForFile(file) && downloadHelpers.downloadInChunks) {
+                await runChunkedFileDownload(file, () => toQueryUrl('/file/download', {
+                    objectName: file.objectName,
+                    bucket: currentBucket.value
+                }));
+                return;
+            }
             try {
                 const response = await api.get('/file/download', {
                     params: { objectName: file.objectName, bucket: currentBucket.value },
@@ -1530,30 +1701,10 @@ const app = createApp({
                 ElementPlus.ElMessage.warning('请先选择要下载的文件');
                 return;
             }
-            try {
-                ElementPlus.ElMessage.info('正在打包文件，请稍候...');
-                const objectNames = selectedFiles.value.map(f => f.objectName).join(',');
-                const response = await api.get('/file/batch-download', {
-                    params: { objectNames: objectNames, bucket: currentBucket.value },
-                    responseType: 'blob',
-                    timeout: 600000 // 10分钟超时
-                });
-                const url = window.URL.createObjectURL(new Blob([response.data]));
-                const link = document.createElement('a');
-                link.href = url;
-                link.setAttribute('download', '批量下载_' + selectedFiles.value.length + '个文件.zip');
-                document.body.appendChild(link);
-                link.click();
-                link.remove();
-                window.URL.revokeObjectURL(url);
-                ElementPlus.ElMessage.success('下载完成');
-            } catch (error) {
-                if (error.response?.data?.message) {
-                    ElementPlus.ElMessage.error(error.response.data.message);
-                } else {
-                    ElementPlus.ElMessage.error('下载失败: ' + (error.message || ''));
-                }
-            }
+            await runBatchDownloadTask(
+                selectedFiles.value.map(f => f.objectName),
+                '批量下载_' + selectedFiles.value.length + '个文件.zip'
+            );
         };
 
         // Batch delete
@@ -2337,6 +2488,7 @@ const app = createApp({
                     } else {
                         fileConfig.value.maxFileSizeMB = Math.floor((res.data.maxFileSize || 104857600) / 1024 / 1024);
                     }
+                    fileConfig.value.frontendDownloadThresholdMB = res.data.frontendDownloadThresholdMB || 100;
                 }
             } catch (error) {
                 ElementPlus.ElMessage.error('加载配置失败');
@@ -2351,7 +2503,8 @@ const app = createApp({
                     .filter(e => e);
                 const res = await api.post('/admin/file-config', {
                     allowedExtensions: extensions,
-                    maxFileSize: fileConfig.value.maxFileSizeMB * 1024 * 1024
+                    maxFileSize: fileConfig.value.maxFileSizeMB * 1024 * 1024,
+                    frontendDownloadThresholdMB: fileConfig.value.frontendDownloadThresholdMB
                 });
                 if (res.code === 200) {
                     ElementPlus.ElMessage.success('保存成功');
@@ -2415,6 +2568,21 @@ const app = createApp({
                 pad(date.getHours()) + ':' +
                 pad(date.getMinutes()) + ':' +
                 pad(date.getSeconds());
+        };
+
+        const openDownloadCenter = () => {
+            downloadCenterVisible.value = true;
+            downloadCenterMinimized.value = false;
+        };
+
+        const minimizeDownloadCenter = () => {
+            downloadCenterVisible.value = false;
+            downloadCenterMinimized.value = true;
+        };
+
+        const restoreDownloadCenter = () => {
+            downloadCenterVisible.value = true;
+            downloadCenterMinimized.value = false;
         };
 
         // Load system help
@@ -2584,6 +2752,9 @@ const app = createApp({
             showHelpDialog,
             showVersionDialog,
             showPreviewDialog,
+            downloadTasks,
+            downloadCenterVisible,
+            downloadCenterMinimized,
             helpContent,
             versionList,
             selectedVersion,
@@ -2646,6 +2817,9 @@ const app = createApp({
             folderCount,
             currentFileCount,
             currentPageSize,
+            activeDownloadTaskCount,
+            failedDownloadTaskCount,
+            primaryDownloadTask,
             showHttpsNotice,
             httpsSuggestionUrl,
             displayVersionLabel,
@@ -2746,6 +2920,9 @@ const app = createApp({
             saveFileConfig,
             loadShareConfig,
             saveShareConfig,
+            openDownloadCenter,
+            minimizeDownloadCenter,
+            restoreDownloadCenter,
             formatSize,
             formatDateTime
         };

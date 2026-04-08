@@ -5,6 +5,7 @@ import com.lan4jn.file.dto.CreateShareRequest;
 import com.lan4jn.file.model.FileInfo;
 import com.lan4jn.file.model.ShareAccessInfo;
 import com.lan4jn.file.model.ShareLink;
+import com.lan4jn.file.service.ConfigService;
 import com.lan4jn.file.service.FileService;
 import com.lan4jn.file.service.OperationLogService;
 import com.lan4jn.file.service.PermissionAssertService;
@@ -52,15 +53,18 @@ public class ShareController {
     private final FileService fileService;
     private final PermissionAssertService permissionAssertService;
     private final OperationLogService operationLogService;
+    private final ConfigService configService;
 
     public ShareController(ShareService shareService,
                            FileService fileService,
                            PermissionAssertService permissionAssertService,
-                           OperationLogService operationLogService) {
+                           OperationLogService operationLogService,
+                           ConfigService configService) {
         this.shareService = shareService;
         this.fileService = fileService;
         this.permissionAssertService = permissionAssertService;
         this.operationLogService = operationLogService;
+        this.configService = configService;
     }
 
     @PostMapping("/create")
@@ -119,7 +123,9 @@ public class ShareController {
     @GetMapping("/access-info")
     public Result<ShareAccessInfo> getShareAccessInfo(@RequestParam("shareCode") String shareCode) {
         shareCode = RequestValidationUtils.requireText(shareCode, "shareCode");
-        return Result.success(shareService.getShareAccessInfo(shareCode));
+        ShareAccessInfo accessInfo = shareService.getShareAccessInfo(shareCode);
+        accessInfo.setFrontendDownloadThresholdMB(configService.getFrontendDownloadThresholdBytes() / 1024 / 1024);
+        return Result.success(accessInfo);
     }
 
     @GetMapping("/info")
