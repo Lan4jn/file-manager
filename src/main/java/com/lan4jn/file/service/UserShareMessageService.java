@@ -57,11 +57,7 @@ public class UserShareMessageService {
 
     public void markRead(Long id, String username) {
         UserShareMessage message = requireOwnedMessage(id, username);
-        if (!Boolean.TRUE.equals(message.getRead())) {
-            message.setRead(true);
-            message.setReadTime(LocalDateTime.now());
-            userShareMessageRepository.save(message);
-        }
+        markMessageRead(message);
     }
 
     public void delete(Long id, String username) {
@@ -72,8 +68,29 @@ public class UserShareMessageService {
 
     public ShareLink resolveShareForMessage(Long id, String username) {
         UserShareMessage message = requireOwnedMessage(id, username);
-        markRead(id, username);
-        return shareService.peekShareInfo(message.getShareCode(), null);
+        String targetShareCode = resolveLinkedShareCode(message);
+        ShareLink shareLink = shareService.peekShareInfo(targetShareCode, null);
+        markMessageRead(message);
+        return shareLink;
+    }
+
+    private String resolveLinkedShareCode(UserShareMessage message) {
+        String relatedShareCode = message.getRelatedShareCode();
+        if (relatedShareCode != null) {
+            String trimmed = relatedShareCode.trim();
+            if (!trimmed.isEmpty()) {
+                return trimmed;
+            }
+        }
+        return message.getShareCode();
+    }
+
+    private void markMessageRead(UserShareMessage message) {
+        if (!Boolean.TRUE.equals(message.getRead())) {
+            message.setRead(true);
+            message.setReadTime(LocalDateTime.now());
+            userShareMessageRepository.save(message);
+        }
     }
 
     private User requireUser(String username) {
