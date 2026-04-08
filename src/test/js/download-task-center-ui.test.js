@@ -15,6 +15,12 @@ test('should render download task center container in index html', () => {
     assert.match(html, /download-center-toggle/);
 });
 
+test('should render download task center as floating popup shell in index html', () => {
+    const html = fs.readFileSync('src/main/resources/static/index.html', 'utf8');
+    assert.match(html, /download-task-center__dialog/);
+    assert.match(html, /download-task-center__backdrop/);
+});
+
 test('should define download helpers fallback in app js', () => {
     const appJs = fs.readFileSync('src/main/resources/static/js/app.js', 'utf8');
     assert.match(appJs, /const downloadHelpers = window\.FileManagerDownloads \|\| \{\}/);
