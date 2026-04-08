@@ -34,40 +34,134 @@
         window.URL.revokeObjectURL(url);
     };
 
-    const downloadInChunks = async ({ url, fileName, totalSize, headers, chunkSize, onProgress }) => {
+    const createChunkedDownloader = ({ url, fileName, totalSize, headers, chunkSize, onProgress, saveBlob: saveBlobOverride, fetchImpl }) => {
         const resolvedChunkSize = chunkSize || DEFAULT_CHUNK_SIZE;
         const chunks = [];
+        const effectiveFetch = fetchImpl || fetch;
+        const effectiveSaveBlob = typeof saveBlobOverride === 'function' ? saveBlobOverride : saveBlob;
         let downloadedBytes = 0;
-        const startedAt = Date.now();
+        let nextStart = 0;
+        let startedAt = 0;
+        let status = 'idle';
+        let error = '';
+        let activePromise = null;
 
-        for (let start = 0; start < totalSize; start += resolvedChunkSize) {
-            const response = await fetch(url, {
-                method: 'GET',
-                headers: {
-                    ...(headers || {}),
-                    Range: buildRangeHeader(start, resolvedChunkSize, totalSize)
+        const buildProgressSnapshot = () => {
+            const elapsedSeconds = Math.max((Date.now() - startedAt) / 1000, 0.001);
+            return {
+                downloadedBytes,
+                totalBytes: totalSize,
+                progress: totalSize > 0 ? Math.min(100, downloadedBytes / totalSize * 100) : 0,
+                speedBytesPerSecond: downloadedBytes / elapsedSeconds
+            };
+        };
+
+        const getState = () => ({
+            status,
+            error,
+            downloadedBytes,
+            totalBytes: totalSize,
+            progress: totalSize > 0 ? Math.min(100, downloadedBytes / totalSize * 100) : 0
+        });
+
+        const run = async () => {
+            if (status === 'running') {
+                return activePromise;
+            }
+            if (status === 'completed' || status === 'cancelled') {
+                return null;
+            }
+            if (!startedAt) {
+                startedAt = Date.now();
+            }
+            status = 'running';
+            error = '';
+
+            activePromise = (async () => {
+                while (nextStart < totalSize) {
+                    if (status === 'paused' || status === 'cancelled') {
+                        return null;
+                    }
+                    const rangeStart = nextStart;
+                    const response = await effectiveFetch(url, {
+                        method: 'GET',
+                        headers: {
+                            ...(headers || {}),
+                            Range: buildRangeHeader(rangeStart, resolvedChunkSize, totalSize)
+                        }
+                    });
+                    if (!response.ok && response.status !== 206) {
+                        throw new Error('分块下载失败，状态码：' + response.status);
+                    }
+                    const buffer = await response.arrayBuffer();
+                    if (status === 'cancelled') {
+                        return null;
+                    }
+                    chunks.push(buffer);
+                    downloadedBytes += buffer.byteLength;
+                    nextStart = rangeStart + resolvedChunkSize;
+                    if (typeof onProgress === 'function') {
+                        onProgress(buildProgressSnapshot());
+                    }
+                    if (status === 'paused' || status === 'cancelled') {
+                        return null;
+                    }
                 }
-            });
-            if (!response.ok && response.status !== 206) {
-                throw new Error('分块下载失败，状态码：' + response.status);
-            }
-            const buffer = await response.arrayBuffer();
-            chunks.push(buffer);
-            downloadedBytes += buffer.byteLength;
-            if (typeof onProgress === 'function') {
-                const elapsedSeconds = Math.max((Date.now() - startedAt) / 1000, 0.001);
-                onProgress({
-                    downloadedBytes,
-                    totalBytes: totalSize,
-                    progress: totalSize > 0 ? Math.min(100, downloadedBytes / totalSize * 100) : 0,
-                    speedBytesPerSecond: downloadedBytes / elapsedSeconds
-                });
-            }
-        }
 
-        const blob = new Blob(chunks);
-        saveBlob(blob, fileName);
-        return blob;
+                const blob = new Blob(chunks);
+                effectiveSaveBlob(blob, fileName);
+                status = 'completed';
+                return blob;
+            })().catch((downloadError) => {
+                if (status === 'paused' || status === 'cancelled') {
+                    return null;
+                }
+                status = 'failed';
+                error = downloadError && downloadError.message ? downloadError.message : '下载失败';
+                throw downloadError;
+            }).finally(() => {
+                activePromise = null;
+            });
+
+            return activePromise;
+        };
+
+        return {
+            start: run,
+            resume: async () => {
+                if (status !== 'paused') {
+                    return null;
+                }
+                return run();
+            },
+            pause: () => {
+                if (status === 'running') {
+                    status = 'paused';
+                }
+            },
+            cancel: () => {
+                if (status === 'completed') {
+                    return;
+                }
+                status = 'cancelled';
+                error = '';
+            },
+            getState
+        };
+    };
+
+    const downloadInChunks = async ({ url, fileName, totalSize, headers, chunkSize, onProgress, saveBlob: saveBlobOverride, fetchImpl }) => {
+        const downloader = createChunkedDownloader({
+            url,
+            fileName,
+            totalSize,
+            headers,
+            chunkSize,
+            onProgress,
+            saveBlob: saveBlobOverride,
+            fetchImpl
+        });
+        return downloader.start();
     };
 
     const downloadBlob = async ({ request, fileName, onProgress }) => {
@@ -97,6 +191,7 @@
         shouldUseChunkedDownload,
         buildRangeHeader,
         saveBlob,
+        createChunkedDownloader,
         downloadInChunks,
         downloadBlob
     };

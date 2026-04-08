@@ -467,13 +467,20 @@ const app = createApp({
             downloadedBytes: payload.downloadedBytes || 0,
             totalBytes: payload.totalBytes || 0,
             speedBytesPerSecond: 0,
-            error: ''
+            error: '',
+            controller: null,
+            abortController: null,
+            retryHandler: null
         });
 
         const addDownloadTask = (task) => {
             downloadTasks.value.unshift(task);
             openDownloadCenter();
             return task;
+        };
+
+        const getDownloadTask = (taskId) => {
+            return downloadTasks.value.find(task => task.id === taskId) || null;
         };
 
         const updateDownloadTask = (taskId, patch) => {
@@ -492,6 +499,23 @@ const app = createApp({
                 status: 'completed',
                 progress: 100,
                 ...patch
+            });
+        };
+
+        const markPausedDownloadTask = (taskId) => {
+            updateDownloadTask(taskId, {
+                status: 'paused',
+                step: '已暂停',
+                speedBytesPerSecond: 0
+            });
+        };
+
+        const markCancelledDownloadTask = (taskId) => {
+            updateDownloadTask(taskId, {
+                status: 'cancelled',
+                step: '已取消',
+                speedBytesPerSecond: 0,
+                error: ''
             });
         };
 
@@ -532,49 +556,90 @@ const app = createApp({
             );
         };
 
-        const runChunkedFileDownload = async (file, urlBuilder) => {
-            const task = addDownloadTask(createDownloadTask({
+        const runChunkedFileDownload = async (file, urlBuilder, taskId) => {
+            const currentTaskId = taskId || addDownloadTask(createDownloadTask({
                 type: 'single-file',
                 name: file.fileName,
                 step: '正在下载大文件',
                 totalBytes: file.size || 0
-            }));
+            })).id;
+            updateDownloadTask(currentTaskId, {
+                type: 'single-file',
+                name: file.fileName,
+                status: 'running',
+                step: '正在下载大文件',
+                progress: 0,
+                downloadedBytes: 0,
+                totalBytes: file.size || 0,
+                speedBytesPerSecond: 0,
+                error: '',
+                abortController: null
+            });
+            const controller = downloadHelpers.createChunkedDownloader({
+                url: urlBuilder(),
+                fileName: file.fileName,
+                totalSize: file.size || 0,
+                headers: buildAuthorizedHeaders(),
+                chunkSize: downloadHelpers.DEFAULT_CHUNK_SIZE,
+                onProgress: (progress) => {
+                    updateDownloadTask(currentTaskId, {
+                        step: '正在下载大文件',
+                        progress: progress.progress,
+                        downloadedBytes: progress.downloadedBytes,
+                        totalBytes: progress.totalBytes,
+                        speedBytesPerSecond: progress.speedBytesPerSecond
+                    });
+                }
+            });
+            updateDownloadTask(currentTaskId, {
+                controller,
+                retryHandler: () => runChunkedFileDownload(file, urlBuilder, currentTaskId)
+            });
             try {
-                await downloadHelpers.downloadInChunks({
-                    url: urlBuilder(),
-                    fileName: file.fileName,
-                    totalSize: file.size || 0,
-                    headers: buildAuthorizedHeaders(),
-                    chunkSize: downloadHelpers.DEFAULT_CHUNK_SIZE,
-                    onProgress: (progress) => {
-                        updateDownloadTask(task.id, {
-                            step: '正在下载大文件',
-                            progress: progress.progress,
-                            downloadedBytes: progress.downloadedBytes,
-                            totalBytes: progress.totalBytes,
-                            speedBytesPerSecond: progress.speedBytesPerSecond
-                        });
-                    }
-                });
-                completeDownloadTask(task.id, {
+                await controller.start();
+                const state = controller.getState();
+                if (state.status === 'paused') {
+                    markPausedDownloadTask(currentTaskId);
+                    return;
+                }
+                if (state.status === 'cancelled') {
+                    markCancelledDownloadTask(currentTaskId);
+                    return;
+                }
+                completeDownloadTask(currentTaskId, {
                     step: '保存完成',
                     downloadedBytes: file.size || 0
                 });
                 ElementPlus.ElMessage.success('下载完成');
             } catch (error) {
-                failDownloadTask(task.id, error.message || '下载失败');
+                failDownloadTask(currentTaskId, error.message || '下载失败');
                 ElementPlus.ElMessage.error('下载失败: ' + (error.message || ''));
             }
         };
 
-        const runBatchDownloadTask = async (objectNames, fileName) => {
-            const task = addDownloadTask(createDownloadTask({
+        const runBatchDownloadTask = async (objectNames, fileName, taskId) => {
+            const currentTaskId = taskId || addDownloadTask(createDownloadTask({
                 type: 'batch-download',
                 name: fileName,
                 step: downloadHelpers.BATCH_DOWNLOAD_STEPS ? downloadHelpers.BATCH_DOWNLOAD_STEPS[0] : '校验文件'
-            }));
+            })).id;
+            const abortController = new AbortController();
+            updateDownloadTask(currentTaskId, {
+                type: 'batch-download',
+                name: fileName,
+                status: 'running',
+                step: downloadHelpers.BATCH_DOWNLOAD_STEPS ? downloadHelpers.BATCH_DOWNLOAD_STEPS[0] : '校验文件',
+                progress: 0,
+                downloadedBytes: 0,
+                totalBytes: 0,
+                speedBytesPerSecond: 0,
+                error: '',
+                controller: null,
+                abortController,
+                retryHandler: () => runBatchDownloadTask(objectNames, fileName, currentTaskId)
+            });
             try {
-                updateDownloadTask(task.id, {
+                updateDownloadTask(currentTaskId, {
                     step: downloadHelpers.BATCH_DOWNLOAD_STEPS ? downloadHelpers.BATCH_DOWNLOAD_STEPS[1] : '请求服务端打包',
                     progress: 5
                 });
@@ -584,8 +649,9 @@ const app = createApp({
                         params: { objectNames: objectNames.join(','), bucket: currentBucket.value },
                         responseType: 'blob',
                         timeout: 600000,
+                        signal: abortController.signal,
                         onDownloadProgress: (event) => {
-                            updateDownloadTask(task.id, {
+                            updateDownloadTask(currentTaskId, {
                                 step: downloadHelpers.BATCH_DOWNLOAD_STEPS ? downloadHelpers.BATCH_DOWNLOAD_STEPS[2] : '接收压缩包',
                                 progress: event.total > 0 ? Math.min(95, (event.loaded / event.total) * 100) : 60
                             });
@@ -593,24 +659,90 @@ const app = createApp({
                         }
                     }),
                     onProgress: (progress) => {
-                        updateDownloadTask(task.id, {
+                        updateDownloadTask(currentTaskId, {
                             downloadedBytes: progress.downloadedBytes,
                             totalBytes: progress.totalBytes,
                             speedBytesPerSecond: progress.speedBytesPerSecond
                         });
                     }
                 });
-                updateDownloadTask(task.id, {
+                updateDownloadTask(currentTaskId, {
                     step: downloadHelpers.BATCH_DOWNLOAD_STEPS ? downloadHelpers.BATCH_DOWNLOAD_STEPS[3] : '保存文件',
                     progress: 98
                 });
-                completeDownloadTask(task.id, { step: '保存完成' });
+                completeDownloadTask(currentTaskId, { step: '保存完成' });
                 ElementPlus.ElMessage.success('下载完成');
             } catch (error) {
+                if (abortController.signal.aborted || error?.code === 'ERR_CANCELED' || error?.name === 'CanceledError') {
+                    markCancelledDownloadTask(currentTaskId);
+                    return;
+                }
                 const message = error.response?.data?.message || error.message || '下载失败';
-                failDownloadTask(task.id, message);
+                failDownloadTask(currentTaskId, message);
                 ElementPlus.ElMessage.error('下载失败: ' + message);
             }
+        };
+
+        const pauseDownloadTask = async (task) => {
+            if (!task || task.status !== 'running' || !task.controller || typeof task.controller.pause !== 'function') {
+                return;
+            }
+            task.controller.pause();
+            markPausedDownloadTask(task.id);
+        };
+
+        const resumeDownloadTask = async (task) => {
+            if (!task || task.status !== 'paused' || !task.controller || typeof task.controller.resume !== 'function') {
+                return;
+            }
+            updateDownloadTask(task.id, {
+                status: 'running',
+                step: '正在下载大文件',
+                error: '',
+                speedBytesPerSecond: 0
+            });
+            try {
+                await task.controller.resume();
+                const state = task.controller.getState();
+                if (state.status === 'paused') {
+                    markPausedDownloadTask(task.id);
+                    return;
+                }
+                if (state.status === 'cancelled') {
+                    markCancelledDownloadTask(task.id);
+                    return;
+                }
+                completeDownloadTask(task.id, {
+                    step: '保存完成',
+                    downloadedBytes: task.totalBytes || state.totalBytes || 0
+                });
+                ElementPlus.ElMessage.success('下载完成');
+            } catch (error) {
+                failDownloadTask(task.id, error.message || '下载失败');
+                ElementPlus.ElMessage.error('下载失败: ' + (error.message || ''));
+            }
+        };
+
+        const cancelDownloadTask = async (task) => {
+            if (!task || (task.status !== 'running' && task.status !== 'paused')) {
+                return;
+            }
+            if (task.controller && typeof task.controller.cancel === 'function') {
+                task.controller.cancel();
+                markCancelledDownloadTask(task.id);
+                return;
+            }
+            if (task.abortController) {
+                task.abortController.abort();
+                markCancelledDownloadTask(task.id);
+            }
+        };
+
+        const retryDownloadTask = async (task) => {
+            if (!task || typeof task.retryHandler !== 'function') {
+                return;
+            }
+            await task.retryHandler();
         };
 
         const generateSharePassword = () => {
@@ -2923,6 +3055,10 @@ const app = createApp({
             openDownloadCenter,
             minimizeDownloadCenter,
             restoreDownloadCenter,
+            pauseDownloadTask,
+            resumeDownloadTask,
+            cancelDownloadTask,
+            retryDownloadTask,
             formatSize,
             formatDateTime
         };
