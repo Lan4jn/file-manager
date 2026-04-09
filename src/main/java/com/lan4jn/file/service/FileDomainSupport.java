@@ -10,13 +10,17 @@ import io.minio.PutObjectArgs;
 import io.minio.StatObjectArgs;
 import io.minio.StatObjectResponse;
 import io.minio.messages.Item;
+import org.springframework.web.util.UriUtils;
 
 import java.io.ByteArrayInputStream;
 import java.io.InputStream;
+import java.nio.charset.StandardCharsets;
 import java.time.LocalDateTime;
 import java.time.ZoneId;
+import java.util.Arrays;
 import java.util.Collections;
 import java.util.Set;
+import java.util.stream.Collectors;
 
 final class FileDomainSupport {
 
@@ -55,7 +59,7 @@ final class FileDomainSupport {
         } catch (Exception e) {
             fileInfo.setUploadTime(LocalDateTime.now());
         }
-        fileInfo.setUrl(publicUrl + "/" + bucket + "/" + objectName);
+        fileInfo.setUrl(buildPublicObjectUrl(publicUrl, bucket, objectName));
         return fileInfo;
     }
 
@@ -68,7 +72,7 @@ final class FileDomainSupport {
         fileInfo.setEtag(stat.etag());
         fileInfo.setUploadTime(LocalDateTime.ofInstant(
                 stat.lastModified().toInstant(), ZoneId.systemDefault()));
-        fileInfo.setUrl(publicUrl + "/" + bucket + "/" + objectName);
+        fileInfo.setUrl(buildPublicObjectUrl(publicUrl, bucket, objectName));
         fileInfo.setIsFolder(objectName.endsWith("/"));
         return fileInfo;
     }
@@ -80,9 +84,23 @@ final class FileDomainSupport {
         response.setFileName(originalFilename);
         response.setSize(size);
         response.setContentType(contentType);
-        response.setUrl(publicUrl + "/" + bucket + "/" + objectName);
+        response.setUrl(buildPublicObjectUrl(publicUrl, bucket, objectName));
         response.setEtag(stat.etag());
         return response;
+    }
+
+    String buildPublicObjectUrl(String publicUrl, String bucket, String objectName) {
+        if (StrUtil.isBlank(publicUrl)) {
+            return "";
+        }
+        String normalizedBase = publicUrl.endsWith("/")
+                ? publicUrl.substring(0, publicUrl.length() - 1)
+                : publicUrl;
+        String encodedBucket = UriUtils.encodePathSegment(bucket, StandardCharsets.UTF_8);
+        String encodedObjectName = Arrays.stream((objectName == null ? "" : objectName).split("/", -1))
+                .map(segment -> UriUtils.encodePathSegment(segment, StandardCharsets.UTF_8))
+                .collect(Collectors.joining("/"));
+        return normalizedBase + "/" + encodedBucket + "/" + encodedObjectName;
     }
 
     InputStream getFileStream(String objectName, String bucket, String defaultBucket) {

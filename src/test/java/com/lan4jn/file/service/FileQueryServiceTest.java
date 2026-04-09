@@ -55,13 +55,83 @@ class FileQueryServiceTest {
                 List.of(folderResult, fileResult)
         );
 
-        PageResult<FileInfo> pageResult = fileQueryService.listFiles("", "", "bucket-a", "http://public", "name", "asc", 1, 10);
+        PageResult<FileInfo> pageResult = fileQueryService.listFiles("", "", "bucket-a", "http://public", "name", "asc", true, 1, 10);
 
         assertEquals(2, pageResult.getItems().size());
         assertTrue(pageResult.getItems().get(0).getIsFolder());
         assertEquals("docs", pageResult.getItems().get(0).getFileName());
         assertEquals("readme.txt", pageResult.getItems().get(1).getFileName());
         assertFalse(pageResult.isHasMore());
+    }
+
+    @Test
+    void shouldNotForceFoldersFirstWhenExplicitSortingIsRequested() throws Exception {
+        Result<Item> folderResult = result(item("docs/", 0L, true));
+        Result<Item> fileResult = result(item("a-file.txt", 128L, false));
+
+        FileInfo folderInfo = new FileInfo();
+        folderInfo.setObjectName("docs/");
+        folderInfo.setFileName("docs");
+        folderInfo.setIsFolder(true);
+
+        FileInfo fileInfo = new FileInfo();
+        fileInfo.setObjectName("a-file.txt");
+        fileInfo.setFileName("a-file.txt");
+        fileInfo.setIsFolder(false);
+
+        when(support.resolveBucket("", "bucket-a")).thenReturn("bucket-a");
+        when(support.normalizeFolder("")).thenReturn("");
+        when(support.getFileName("a-file.txt")).thenReturn("a-file.txt");
+        when(support.buildFileInfo(any(Item.class), any(String.class), any(String.class), any(Boolean.class), any(String.class)))
+                .thenReturn(folderInfo, fileInfo);
+        when(minioClient.listObjects(any())).thenReturn(List.of(folderResult, fileResult));
+
+        PageResult<FileInfo> pageResult = fileQueryService.listFiles("", "", "bucket-a", "http://public", "name", "asc", false, 1, 10);
+
+        assertEquals(2, pageResult.getItems().size());
+        assertEquals("a-file.txt", pageResult.getItems().get(0).getFileName());
+        assertFalse(pageResult.getItems().get(0).getIsFolder());
+        assertEquals("docs", pageResult.getItems().get(1).getFileName());
+        assertTrue(pageResult.getItems().get(1).getIsFolder());
+    }
+
+    @Test
+    void shouldReturnRealTotalCountForPagedListing() throws Exception {
+        Result<Item> folderResult = result(item("docs/", 0L, true));
+        Result<Item> fileAResult = result(item("a.txt", 32L, false));
+        Result<Item> fileBResult = result(item("b.txt", 64L, false));
+
+        FileInfo folderInfo = new FileInfo();
+        folderInfo.setObjectName("docs/");
+        folderInfo.setFileName("docs");
+        folderInfo.setIsFolder(true);
+
+        FileInfo fileAInfo = new FileInfo();
+        fileAInfo.setObjectName("a.txt");
+        fileAInfo.setFileName("a.txt");
+        fileAInfo.setIsFolder(false);
+
+        FileInfo fileBInfo = new FileInfo();
+        fileBInfo.setObjectName("b.txt");
+        fileBInfo.setFileName("b.txt");
+        fileBInfo.setIsFolder(false);
+
+        when(support.resolveBucket("", "bucket-a")).thenReturn("bucket-a");
+        when(support.normalizeFolder("")).thenReturn("");
+        when(support.getFileName("a.txt")).thenReturn("a.txt");
+        when(support.getFileName("b.txt")).thenReturn("b.txt");
+        when(support.buildFileInfo(any(Item.class), any(String.class), any(String.class), any(Boolean.class), any(String.class)))
+                .thenReturn(folderInfo, fileAInfo, fileBInfo);
+        when(minioClient.listObjects(any())).thenReturn(
+                List.of(folderResult, fileAResult, fileBResult),
+                List.of(folderResult, fileAResult, fileBResult)
+        );
+
+        PageResult<FileInfo> pageResult = fileQueryService.listFiles("", "", "bucket-a", "http://public", "name", "asc", true, 1, 1);
+
+        assertEquals(3, pageResult.getTotal());
+        assertEquals(1, pageResult.getItems().size());
+        assertTrue(pageResult.isHasMore());
     }
 
     @SuppressWarnings("unchecked")

@@ -24,4 +24,13 @@ class ShareViewControllerTest {
 
         assertEquals("/share.html?shareCode=ABC12345", view.getUrl());
     }
+
+    @Test
+    void shouldEncodePasswordInRedirectUrl() {
+        ShareViewController controller = new ShareViewController();
+
+        RedirectView view = controller.viewShare("ABC12345", "12 3#");
+
+        assertEquals("/share.html?shareCode=ABC12345&password=12%203%23", view.getUrl());
+    }
 }

@@ -79,6 +79,11 @@ public class FileService {
         return fileQueryService.listFiles(folder, bucket, defaultBucket, publicUrl, sortBy, order, page, size);
     }
 
+    public PageResult<FileInfo> listFiles(String folder, String bucket, String sortBy, String order,
+                                          boolean folderFirst, int page, int size) {
+        return fileQueryService.listFiles(folder, bucket, defaultBucket, publicUrl, sortBy, order, folderFirst, page, size);
+    }
+
     public void deleteFile(String objectName, String bucket) {
         fileCommandService.deleteFile(objectName, bucket, defaultBucket);
     }
