@@ -7,11 +7,12 @@
 })(function () {
     const DEFAULT_CHUNK_SIZE = 8 * 1024 * 1024;
     const BATCH_DOWNLOAD_STEPS = [
-        '校验文件',
-        '请求服务端打包',
-        '接收压缩包',
-        '保存文件'
+        '创建归档任务',
+        '等待归档完成',
+        '开始下载'
     ];
+    const ARCHIVE_TASK_TERMINAL_STATUSES = ['COMPLETED', 'FAILED', 'EXPIRED'];
+    const DEFAULT_ARCHIVE_TASK_POLL_INTERVAL = 1000;
 
     const shouldUseChunkedDownload = (sizeBytes, thresholdMB) => {
         const thresholdBytes = Math.max(1, Number(thresholdMB || 100)) * 1024 * 1024;
@@ -185,12 +186,138 @@
         return blob;
     };
 
+    const createNativeDownload = (url) => {
+        if (!url) {
+            throw new Error('当前任务未返回可用下载地址');
+        }
+        if (typeof document === 'undefined') {
+            return url;
+        }
+        const link = document.createElement('a');
+        link.href = url;
+        link.rel = 'noopener';
+        document.body.appendChild(link);
+        link.click();
+        link.remove();
+        return url;
+    };
+
+    const normalizeApiData = (response) => {
+        if (response && typeof response === 'object' && Object.prototype.hasOwnProperty.call(response, 'code')
+            && Object.prototype.hasOwnProperty.call(response, 'data')) {
+            return response.data;
+        }
+        if (response && typeof response === 'object' && Object.prototype.hasOwnProperty.call(response, 'data')) {
+            const payload = response.data;
+            if (payload && typeof payload === 'object' && Object.prototype.hasOwnProperty.call(payload, 'code')
+                && Object.prototype.hasOwnProperty.call(payload, 'data')) {
+                return payload.data;
+            }
+            return payload;
+        }
+        return response;
+    };
+
+    const sleep = (delayMs) => new Promise((resolve) => {
+        setTimeout(resolve, Math.max(0, Number(delayMs || 0)));
+    });
+
+    const toArchiveStatus = (task) => String(task && task.status ? task.status : '').toUpperCase();
+
+    const extractArchiveTaskId = (response) => {
+        const payload = normalizeApiData(response) || {};
+        const taskId = payload.taskId !== undefined && payload.taskId !== null ? payload.taskId : payload.id;
+        if (taskId === undefined || taskId === null || taskId === '') {
+            throw new Error('创建归档任务失败：缺少 taskId');
+        }
+        return Number(taskId);
+    };
+
+    const resolveArchiveDownloadUrl = (task, taskId) => {
+        const payload = task || {};
+        if (payload.downloadUrl) {
+            return payload.downloadUrl;
+        }
+        if (payload.id !== undefined && payload.id !== null) {
+            return '/api/transfer/archive-tasks/' + payload.id + '/download';
+        }
+        return '/api/transfer/archive-tasks/' + taskId + '/download';
+    };
+
+    const pollArchiveTask = async ({
+        taskId,
+        getTaskRequest,
+        onUpdate,
+        wait,
+        pollIntervalMs
+    }) => {
+        if (typeof getTaskRequest !== 'function') {
+            throw new Error('缺少归档任务查询方法');
+        }
+        const waitNext = typeof wait === 'function' ? wait : sleep;
+        const delayMs = pollIntervalMs || DEFAULT_ARCHIVE_TASK_POLL_INTERVAL;
+        while (true) {
+            const response = await getTaskRequest(taskId);
+            const task = normalizeApiData(response) || {};
+            if (typeof onUpdate === 'function') {
+                onUpdate(task);
+            }
+            if (ARCHIVE_TASK_TERMINAL_STATUSES.includes(toArchiveStatus(task))) {
+                return task;
+            }
+            await waitNext(delayMs);
+        }
+    };
+
+    const runArchiveTaskDownload = async ({
+        payload,
+        createTaskRequest,
+        getTaskRequest,
+        onUpdate,
+        wait,
+        pollIntervalMs,
+        openDownload
+    }) => {
+        if (typeof createTaskRequest !== 'function') {
+            throw new Error('缺少归档任务创建方法');
+        }
+        const taskId = extractArchiveTaskId(await createTaskRequest(payload));
+        const task = await pollArchiveTask({
+            taskId,
+            getTaskRequest,
+            onUpdate,
+            wait,
+            pollIntervalMs
+        });
+        const status = toArchiveStatus(task);
+        if (status === 'COMPLETED') {
+            const downloadUrl = resolveArchiveDownloadUrl(task, taskId);
+            const openDownloadFn = typeof openDownload === 'function' ? openDownload : createNativeDownload;
+            openDownloadFn(downloadUrl);
+            return { taskId, task, downloadUrl };
+        }
+        if (status === 'FAILED') {
+            throw new Error(task.errorMessage || '归档任务执行失败');
+        }
+        if (status === 'EXPIRED') {
+            throw new Error('归档任务已过期，请重新发起下载');
+        }
+        throw new Error('归档任务状态异常');
+    };
+
     return {
         DEFAULT_CHUNK_SIZE,
         BATCH_DOWNLOAD_STEPS,
+        ARCHIVE_TASK_TERMINAL_STATUSES,
+        DEFAULT_ARCHIVE_TASK_POLL_INTERVAL,
         shouldUseChunkedDownload,
         buildRangeHeader,
         saveBlob,
+        createNativeDownload,
+        normalizeApiData,
+        pollArchiveTask,
+        runArchiveTaskDownload,
+        resolveArchiveDownloadUrl,
         createChunkedDownloader,
         downloadInChunks,
         downloadBlob

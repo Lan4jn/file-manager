@@ -34,6 +34,12 @@ public class AdminConfigController {
         config.put("allowedExtensions", extensions);
         config.put("maxFileSize", maxSize);
         config.put("frontendDownloadThresholdMB", frontendDownloadThreshold / 1024 / 1024);
+        config.put("uploadTransportMode", configService.getUploadTransportMode());
+        config.put("downloadTransportMode", configService.getDownloadTransportMode());
+        config.put("uploadProxyThresholdMB", configService.getUploadProxyThresholdBytes() / 1024 / 1024);
+        config.put("downloadProxyThresholdMB", configService.getDownloadProxyThresholdBytes() / 1024 / 1024);
+        config.put("archiveTaskRetentionMinutes", configService.getArchiveTaskRetentionMinutes());
+        config.put("archiveTaskMaxConcurrent", configService.getArchiveTaskMaxConcurrent());
         return Result.success(config);
     }
 
@@ -51,6 +57,60 @@ public class AdminConfigController {
         if (configData.containsKey("frontendDownloadThresholdMB")) {
             Long thresholdMb = Long.valueOf(configData.get("frontendDownloadThresholdMB").toString());
             configService.setFrontendDownloadThresholdBytes(thresholdMb * 1024L * 1024L);
+        }
+        if (configData.containsKey("uploadTransportMode")) {
+            Object raw = configData.get("uploadTransportMode");
+            if (raw != null) {
+                String mode = raw.toString();
+                if (configService.isAllowedTransportMode(mode)) {
+                    configService.setUploadTransportMode(mode);
+                }
+            }
+        }
+        if (configData.containsKey("downloadTransportMode")) {
+            Object raw = configData.get("downloadTransportMode");
+            if (raw != null) {
+                String mode = raw.toString();
+                if (configService.isAllowedTransportMode(mode)) {
+                    configService.setDownloadTransportMode(mode);
+                }
+            }
+        }
+        if (configData.containsKey("uploadProxyThresholdMB")) {
+            Object raw = configData.get("uploadProxyThresholdMB");
+            if (raw != null) {
+                Long thresholdMb = Long.valueOf(raw.toString());
+                if (thresholdMb > 0) {
+                    configService.setUploadProxyThresholdBytes(thresholdMb * 1024L * 1024L);
+                }
+            }
+        }
+        if (configData.containsKey("downloadProxyThresholdMB")) {
+            Object raw = configData.get("downloadProxyThresholdMB");
+            if (raw != null) {
+                Long thresholdMb = Long.valueOf(raw.toString());
+                if (thresholdMb > 0) {
+                    configService.setDownloadProxyThresholdBytes(thresholdMb * 1024L * 1024L);
+                }
+            }
+        }
+        if (configData.containsKey("archiveTaskRetentionMinutes")) {
+            Object raw = configData.get("archiveTaskRetentionMinutes");
+            if (raw != null) {
+                Integer minutes = Integer.valueOf(raw.toString());
+                if (minutes > 0) {
+                    configService.setArchiveTaskRetentionMinutes(minutes);
+                }
+            }
+        }
+        if (configData.containsKey("archiveTaskMaxConcurrent")) {
+            Object raw = configData.get("archiveTaskMaxConcurrent");
+            if (raw != null) {
+                Integer maxConcurrent = Integer.valueOf(raw.toString());
+                if (maxConcurrent > 0) {
+                    configService.setArchiveTaskMaxConcurrent(maxConcurrent);
+                }
+            }
         }
         return Result.success();
     }
