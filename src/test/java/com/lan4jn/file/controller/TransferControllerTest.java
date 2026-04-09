@@ -17,6 +17,7 @@ import com.lan4jn.file.service.TransferSessionService;
 import com.lan4jn.file.service.ShareService;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
+import org.springframework.context.support.GenericApplicationContext;
 import org.springframework.http.HttpHeaders;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.MediaType;
@@ -30,6 +31,8 @@ import java.util.Map;
 import java.util.Set;
 
 import static org.hamcrest.Matchers.containsString;
+import static org.junit.jupiter.api.Assertions.assertDoesNotThrow;
+import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.verify;
@@ -61,12 +64,27 @@ class TransferControllerTest {
         transferSessionService = new TransferSessionService();
         TransferProxyService transferProxyService = new TransferProxyService(
                 configService, fileService, permissionAssertService, transferSessionService, transferArchiveTaskService, shareService);
-        TransferController controller = new TransferController(transferProxyService, permissionAssertService);
+        TransferController controller = new TransferController(transferProxyService);
         mockMvc = MockMvcBuilders.standaloneSetup(controller)
                 .setControllerAdvice(new GlobalExceptionHandler())
                 .build();
         when(fileService.getDefaultBucket()).thenReturn("file-manager");
         when(permissionAssertService.currentSnapshot()).thenReturn(snapshot("alice"));
+    }
+
+    @Test
+    void shouldBeInstantiableBySpringContainer() {
+        GenericApplicationContext context = new GenericApplicationContext();
+        context.registerBean(TransferProxyService.class, () -> mock(TransferProxyService.class));
+        context.registerBean(TransferController.class);
+
+        assertDoesNotThrow(context::refresh);
+        context.close();
+    }
+
+    @Test
+    void shouldDeclareSingleConstructorForSpringInjection() {
+        assertEquals(1, TransferController.class.getDeclaredConstructors().length);
     }
 
     @Test

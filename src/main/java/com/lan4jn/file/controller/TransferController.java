@@ -5,7 +5,6 @@ import com.lan4jn.file.dto.TransferArchiveTaskRequest;
 import com.lan4jn.file.dto.TransferDownloadSessionRequest;
 import com.lan4jn.file.dto.TransferDownloadSessionResponse;
 import com.lan4jn.file.entity.TransferArchiveTask;
-import com.lan4jn.file.service.PermissionAssertService;
 import com.lan4jn.file.service.TransferProxyService;
 import org.springframework.core.io.InputStreamResource;
 import org.springframework.http.HttpHeaders;
@@ -29,11 +28,6 @@ public class TransferController {
 
     public TransferController(TransferProxyService transferProxyService) {
         this.transferProxyService = transferProxyService;
-    }
-
-    TransferController(TransferProxyService transferProxyService,
-                       PermissionAssertService ignoredPermissionAssertService) {
-        this(transferProxyService);
     }
 
     @PostMapping("/download/session")
