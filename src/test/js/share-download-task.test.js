@@ -31,6 +31,14 @@ test('should poll archive task until COMPLETED\\/FAILED\\/EXPIRED on share page'
     assert.match(html, /task\.status === 'EXPIRED'/);
 });
 
+test('should query share archive task with share credentials', () => {
+    const html = fs.readFileSync('src/main/resources/static/share.html', 'utf8');
+
+    assert.match(html, /axios\.get\('\/api\/transfer\/archive-tasks\/' \+ taskId,\s*\{/);
+    assert.match(html, /shareCode:\s*shareCode/);
+    assert.match(html, /password:\s*passwordInput\.value/);
+});
+
 test('should trigger native download for share archive completion instead of blob objectURL saving', () => {
     const html = fs.readFileSync('src/main/resources/static/share.html', 'utf8');
 

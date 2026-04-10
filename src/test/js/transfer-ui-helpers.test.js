@@ -10,7 +10,7 @@ test('should request transfer session before file download', () => {
         objectName: 'docs/readme.txt'
     });
 
-    assert.equal(url, '/api/transfer/download/session');
+    assert.equal(url, '/transfer/download/session');
 });
 
 test('should use native navigation when session response returns proxy download url', async () => {

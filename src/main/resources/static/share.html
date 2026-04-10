@@ -848,7 +848,12 @@
                     return axios.post('/api/transfer/archive-tasks', payload);
                 },
                 getTaskRequest: function (taskId) {
-                    return axios.get('/api/transfer/archive-tasks/' + taskId);
+                    return axios.get('/api/transfer/archive-tasks/' + taskId, {
+                        params: {
+                            shareCode: shareCode,
+                            password: passwordInput.value
+                        }
+                    });
                 },
                 onUpdate: function (task) {
                     updateDownloadTask(taskId, {

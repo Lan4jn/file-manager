@@ -1,6 +1,6 @@
 (function (globalScope) {
     function resolveDownloadSessionUrl() {
-        return '/api/transfer/download/session';
+        return '/transfer/download/session';
     }
 
     function createNativeDownload(url) {

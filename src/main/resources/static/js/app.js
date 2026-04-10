@@ -36,7 +36,7 @@ const loginErrorHelpers = window.LoginErrorHelpers || {
 };
 const downloadHelpers = window.FileManagerDownloads || {};
 const transferUiHelpers = window.TransferUiHelpers || {
-    resolveDownloadSessionUrl: () => '/api/transfer/download/session',
+    resolveDownloadSessionUrl: () => '/transfer/download/session',
     createNativeDownload: (url) => {
         if (!url) {
             throw new Error('当前会话未返回可用下载地址');
