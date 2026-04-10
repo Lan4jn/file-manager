@@ -62,13 +62,6 @@ public class TransferArchiveTaskService {
         this.archiveBaseDir = archiveBaseDir;
     }
 
-    TransferArchiveTaskService(TransferArchiveTaskRepository repository,
-                               FileService fileService,
-                               ConfigService configService,
-                               String archiveBaseDir) {
-        this(repository, fileService, configService, null, archiveBaseDir);
-    }
-
     @Transactional
     public Long createTask(String username, TransferArchiveTaskRequest request) {
         if (request == null) {

@@ -32,9 +32,15 @@ class TransferArchiveTaskServiceTest {
     Path tempDir;
 
     @Test
+    void shouldDeclareSingleConstructorForSpringInjection() {
+        assertEquals(1, TransferArchiveTaskService.class.getDeclaredConstructors().length);
+    }
+
+    @Test
     void shouldCreateArchiveTaskAndMarkItCompleted() throws Exception {
         FileService fileService = mock(FileService.class);
         ConfigService configService = mock(ConfigService.class);
+        ShareService shareService = mock(ShareService.class);
         TransferArchiveTaskRepository repository = mock(TransferArchiveTaskRepository.class);
         Map<Long, TransferArchiveTask> store = new LinkedHashMap<>();
         AtomicLong sequence = new AtomicLong(1L);
@@ -70,7 +76,7 @@ class TransferArchiveTaskServiceTest {
         }).when(fileService).downloadResolvedFilesAsZip(any(), eq("bucket-a"), any(OutputStream.class));
 
         TransferArchiveTaskService service = new TransferArchiveTaskService(
-                repository, fileService, configService, tempDir.toString());
+                repository, fileService, configService, shareService, tempDir.toString());
 
         Long taskId = service.createBatchArchiveTask("admin", "bucket-a", List.of("docs/readme.txt"));
         TransferArchiveTask task = service.getTask(taskId, "admin");
