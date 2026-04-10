@@ -38,6 +38,17 @@ class TransferSessionServiceTest {
     }
 
     @Test
+    void shouldResolveDownloadTokenWithoutOperatorContext() {
+        TransferSessionService service = new TransferSessionService();
+
+        String token = service.issueFileDownloadToken("alice", "bucket-a", "docs/readme.txt", "readme.txt");
+        TransferSessionService.DownloadTicket ticket = service.requireDownloadTicket(token);
+
+        assertEquals("alice", ticket.getOwnerUsername());
+        assertEquals("docs/readme.txt", ticket.getObjectName());
+    }
+
+    @Test
     void shouldRejectExpiredToken() {
         TransferSessionService service = new TransferSessionService();
 

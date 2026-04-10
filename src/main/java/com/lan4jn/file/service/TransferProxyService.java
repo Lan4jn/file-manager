@@ -81,14 +81,12 @@ public class TransferProxyService {
     }
 
     public ResponseEntity<InputStreamResource> buildDownloadResponse(String token, String rangeHeader) {
-        String operatorUsername = permissionAssertService.currentSnapshot().username();
-        TransferSessionService.DownloadTicket ticket = transferSessionService.requireDownloadTicket(token, operatorUsername);
+        TransferSessionService.DownloadTicket ticket = transferSessionService.requireDownloadTicket(token);
         String scene = ticket.getScene() == null ? "FILE" : ticket.getScene().toUpperCase(Locale.ROOT);
         if (!"FILE".equals(scene)) {
             throw new IllegalArgumentException("当前仅支持 FILE 场景");
         }
         String bucket = resolveBucket(ticket.getBucket());
-        permissionAssertService.assertBucketPermission(bucket, BucketAction.DOWNLOAD);
         FileInfo fileInfo = fileService.getFileInfo(ticket.getObjectName(), bucket);
         return buildFileDownloadResponse(fileInfo, ticket.getObjectName(), bucket, rangeHeader);
     }

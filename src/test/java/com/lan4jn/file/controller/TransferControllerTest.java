@@ -35,6 +35,7 @@ import static org.junit.jupiter.api.Assertions.assertDoesNotThrow;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
@@ -121,19 +122,23 @@ class TransferControllerTest {
                 .andExpect(header().string(HttpHeaders.CONTENT_DISPOSITION, containsString("attachment")))
                 .andExpect(header().string(HttpHeaders.CONTENT_DISPOSITION, containsString("filename*=UTF-8''readme.txt")))
                 .andExpect(content().string("hello world!"));
-
-        verify(permissionAssertService).assertBucketPermission("bucket-a", BucketAction.DOWNLOAD);
     }
 
     @Test
-    void shouldRejectDownloadTokenReusedByAnotherUser() throws Exception {
+    void shouldAllowDownloadTokenWithoutAuthenticatedContext() throws Exception {
         String token = transferSessionService.issueFileDownloadToken(
                 "alice", "bucket-a", "docs/readme.txt", "readme.txt");
-        when(permissionAssertService.currentSnapshot()).thenReturn(snapshot("bob"));
+        when(fileService.getFileInfo("docs/readme.txt", "bucket-a"))
+                .thenReturn(fileInfo("docs/readme.txt", "readme.txt", 12L));
+        when(fileService.getFileStream("docs/readme.txt", "bucket-a"))
+                .thenReturn(new ByteArrayInputStream("hello world!".getBytes(StandardCharsets.UTF_8)));
 
         mockMvc.perform(get("/api/transfer/download/stream/{token}", token))
                 .andExpect(status().isOk())
-                .andExpect(jsonPath("$.code").value(403));
+                .andExpect(content().string("hello world!"));
+
+        verify(permissionAssertService, never()).currentSnapshot();
+        verify(permissionAssertService, never()).assertBucketPermission("bucket-a", BucketAction.DOWNLOAD);
     }
 
     @Test

@@ -76,6 +76,17 @@ public class TransferSessionService {
             throw new IllegalArgumentException("下载 token 不能为空");
         }
         String normalizedOperator = requireText(operatorUsername, "operatorUsername");
+        DownloadTicket ticket = requireDownloadTicket(token);
+        if (!normalizedOperator.equals(ticket.getOwnerUsername())) {
+            throw new SecurityException("下载会话与当前用户不匹配");
+        }
+        return ticket;
+    }
+
+    public DownloadTicket requireDownloadTicket(String token) {
+        if (token == null || token.trim().isEmpty()) {
+            throw new IllegalArgumentException("下载 token 不能为空");
+        }
         Claims claims = parseClaims(token);
 
         String ownerUsername = claims.get("ownerUsername", String.class);
@@ -86,9 +97,6 @@ public class TransferSessionService {
         Long expireAt = toLong(claims.get("expireAt"));
         if (expireAt == null || expireAt <= System.currentTimeMillis()) {
             throw new IllegalArgumentException("下载会话不存在或已过期");
-        }
-        if (!normalizedOperator.equals(ownerUsername)) {
-            throw new SecurityException("下载会话与当前用户不匹配");
         }
         return new DownloadTicket(ownerUsername, scene, bucket, objectName, fileName, expireAt);
     }

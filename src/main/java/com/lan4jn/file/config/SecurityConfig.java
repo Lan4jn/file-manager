@@ -92,6 +92,7 @@ public class SecurityConfig {
                         .requestMatchers("/api/share/download-folder").permitAll()
                         .requestMatchers("/api/share/validate").permitAll()
                         .requestMatchers("/api/transfer/download/session").permitAll()
+                        .requestMatchers("/api/transfer/download/stream/**").permitAll()
                         .requestMatchers("/api/transfer/archive-tasks/**").permitAll()
                         .requestMatchers("/api/admin/**").hasRole("ADMIN")
                         .anyRequest().authenticated()
