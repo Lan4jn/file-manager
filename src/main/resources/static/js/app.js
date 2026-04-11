@@ -855,6 +855,19 @@ const app = createApp({
             return {};
         };
 
+        const extractUploadErrorMessage = (error, fallbackMessage = '上传失败') => {
+            if (!error) {
+                return fallbackMessage;
+            }
+            if (error.response?.data?.message) {
+                return error.response.data.message;
+            }
+            if (typeof error.message === 'string' && error.message.trim()) {
+                return error.message.trim();
+            }
+            return fallbackMessage;
+        };
+
         const canUseNativeDownload = (url) => {
             if (!url) {
                 return false;
@@ -930,9 +943,9 @@ const app = createApp({
                     }
                     try {
                         const response = JSON.parse(xhr.responseText);
-                        reject(new Error(response.message || '上传失败'));
+                        reject(new Error(response.message || ('上传失败: HTTP ' + xhr.status)));
                     } catch (error) {
-                        reject(new Error('上传失败'));
+                        reject(new Error('上传失败: HTTP ' + xhr.status));
                     }
                 };
                 xhr.onerror = () => reject(new Error('网络错误'));
@@ -969,7 +982,7 @@ const app = createApp({
                         throw error;
                     }
                     if (session.uploadToken) {
-                        throw new Error('文件已上传到对象存储，但上传确认失败，请稍后重试');
+                        throw new Error('文件已上传到对象存储，但上传确认失败: ' + extractUploadErrorMessage(error, '请稍后重试'));
                     }
                     return uploadThroughApplication();
                 }
@@ -1061,7 +1074,7 @@ const app = createApp({
                         updateUploadTask(task.id, {
                             status: error.message === '上传已取消' ? 'cancelled' : 'failed',
                             step: error.message === '上传已取消' ? '已取消' : '上传失败',
-                            error: error.message || '上传失败',
+                            error: extractUploadErrorMessage(error),
                             xhr: null
                         });
                         if (uploadCancelRequested.value || error.message === '上传已取消') {
@@ -2852,11 +2865,7 @@ const app = createApp({
         const handleUploadError = (err) => {
             console.error('Upload error:', err);
             uploading.value = false;
-            // 从错误响应中提取错误信息
-            let errorMsg = '上传失败';
-            if (err.response && err.response.data) {
-                errorMsg = err.response.data.message || errorMsg;
-            }
+            const errorMsg = extractUploadErrorMessage(err);
             ElementPlus.ElMessage.error(errorMsg);
             // 重置上传对话框
             if (uploadRef.value) {
