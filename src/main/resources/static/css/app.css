@@ -1193,6 +1193,31 @@ body {
     margin-bottom: 0;
 }
 
+.upload-success-notification {
+    width: 360px !important;
+}
+
+.upload-success-notification__body {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 16px;
+    padding-right: 8px;
+}
+
+.upload-success-notification__text {
+    flex: 1;
+    min-width: 0;
+    color: var(--text);
+    line-height: 1.5;
+    word-break: break-word;
+}
+
+.upload-success-notification__action {
+    flex: none;
+    font-weight: 700;
+}
+
 .el-icon.el-icon--upload {
     font-size: 60px;
     color: var(--primary);

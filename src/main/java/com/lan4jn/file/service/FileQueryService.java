@@ -13,7 +13,6 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 import java.time.LocalDateTime;
-import java.time.ZoneId;
 import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.HashSet;
@@ -180,16 +179,7 @@ final class FileQueryService {
                 fileInfo.setFileName(relativePath);
                 fileInfo.setSize(item.size());
                 fileInfo.setIsFolder(false);
-                try {
-                    if (item.lastModified() != null) {
-                        fileInfo.setUploadTime(LocalDateTime.ofInstant(
-                                item.lastModified().toInstant(), ZoneId.systemDefault()));
-                    } else {
-                        fileInfo.setUploadTime(LocalDateTime.now());
-                    }
-                } catch (Exception e) {
-                    fileInfo.setUploadTime(LocalDateTime.now());
-                }
+                fileInfo.setUploadTime(support.resolveUploadTime(item));
                 fileList.add(fileInfo);
             }
             return fileList;

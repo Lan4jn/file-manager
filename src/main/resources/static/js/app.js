@@ -1019,34 +1019,51 @@ const app = createApp({
             return uploadThroughApplication();
         };
 
-        const promptUndoUploadedFiles = async (uploadedItems) => {
+        const promptUndoUploadedFiles = (uploadedItems, bucketName) => {
             if (!uploadedItems || uploadedItems.length === 0) {
                 return;
             }
             const message = uploadedItems.length === 1
-                ? ('文件 "' + uploadedItems[0].fileName + '" 已上传完成，是否撤销本次上传？')
-                : ('本次已成功上传 ' + uploadedItems.length + ' 个文件，是否撤销本次上传？');
-            try {
-                await ElementPlus.ElMessageBox.confirm(message, '上传完成', {
-                    confirmButtonText: '撤销上传',
-                    cancelButtonText: '保留文件',
-                    type: 'warning',
-                    distinguishCancelAndClose: true
-                });
-                await api.delete('/file/batch-delete', {
-                    params: {
-                        objectNames: uploadedItems.map(item => item.objectName).join(','),
-                        bucket: currentBucket.value
-                    }
-                });
-                uploadedItems.forEach(item => clearSyncingFile(currentBucket.value, item.objectName));
-                ElementPlus.ElMessage.success('已撤销本次上传');
-                await loadFiles();
-            } catch (error) {
-                if (error !== 'cancel' && error !== 'close') {
-                    ElementPlus.ElMessage.error('撤销上传失败: ' + (error.response?.data?.message || error.message || '未知错误'));
-                }
-            }
+                ? ('文件 "' + uploadedItems[0].fileName + '" 上传成功')
+                : ('本次成功上传 ' + uploadedItems.length + ' 个文件');
+            let undoing = false;
+            const notification = ElementPlus.ElNotification({
+                title: '上传完成',
+                duration: 0,
+                showClose: true,
+                position: 'top-right',
+                customClass: 'upload-success-notification',
+                message: () => Vue.h('div', { class: 'upload-success-notification__body' }, [
+                    Vue.h('div', { class: 'upload-success-notification__text' }, message),
+                    Vue.h(ElementPlus.ElButton, {
+                        text: true,
+                        type: 'primary',
+                        class: 'upload-success-notification__action',
+                        onClick: async () => {
+                            if (undoing) {
+                                return;
+                            }
+                            undoing = true;
+                            try {
+                                await api.delete('/file/batch-delete', {
+                                    params: {
+                                        objectNames: uploadedItems.map(item => item.objectName).join(','),
+                                        bucket: bucketName || currentBucket.value
+                                    }
+                                });
+                                uploadedItems.forEach(item => clearSyncingFile(bucketName || currentBucket.value, item.objectName));
+                                notification.close();
+                                ElementPlus.ElMessage.success('已撤销本次上传');
+                                await loadFiles();
+                            } catch (error) {
+                                ElementPlus.ElMessage.error('撤销上传失败: ' + (error.response?.data?.message || error.message || '未知错误'));
+                            } finally {
+                                undoing = false;
+                            }
+                        }
+                    }, () => '撤销上传')
+                ])
+            });
         };
 
         const runUploadBatch = async (files, options = {}) => {
@@ -1063,6 +1080,7 @@ const app = createApp({
             uploadCancelRequested.value = false;
             clearFinishedUploadTasks();
             const uploadedItems = [];
+            const uploadBucket = currentBucket.value;
             try {
                 for (const file of rawFiles) {
                     if (uploadCancelRequested.value) {
@@ -1088,7 +1106,7 @@ const app = createApp({
                         });
                         const uploadInfo = result.response.data || {};
                         uploadedItems.push(uploadInfo);
-                        registerSyncingFile(currentBucket.value, uploadInfo);
+                        registerSyncingFile(uploadBucket, uploadInfo);
                         updateUploadTask(task.id, {
                             status: 'completed',
                             step: '上传完成，等待信息同步',
@@ -1116,8 +1134,7 @@ const app = createApp({
                 await loadFiles();
                 scheduleSyncingRetry();
                 if (uploadedItems.length > 0) {
-                    ElementPlus.ElMessage.success('上传完成');
-                    await promptUndoUploadedFiles(uploadedItems);
+                    promptUndoUploadedFiles(uploadedItems, uploadBucket);
                 }
                 if (options.closeDialog !== false) {
                     showUploadDialog.value = false;

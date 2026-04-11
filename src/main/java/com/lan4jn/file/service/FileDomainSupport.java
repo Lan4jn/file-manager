@@ -53,16 +53,7 @@ public final class FileDomainSupport {
         fileInfo.setFileName(getFileName(objectName));
         fileInfo.setSize(item.size());
         fileInfo.setIsFolder(isFolder);
-        try {
-            if (item.lastModified() != null) {
-                fileInfo.setUploadTime(LocalDateTime.ofInstant(
-                        item.lastModified().toInstant(), ZoneId.systemDefault()));
-            } else {
-                fileInfo.setUploadTime(LocalDateTime.now());
-            }
-        } catch (Exception e) {
-            fileInfo.setUploadTime(LocalDateTime.now());
-        }
+        fileInfo.setUploadTime(resolveUploadTime(item));
         fileInfo.setUrl(buildPublicObjectUrl(publicUrl, bucket, objectName));
         return fileInfo;
     }
@@ -91,6 +82,17 @@ public final class FileDomainSupport {
         response.setUrl(buildPublicObjectUrl(publicUrl, bucket, objectName));
         response.setEtag(stat.etag());
         return response;
+    }
+
+    LocalDateTime resolveUploadTime(Item item) {
+        if (item == null || item.lastModified() == null) {
+            return null;
+        }
+        try {
+            return LocalDateTime.ofInstant(item.lastModified().toInstant(), ZoneId.systemDefault());
+        } catch (Exception e) {
+            return null;
+        }
     }
 
     String buildPublicObjectUrl(String publicUrl, String bucket, String objectName) {
