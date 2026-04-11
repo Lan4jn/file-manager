@@ -859,11 +859,39 @@ const app = createApp({
             if (!error) {
                 return fallbackMessage;
             }
-            if (error.response?.data?.message) {
-                return error.response.data.message;
+            const responseMessage = error.response?.data?.message;
+            const httpStatus = Number(error.response?.status || 0);
+            const rawMessage = typeof responseMessage === 'string' && responseMessage.trim()
+                ? responseMessage.trim()
+                : (typeof error.message === 'string' && error.message.trim() ? error.message.trim() : '');
+            const normalized = rawMessage.toLowerCase();
+
+            if (normalized.includes('上传已取消')) {
+                return '已取消上传';
             }
-            if (typeof error.message === 'string' && error.message.trim()) {
-                return error.message.trim();
+            if (normalized.includes('网络错误')) {
+                return '上传失败：网络错误，请检查与服务端或 MinIO 的连接';
+            }
+            if (normalized.includes('确认失败')) {
+                return '上传失败：文件已传到对象存储，但服务端确认失败';
+            }
+            if (httpStatus === 401 || normalized.includes('401')) {
+                return '上传失败：登录已失效或未认证';
+            }
+            if (httpStatus === 403 || normalized.includes('403') || normalized.includes('forbidden')) {
+                return '上传失败：权限不足，当前账号没有上传权限';
+            }
+            if (httpStatus === 413 || normalized.includes('文件大小超出限制') || normalized.includes('payload too large')) {
+                return '上传失败：文件太大，超过系统限制';
+            }
+            if (normalized.includes('不允许上传此类型文件') || normalized.includes('extension')) {
+                return '上传失败：文件类型不允许';
+            }
+            if (normalized.includes('minio') || normalized.includes('s3') || normalized.includes('对象存储')) {
+                return '上传失败：对象存储不可达或响应异常';
+            }
+            if (rawMessage) {
+                return '上传失败：' + rawMessage;
             }
             return fallbackMessage;
         };
