@@ -24,6 +24,21 @@
         return 'bytes=' + start + '-' + end;
     };
 
+    const parseContentRange = (value) => {
+        if (!value) {
+            return null;
+        }
+        const match = /^bytes\s+(\d+)-(\d+)\/(\d+|\*)$/i.exec(String(value).trim());
+        if (!match) {
+            return null;
+        }
+        return {
+            start: Number(match[1]),
+            end: Number(match[2]),
+            total: match[3] === '*' ? null : Number(match[3])
+        };
+    };
+
     const saveBlob = (blob, fileName) => {
         const url = window.URL.createObjectURL(blob);
         const link = document.createElement('a');
@@ -33,6 +48,63 @@
         link.click();
         link.remove();
         window.URL.revokeObjectURL(url);
+    };
+
+    const supportsStreamToDisk = () => {
+        return typeof window !== 'undefined'
+            && window.isSecureContext
+            && typeof window.showSaveFilePicker === 'function'
+            && typeof WritableStream !== 'undefined';
+    };
+
+    const streamDownloadToDisk = async ({ url, fileName, headers, totalSize, onProgress, fetchImpl }) => {
+        if (!supportsStreamToDisk()) {
+            throw new Error('当前浏览器不支持边读边写磁盘');
+        }
+        const handle = await window.showSaveFilePicker({
+            suggestedName: fileName || 'download.bin'
+        });
+        const writable = await handle.createWritable();
+        const effectiveFetch = fetchImpl || fetch;
+        const startedAt = Date.now();
+        let downloadedBytes = 0;
+        try {
+            const response = await effectiveFetch(url, {
+                method: 'GET',
+                headers: headers || {}
+            });
+            if (!response.ok || !response.body) {
+                throw new Error('流式下载失败: HTTP ' + response.status);
+            }
+            const reader = response.body.getReader();
+            while (true) {
+                const result = await reader.read();
+                if (result.done) {
+                    break;
+                }
+                const chunk = result.value;
+                await writable.write(chunk);
+                downloadedBytes += chunk.byteLength || chunk.length || 0;
+                if (typeof onProgress === 'function') {
+                    const elapsedSeconds = Math.max((Date.now() - startedAt) / 1000, 0.001);
+                    onProgress({
+                        downloadedBytes,
+                        totalBytes: totalSize || Number(response.headers.get('Content-Length') || 0),
+                        progress: totalSize > 0 ? Math.min(100, downloadedBytes / totalSize * 100) : 0,
+                        speedBytesPerSecond: downloadedBytes / elapsedSeconds
+                    });
+                }
+            }
+            await writable.close();
+            return downloadedBytes;
+        } catch (error) {
+            try {
+                await writable.abort();
+            } catch (abortError) {
+                // ignore abort failure
+            }
+            throw error;
+        }
     };
 
     const createChunkedDownloader = ({ url, fileName, totalSize, headers, chunkSize, onProgress, saveBlob: saveBlobOverride, fetchImpl }) => {
@@ -84,6 +156,8 @@
                         return null;
                     }
                     const rangeStart = nextStart;
+                    const expectedEnd = Math.min(rangeStart + resolvedChunkSize - 1, totalSize - 1);
+                    const expectedLength = expectedEnd - rangeStart + 1;
                     const response = await effectiveFetch(url, {
                         method: 'GET',
                         headers: {
@@ -91,16 +165,31 @@
                             Range: buildRangeHeader(rangeStart, resolvedChunkSize, totalSize)
                         }
                     });
-                    if (!response.ok && response.status !== 206) {
-                        throw new Error('分块下载失败，状态码：' + response.status);
+
+                    if (response.status !== 206) {
+                        throw new Error('分块下载失败，服务端未返回 206');
                     }
+
                     const buffer = await response.arrayBuffer();
                     if (status === 'cancelled') {
                         return null;
                     }
+
+                    const contentRange = parseContentRange(response.headers.get('Content-Range'));
+                    if (!contentRange || contentRange.start !== rangeStart || contentRange.end !== expectedEnd) {
+                        throw new Error('分块下载失败，Content-Range 不匹配');
+                    }
+                    if (contentRange.total !== null && contentRange.total !== totalSize) {
+                        throw new Error('分块下载失败，文件大小与预期不一致');
+                    }
+                    if (buffer.byteLength !== expectedLength) {
+                        throw new Error('分块下载失败，分块大小不正确');
+                    }
+
                     chunks.push(buffer);
                     downloadedBytes += buffer.byteLength;
-                    nextStart = rangeStart + resolvedChunkSize;
+                    nextStart = rangeStart + buffer.byteLength;
+
                     if (typeof onProgress === 'function') {
                         onProgress(buildProgressSnapshot());
                     }
@@ -313,6 +402,8 @@
         shouldUseChunkedDownload,
         buildRangeHeader,
         saveBlob,
+        supportsStreamToDisk,
+        streamDownloadToDisk,
         createNativeDownload,
         normalizeApiData,
         pollArchiveTask,

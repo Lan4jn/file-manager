@@ -37,6 +37,8 @@ const loginErrorHelpers = window.LoginErrorHelpers || {
 const downloadHelpers = window.FileManagerDownloads || {};
 const transferUiHelpers = window.TransferUiHelpers || {
     resolveDownloadSessionUrl: () => '/transfer/download/session',
+    resolveUploadSessionUrl: () => '/transfer/upload/session',
+    resolveUploadCompleteUrl: () => '/transfer/upload/complete',
     createNativeDownload: (url) => {
         if (!url) {
             throw new Error('当前会话未返回可用下载地址');
@@ -58,7 +60,37 @@ const transferUiHelpers = window.TransferUiHelpers || {
             : transferUiHelpers.createNativeDownload;
         effectiveNavigate(session.downloadUrl);
         return session.downloadUrl;
-    }
+    },
+    uploadWithXhr: ({ url, method, headers, body, onProgress, onXhr }) => new Promise((resolve, reject) => {
+        const xhr = new XMLHttpRequest();
+        xhr.open(method || 'PUT', url, true);
+        if (typeof onXhr === 'function') {
+            onXhr(xhr);
+        }
+        Object.entries(headers || {}).forEach(([key, value]) => {
+            xhr.setRequestHeader(key, value);
+        });
+        xhr.upload.onprogress = (event) => {
+            if (!event.lengthComputable || typeof onProgress !== 'function') {
+                return;
+            }
+            onProgress({
+                loaded: event.loaded,
+                total: event.total,
+                percent: event.total > 0 ? (event.loaded / event.total) * 100 : 0
+            });
+        };
+        xhr.onload = () => {
+            if (xhr.status >= 200 && xhr.status < 300) {
+                resolve(xhr);
+                return;
+            }
+            reject(new Error('上传失败: HTTP ' + xhr.status));
+        };
+        xhr.onerror = () => reject(new Error('网络错误'));
+        xhr.onabort = () => reject(new Error('上传已取消'));
+        xhr.send(body);
+    })
 };
 const fileListUiHelpers = window.FileListUiHelpers || {
     buildFileSyncKey: (bucket, objectName) => String(bucket || '') + '::' + String(objectName || ''),
@@ -364,7 +396,11 @@ const app = createApp({
         const fileConfig = ref({
             allowedExtensionsText: '',
             maxFileSizeMB: 100,
-            frontendDownloadThresholdMB: 100
+            frontendDownloadThresholdMB: 100,
+            uploadTransportMode: 'APPLICATION',
+            downloadTransportMode: 'APPLICATION',
+            uploadProxyThresholdMB: 256,
+            downloadProxyThresholdMB: 128
         });
 
         // Share config
@@ -606,6 +642,15 @@ const app = createApp({
             });
         };
 
+        const markDelegatedDownloadTask = (taskId, patch = {}) => {
+            updateDownloadTask(taskId, {
+                status: 'delegated',
+                progress: 100,
+                speedBytesPerSecond: 0,
+                ...patch
+            });
+        };
+
         const markPausedDownloadTask = (taskId) => {
             updateDownloadTask(taskId, {
                 status: 'paused',
@@ -794,60 +839,144 @@ const app = createApp({
             };
         };
 
-        const uploadFileRequest = ({ file, onProgress, onXhr }) => new Promise((resolve, reject) => {
-            const xhr = new XMLHttpRequest();
-            xhr.open('POST', uploadUrl.value, true);
-            if (typeof onXhr === 'function') {
-                onXhr(xhr);
+        const buildDownloadHeadersForUrl = (url) => {
+            if (!url) {
+                return {};
             }
-
-            Object.entries(uploadHeaders.value || {}).forEach(([key, value]) => {
-                xhr.setRequestHeader(key, value);
-            });
-
-            xhr.upload.onprogress = (event) => {
-                if (!event.lengthComputable || typeof onProgress !== 'function') {
-                    return;
+            try {
+                const resolved = new URL(url, window.location.origin);
+                if (resolved.origin === window.location.origin
+                    && resolved.pathname.indexOf('/api/file/download') === 0) {
+                    return buildAuthorizedHeaders();
                 }
-                onProgress({
-                    loaded: event.loaded,
-                    total: event.total,
-                    percent: event.total > 0 ? (event.loaded / event.total) * 100 : 0
-                });
+            } catch (error) {
+                return {};
+            }
+            return {};
+        };
+
+        const canUseNativeDownload = (url) => {
+            if (!url) {
+                return false;
+            }
+            try {
+                const resolved = new URL(url, window.location.origin);
+                return resolved.origin !== window.location.origin
+                    || resolved.pathname.indexOf('/api/transfer/download/stream/') === 0;
+            } catch (error) {
+                return false;
+            }
+        };
+
+        const uploadFileRequest = async ({ file, onProgress, onXhr }) => {
+            const sessionRes = await api.post(transferUiHelpers.resolveUploadSessionUrl(), {
+                fileName: file.name,
+                size: file.size,
+                contentType: file.type || 'application/octet-stream',
+                folder: currentFolder.value,
+                bucket: currentBucket.value
+            });
+            const session = sessionRes.data || sessionRes || {};
+            const retryCompleteUpload = async (uploadToken, maxAttempts = 3) => {
+                let lastError = null;
+                for (let attempt = 1; attempt <= maxAttempts; attempt++) {
+                    try {
+                        const completeRes = await api.post(transferUiHelpers.resolveUploadCompleteUrl(), {
+                            uploadToken
+                        });
+                        return completeRes;
+                    } catch (error) {
+                        lastError = error;
+                        if (attempt < maxAttempts) {
+                            await new Promise((resolve) => setTimeout(resolve, attempt * 500));
+                        }
+                    }
+                }
+                throw lastError || new Error('上传确认失败');
             };
 
-            xhr.onload = () => {
-                if (xhr.status >= 200 && xhr.status < 300) {
+            const uploadThroughApplication = () => new Promise((resolve, reject) => {
+                const xhr = new XMLHttpRequest();
+                xhr.open('POST', uploadUrl.value, true);
+                if (typeof onXhr === 'function') {
+                    onXhr(xhr);
+                }
+                Object.entries(uploadHeaders.value || {}).forEach(([key, value]) => {
+                    xhr.setRequestHeader(key, value);
+                });
+                xhr.upload.onprogress = (event) => {
+                    if (!event.lengthComputable || typeof onProgress !== 'function') {
+                        return;
+                    }
+                    onProgress({
+                        loaded: event.loaded,
+                        total: event.total,
+                        percent: event.total > 0 ? (event.loaded / event.total) * 100 : 0
+                    });
+                };
+                xhr.onload = () => {
+                    if (xhr.status >= 200 && xhr.status < 300) {
+                        try {
+                            const response = JSON.parse(xhr.responseText);
+                            if (response.code === 200) {
+                                resolve({ xhr, response, mode: 'APPLICATION' });
+                                return;
+                            }
+                            reject(new Error(response.message || '上传失败'));
+                        } catch (error) {
+                            reject(error);
+                        }
+                        return;
+                    }
                     try {
                         const response = JSON.parse(xhr.responseText);
-                        if (response.code === 200) {
-                            resolve({ xhr, response });
-                            return;
-                        }
                         reject(new Error(response.message || '上传失败'));
                     } catch (error) {
-                        reject(error);
+                        reject(new Error('上传失败'));
                     }
-                    return;
-                }
-                try {
-                    const response = JSON.parse(xhr.responseText);
-                    reject(new Error(response.message || '上传失败'));
-                } catch (error) {
-                    reject(new Error('上传失败'));
-                }
+                };
+                xhr.onerror = () => reject(new Error('网络错误'));
+                xhr.onabort = () => reject(new Error('上传已取消'));
+                const formData = new FormData();
+                formData.append('file', file);
+                Object.entries(uploadData.value || {}).forEach(([key, value]) => {
+                    formData.append(key, value);
+                });
+                xhr.send(formData);
+            });
+
+            const uploadDirectly = async () => {
+                await transferUiHelpers.uploadWithXhr({
+                    url: session.uploadUrl,
+                    method: 'PUT',
+                    headers: session.headers || {},
+                    body: file,
+                    onProgress,
+                    onXhr
+                });
+                const completeRes = await retryCompleteUpload(session.uploadToken);
+                return {
+                    response: { code: 200, data: completeRes.data || completeRes },
+                    mode: 'DIRECT'
+                };
             };
 
-            xhr.onerror = () => reject(new Error('网络错误'));
-            xhr.onabort = () => reject(new Error('上传已取消'));
+            if (session.mode === 'DIRECT') {
+                try {
+                    return await uploadDirectly();
+                } catch (error) {
+                    if (error.message === '上传已取消') {
+                        throw error;
+                    }
+                    if (session.uploadToken) {
+                        throw new Error('文件已上传到对象存储，但上传确认失败，请稍后重试');
+                    }
+                    return uploadThroughApplication();
+                }
+            }
 
-            const formData = new FormData();
-            formData.append('file', file);
-            Object.entries(uploadData.value || {}).forEach(([key, value]) => {
-                formData.append(key, value);
-            });
-            xhr.send(formData);
-        });
+            return uploadThroughApplication();
+        };
 
         const promptUndoUploadedFiles = async (uploadedItems) => {
             if (!uploadedItems || uploadedItems.length === 0) {
@@ -974,7 +1103,7 @@ const app = createApp({
             );
         };
 
-        const runChunkedFileDownload = async (file, urlBuilder, taskId) => {
+        const runChunkedFileDownload = async (file, session, taskId) => {
             const currentTaskId = taskId || addDownloadTask(createDownloadTask({
                 type: 'single-file',
                 name: file.fileName,
@@ -993,27 +1122,67 @@ const app = createApp({
                 error: '',
                 abortController: null
             });
-            const controller = downloadHelpers.createChunkedDownloader({
-                url: urlBuilder(),
-                fileName: file.fileName,
-                totalSize: file.size || 0,
-                headers: buildAuthorizedHeaders(),
-                chunkSize: downloadHelpers.DEFAULT_CHUNK_SIZE,
-                onProgress: (progress) => {
-                    updateDownloadTask(currentTaskId, {
-                        step: '正在下载大文件',
-                        progress: progress.progress,
-                        downloadedBytes: progress.downloadedBytes,
-                        totalBytes: progress.totalBytes,
-                        speedBytesPerSecond: progress.speedBytesPerSecond
-                    });
-                }
-            });
+            const directUrl = session?.downloadUrl;
+            const nativeUrl = session?.fallbackUrl || session?.downloadUrl;
+            const progressHandler = (progress) => {
+                updateDownloadTask(currentTaskId, {
+                    step: '正在下载大文件',
+                    progress: progress.progress,
+                    downloadedBytes: progress.downloadedBytes,
+                    totalBytes: progress.totalBytes,
+                    speedBytesPerSecond: progress.speedBytesPerSecond
+                });
+            };
             updateDownloadTask(currentTaskId, {
-                controller,
-                retryHandler: () => runChunkedFileDownload(file, urlBuilder, currentTaskId)
+                controller: null,
+                retryHandler: () => runChunkedFileDownload(file, session, currentTaskId)
             });
             try {
+                if (downloadHelpers.supportsStreamToDisk && downloadHelpers.supportsStreamToDisk()) {
+                    await downloadHelpers.streamDownloadToDisk({
+                        url: directUrl,
+                        fileName: file.fileName,
+                        totalSize: file.size || 0,
+                        headers: buildDownloadHeadersForUrl(directUrl),
+                        onProgress: progressHandler
+                    });
+                    completeDownloadTask(currentTaskId, {
+                        step: '保存完成',
+                        downloadedBytes: file.size || 0
+                    });
+                    ElementPlus.ElMessage.success('下载完成');
+                    return;
+                }
+
+                if (canUseNativeDownload(nativeUrl)) {
+                    updateDownloadTask(currentTaskId, {
+                        step: '已交给浏览器下载',
+                        progress: 100,
+                        downloadedBytes: file.size || 0,
+                        totalBytes: file.size || 0,
+                        speedBytesPerSecond: 0
+                    });
+                    openNativeDownload(nativeUrl);
+                    markDelegatedDownloadTask(currentTaskId, {
+                        step: '浏览器下载中',
+                        downloadedBytes: file.size || 0
+                    });
+                    ElementPlus.ElMessage.success('已交给浏览器下载');
+                    return;
+                }
+
+                const controller = downloadHelpers.createChunkedDownloader({
+                    url: directUrl,
+                    fileName: file.fileName,
+                    totalSize: file.size || 0,
+                    headers: buildDownloadHeadersForUrl(directUrl),
+                    chunkSize: downloadHelpers.DEFAULT_CHUNK_SIZE,
+                    onProgress: progressHandler
+                });
+                updateDownloadTask(currentTaskId, {
+                    controller,
+                    retryHandler: () => runChunkedFileDownload(file, session, currentTaskId)
+                });
                 await controller.start();
                 const state = controller.getState();
                 if (state.status === 'paused') {
@@ -2257,21 +2426,26 @@ const app = createApp({
             }
 
             // 文件下载
-            try {
-                const sessionRes = await api.post(transferUiHelpers.resolveDownloadSessionUrl({
-                    scene: 'FILE',
-                    bucket: currentBucket.value,
-                    objectName: file.objectName
+              try {
+                  const sessionRes = await api.post(transferUiHelpers.resolveDownloadSessionUrl({
+                      scene: 'FILE',
+                      bucket: currentBucket.value,
+                      objectName: file.objectName
                 }), {
-                    scene: 'FILE',
-                    bucket: currentBucket.value,
-                    objectName: file.objectName
-                });
-                await transferUiHelpers.runSingleFileDownload(sessionRes.data || sessionRes, (url) => openNativeDownload(url));
-            } catch (error) {
-                ElementPlus.ElMessage.error('下载失败: ' + (error.response?.data?.message || error.message || '未知错误'));
-            }
-        };
+                      scene: 'FILE',
+                      bucket: currentBucket.value,
+                      objectName: file.objectName
+                  });
+                  const session = sessionRes.data || sessionRes;
+                  if (shouldUseTaskCenterForFile(file)) {
+                      await runChunkedFileDownload(file, session);
+                      return;
+                  }
+                  await transferUiHelpers.runSingleFileDownload(session, (url) => openNativeDownload(url));
+              } catch (error) {
+                  ElementPlus.ElMessage.error('下载失败: ' + (error.response?.data?.message || error.message || '未知错误'));
+              }
+          };
 
         const imagePreviewExtensions = ['png', 'jpg', 'jpeg', 'gif', 'webp', 'bmp', 'svg'];
         const textPreviewExtensions = ['txt', 'md', 'log', 'json', 'xml', 'yml', 'yaml', 'properties', 'csv', 'java', 'js', 'ts', 'css', 'html', 'htm', 'sql', 'sh'];
@@ -2642,68 +2816,25 @@ const app = createApp({
 
         // 自定义上传请求，使用XMLHttpRequest获取真实进度
         const customUploadRequest = (options) => {
-            const { file, action, headers, data, onProgress, onSuccess, onError } = options;
-
-            const xhr = new XMLHttpRequest();
-            xhr.open('POST', action, true);
-
-            // 设置请求头
-            if (headers) {
-                for (const key in headers) {
-                    xhr.setRequestHeader(key, headers[key]);
-                }
-            }
-
-            // 上传进度事件
-            xhr.upload.onprogress = (event) => {
-                if (event.lengthComputable) {
-                    const percent = (event.loaded / event.total) * 100;
-                    onProgress({ percent });
-                }
-            };
-
-            // 请求完成
-            xhr.onload = () => {
-                uploading.value = false;
-                if (xhr.status >= 200 && xhr.status < 300) {
-                    try {
-                        const response = JSON.parse(xhr.responseText);
-                        if (response.code === 200) {
-                            onSuccess(response);
-                        } else {
-                            onError(new Error(response.message || '上传失败'));
-                        }
-                    } catch (e) {
-                        onError(e);
-                    }
-                } else {
-                    try {
-                        const response = JSON.parse(xhr.responseText);
-                        onError(new Error(response.message || '上传失败'));
-                    } catch (e) {
-                        onError(new Error('上传失败'));
+            const { file, onProgress, onSuccess, onError } = options;
+            uploading.value = true;
+            uploadFileRequest({
+                file,
+                onXhr: (xhr) => {
+                    options.xhr = xhr;
+                },
+                onProgress: (progress) => {
+                    if (typeof onProgress === 'function') {
+                        onProgress({ percent: progress.percent });
                     }
                 }
-            };
-
-            xhr.onerror = () => {
+            }).then((result) => {
                 uploading.value = false;
-                onError(new Error('网络错误'));
-            };
-
-            // 构建FormData
-            const formData = new FormData();
-            formData.append('file', file);
-            if (data) {
-                for (const key in data) {
-                    formData.append(key, data[key]);
-                }
-            }
-
-            xhr.send(formData);
-
-            // 保存xhr引用以便取消
-            options.xhr = xhr;
+                onSuccess(result.response);
+            }).catch((error) => {
+                uploading.value = false;
+                onError(error);
+            });
         };
 
         const handleUploadSuccess = (response) => {
@@ -3374,6 +3505,10 @@ const app = createApp({
                         fileConfig.value.maxFileSizeMB = Math.floor((res.data.maxFileSize || 104857600) / 1024 / 1024);
                     }
                     fileConfig.value.frontendDownloadThresholdMB = res.data.frontendDownloadThresholdMB || 100;
+                    fileConfig.value.uploadTransportMode = res.data.uploadTransportMode || 'APPLICATION';
+                    fileConfig.value.downloadTransportMode = res.data.downloadTransportMode || 'APPLICATION';
+                    fileConfig.value.uploadProxyThresholdMB = res.data.uploadProxyThresholdMB || 256;
+                    fileConfig.value.downloadProxyThresholdMB = res.data.downloadProxyThresholdMB || 128;
                 }
             } catch (error) {
                 ElementPlus.ElMessage.error('加载配置失败');
@@ -3389,7 +3524,11 @@ const app = createApp({
                 const res = await api.post('/admin/file-config', {
                     allowedExtensions: extensions,
                     maxFileSize: fileConfig.value.maxFileSizeMB * 1024 * 1024,
-                    frontendDownloadThresholdMB: fileConfig.value.frontendDownloadThresholdMB
+                    frontendDownloadThresholdMB: fileConfig.value.frontendDownloadThresholdMB,
+                    uploadTransportMode: fileConfig.value.uploadTransportMode,
+                    downloadTransportMode: fileConfig.value.downloadTransportMode,
+                    uploadProxyThresholdMB: fileConfig.value.uploadProxyThresholdMB,
+                    downloadProxyThresholdMB: fileConfig.value.downloadProxyThresholdMB
                 });
                 if (res.code === 200) {
                     ElementPlus.ElMessage.success('保存成功');

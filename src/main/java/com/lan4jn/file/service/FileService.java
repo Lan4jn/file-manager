@@ -39,6 +39,9 @@ public class FileService {
     @Value("${minio.public-url:}")
     private String publicUrl;
 
+    @Value("${minio.presigned-expiry-seconds:900}")
+    private Integer presignedExpirySeconds;
+
     public FileService(MinioClient minioClient, ConfigService configService) {
         this.support = new FileDomainSupport(minioClient, configService);
         this.bucketService = new BucketService(minioClient);
@@ -69,6 +72,18 @@ public class FileService {
 
     public UploadResponse uploadFile(MultipartFile file, String folder, String bucket) {
         return fileCommandService.uploadFile(file, folder, bucket, defaultBucket, publicUrl);
+    }
+
+    public FileDomainSupport.PreparedUpload prepareDirectUpload(String fileName, Long size, String folder, String bucket) {
+        return fileCommandService.prepareDirectUpload(fileName, size, folder, bucket, defaultBucket);
+    }
+
+    public UploadResponse completeDirectUpload(String bucket,
+                                               String objectName,
+                                               String fileName,
+                                               String contentType,
+                                               Long expectedSize) {
+        return fileCommandService.completeDirectUpload(bucket, objectName, fileName, contentType, expectedSize, publicUrl);
     }
 
     public List<FileInfo> listFiles(String folder, String bucket, String sortBy, String order) {
@@ -126,6 +141,16 @@ public class FileService {
 
     public String getPreviewUrl(String objectName, String bucket) {
         return fileQueryService.getPreviewUrl(objectName, bucket, defaultBucket, publicUrl);
+    }
+
+    public String getPresignedDownloadUrl(String objectName, String bucket, String fileName) {
+        String resolvedBucket = support.resolveBucket(bucket, defaultBucket);
+        return support.getPresignedDownloadUrl(resolvedBucket, objectName, fileName, presignedExpirySeconds);
+    }
+
+    public String getPresignedUploadUrl(String objectName, String bucket) {
+        String resolvedBucket = support.resolveBucket(bucket, defaultBucket);
+        return support.getPresignedUploadUrl(resolvedBucket, objectName, presignedExpirySeconds);
     }
 
     public void assertPreviewSupported(FileInfo fileInfo) {

@@ -5,6 +5,7 @@ import java.util.Locale;
 public enum TransportMode {
     APPLICATION,
     PROXY,
+    DIRECT,
     HYBRID;
 
     public static TransportMode from(String raw) {

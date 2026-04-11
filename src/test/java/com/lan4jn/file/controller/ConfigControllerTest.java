@@ -28,8 +28,8 @@ class ConfigControllerTest {
         mockMvc = MockMvcBuilders.standaloneSetup(controller)
                 .setControllerAdvice(new GlobalExceptionHandler())
                 .build();
-        when(configService.getUploadTransportMode()).thenReturn("APPLICATION");
-        when(configService.getDownloadTransportMode()).thenReturn("APPLICATION");
+        when(configService.getUploadTransportMode()).thenReturn("DIRECT");
+        when(configService.getDownloadTransportMode()).thenReturn("DIRECT");
     }
 
     @Test
@@ -38,7 +38,7 @@ class ConfigControllerTest {
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.data.mode").value("limited"))
                 .andExpect(jsonPath("$.data.port").value(9001))
-                .andExpect(jsonPath("$.data.uploadTransportMode").value("APPLICATION"))
-                .andExpect(jsonPath("$.data.downloadTransportMode").value("APPLICATION"));
+                .andExpect(jsonPath("$.data.uploadTransportMode").value("DIRECT"))
+                .andExpect(jsonPath("$.data.downloadTransportMode").value("DIRECT"));
     }
 }

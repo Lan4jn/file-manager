@@ -60,12 +60,11 @@ class AdminConfigControllerTest {
 
     @Test
     void shouldSaveTransferSettingsInAdminConfig() throws Exception {
-        String payload = "{\"uploadTransportMode\":\"APPLICATION\",\"downloadTransportMode\":\"PROXY\","
+        String payload = "{\"uploadTransportMode\":\"DIRECT\",\"downloadTransportMode\":\"DIRECT\","
                 + "\"uploadProxyThresholdMB\":256,\"downloadProxyThresholdMB\":128,"
                 + "\"archiveTaskRetentionMinutes\":120,\"archiveTaskMaxConcurrent\":2}";
 
-        when(configService.isAllowedTransportMode("APPLICATION")).thenReturn(true);
-        when(configService.isAllowedTransportMode("PROXY")).thenReturn(true);
+        when(configService.isAllowedTransportMode("DIRECT")).thenReturn(true);
 
         mockMvc.perform(post("/api/admin/file-config")
                         .contentType(MediaType.APPLICATION_JSON)
@@ -73,8 +72,8 @@ class AdminConfigControllerTest {
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.code").value(200));
 
-        verify(configService).setUploadTransportMode("APPLICATION");
-        verify(configService).setDownloadTransportMode("PROXY");
+        verify(configService).setUploadTransportMode("DIRECT");
+        verify(configService).setDownloadTransportMode("DIRECT");
         verify(configService).setUploadProxyThresholdBytes(256L * 1024L * 1024L);
         verify(configService).setDownloadProxyThresholdBytes(128L * 1024L * 1024L);
         verify(configService).setArchiveTaskRetentionMinutes(120);
@@ -126,8 +125,8 @@ class AdminConfigControllerTest {
         when(configService.getAllowedExtensions()).thenReturn(Set.of("txt"));
         when(configService.getMaxFileSize()).thenReturn(1024L);
         when(configService.getFrontendDownloadThresholdBytes()).thenReturn(104857600L);
-        when(configService.getUploadTransportMode()).thenReturn("APPLICATION");
-        when(configService.getDownloadTransportMode()).thenReturn("APPLICATION");
+        when(configService.getUploadTransportMode()).thenReturn("DIRECT");
+        when(configService.getDownloadTransportMode()).thenReturn("DIRECT");
         when(configService.getUploadProxyThresholdBytes()).thenReturn(268435456L);
         when(configService.getDownloadProxyThresholdBytes()).thenReturn(134217728L);
         when(configService.getArchiveTaskRetentionMinutes()).thenReturn(120);
@@ -135,8 +134,8 @@ class AdminConfigControllerTest {
 
         mockMvc.perform(get("/api/admin/file-config"))
                 .andExpect(status().isOk())
-                .andExpect(jsonPath("$.data.uploadTransportMode").value("APPLICATION"))
-                .andExpect(jsonPath("$.data.downloadTransportMode").value("APPLICATION"))
+                .andExpect(jsonPath("$.data.uploadTransportMode").value("DIRECT"))
+                .andExpect(jsonPath("$.data.downloadTransportMode").value("DIRECT"))
                 .andExpect(jsonPath("$.data.uploadProxyThresholdMB").value(256))
                 .andExpect(jsonPath("$.data.downloadProxyThresholdMB").value(128))
                 .andExpect(jsonPath("$.data.archiveTaskRetentionMinutes").value(120))

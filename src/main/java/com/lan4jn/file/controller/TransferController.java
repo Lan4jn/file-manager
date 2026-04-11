@@ -4,6 +4,10 @@ import com.lan4jn.file.common.Result;
 import com.lan4jn.file.dto.TransferArchiveTaskRequest;
 import com.lan4jn.file.dto.TransferDownloadSessionRequest;
 import com.lan4jn.file.dto.TransferDownloadSessionResponse;
+import com.lan4jn.file.dto.TransferUploadCompleteRequest;
+import com.lan4jn.file.dto.TransferUploadSessionRequest;
+import com.lan4jn.file.dto.TransferUploadSessionResponse;
+import com.lan4jn.file.dto.UploadResponse;
 import com.lan4jn.file.entity.TransferArchiveTask;
 import com.lan4jn.file.service.TransferProxyService;
 import org.springframework.core.io.InputStreamResource;
@@ -34,6 +38,17 @@ public class TransferController {
     public Result<TransferDownloadSessionResponse> createDownloadSession(
             @RequestBody TransferDownloadSessionRequest request) {
         return Result.success(transferProxyService.createDownloadSession(request));
+    }
+
+    @PostMapping("/upload/session")
+    public Result<TransferUploadSessionResponse> createUploadSession(
+            @RequestBody TransferUploadSessionRequest request) {
+        return Result.success(transferProxyService.createUploadSession(request));
+    }
+
+    @PostMapping("/upload/complete")
+    public Result<UploadResponse> completeUpload(@RequestBody TransferUploadCompleteRequest request) {
+        return Result.success(transferProxyService.completeUpload(request.getUploadToken()));
     }
 
     @GetMapping("/download/stream/{token}")

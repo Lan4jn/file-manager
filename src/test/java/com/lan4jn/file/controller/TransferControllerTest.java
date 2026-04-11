@@ -3,12 +3,14 @@ package com.lan4jn.file.controller;
 import com.lan4jn.file.common.GlobalExceptionHandler;
 import com.lan4jn.file.entity.TransferArchiveTask;
 import com.lan4jn.file.dto.TransferArchiveTaskRequest;
+import com.lan4jn.file.dto.UploadResponse;
 import com.lan4jn.file.model.FileInfo;
 import com.lan4jn.file.model.ShareLink;
 import com.lan4jn.file.rbac.BucketAction;
 import com.lan4jn.file.rbac.PermissionCodes;
 import com.lan4jn.file.service.ConfigService;
 import com.lan4jn.file.service.FileService;
+import com.lan4jn.file.service.FileDomainSupport;
 import com.lan4jn.file.service.PermissionAssertService;
 import com.lan4jn.file.service.PermissionSnapshot;
 import com.lan4jn.file.service.TransferArchiveTaskService;
@@ -207,6 +209,83 @@ class TransferControllerTest {
     }
 
     @Test
+    void shouldReturnProxyDownloadUrlWhenHybridAndLargeFile() throws Exception {
+        when(configService.getDownloadTransportMode()).thenReturn("HYBRID");
+        when(configService.getDownloadProxyThresholdBytes()).thenReturn(1024L);
+        when(fileService.getFileInfo("docs/readme.txt", "bucket-a"))
+                .thenReturn(fileInfo("docs/readme.txt", "readme.txt", 4096L));
+
+        mockMvc.perform(post("/api/transfer/download/session")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("""
+                                {"scene":"FILE","bucket":"bucket-a","objectName":"docs/readme.txt"}
+                                """))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.mode").value("PROXY"))
+                .andExpect(jsonPath("$.data.downloadUrl", containsString("/api/transfer/download/stream/")));
+    }
+
+    @Test
+    void shouldReturnDirectDownloadUrlWhenModeIsDirect() throws Exception {
+        when(configService.getDownloadTransportMode()).thenReturn("DIRECT");
+        when(fileService.getFileInfo("docs/readme.txt", "bucket-a"))
+                .thenReturn(fileInfo("docs/readme.txt", "readme.txt", 12L));
+        when(fileService.getPresignedDownloadUrl("docs/readme.txt", "bucket-a", "readme.txt"))
+                .thenReturn("http://minio/download-url");
+
+        mockMvc.perform(post("/api/transfer/download/session")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("""
+                                {"scene":"FILE","bucket":"bucket-a","objectName":"docs/readme.txt"}
+                                """))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.mode").value("DIRECT"))
+                .andExpect(jsonPath("$.data.downloadUrl").value("http://minio/download-url"))
+                .andExpect(jsonPath("$.data.fallbackUrl", containsString("/api/transfer/download/stream/")));
+    }
+
+    @Test
+    void shouldCreateDirectUploadSession() throws Exception {
+        when(configService.getUploadTransportMode()).thenReturn("DIRECT");
+        when(fileService.prepareDirectUpload("report.pdf", 128L, "docs", "bucket-a"))
+                .thenReturn(new FileDomainSupport.PreparedUpload("bucket-a", "docs/report.pdf", "report.pdf", 128L));
+        when(fileService.getPresignedUploadUrl("docs/report.pdf", "bucket-a"))
+                .thenReturn("http://minio/upload-url");
+
+        mockMvc.perform(post("/api/transfer/upload/session")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("""
+                                {"fileName":"report.pdf","size":128,"contentType":"application/pdf","folder":"docs","bucket":"bucket-a"}
+                                """))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.mode").value("DIRECT"))
+                .andExpect(jsonPath("$.data.uploadUrl").value("http://minio/upload-url"))
+                .andExpect(jsonPath("$.data.uploadToken").isNotEmpty())
+                .andExpect(jsonPath("$.data.objectName").value("docs/report.pdf"));
+    }
+
+    @Test
+    void shouldCompleteDirectUpload() throws Exception {
+        when(permissionAssertService.currentSnapshot()).thenReturn(snapshot("alice"));
+        UploadResponse uploadResponse = new UploadResponse();
+        uploadResponse.setObjectName("docs/report.pdf");
+        uploadResponse.setFileName("report.pdf");
+        uploadResponse.setSize(128L);
+        uploadResponse.setContentType("application/pdf");
+        String uploadToken = transferSessionService.issueUploadToken(
+                "alice", "bucket-a", "docs/report.pdf", "report.pdf", "application/pdf", 128L);
+        when(fileService.completeDirectUpload("bucket-a", "docs/report.pdf", "report.pdf", "application/pdf", 128L))
+                .thenReturn(uploadResponse);
+
+        mockMvc.perform(post("/api/transfer/upload/complete")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"uploadToken\":\"" + uploadToken + "\"}"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.objectName").value("docs/report.pdf"))
+                .andExpect(jsonPath("$.data.fileName").value("report.pdf"));
+    }
+
+    @Test
     void shouldRejectInvalidToken() throws Exception {
         mockMvc.perform(get("/api/transfer/download/stream/{token}", "bad-token"))
                 .andExpect(status().isOk())
@@ -244,7 +323,7 @@ class TransferControllerTest {
                                 """))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.data.mode").value("PROXY"))
-                .andExpect(jsonPath("$.data.downloadUrl", containsString("/api/share/download-item")));
+                .andExpect(jsonPath("$.data.downloadUrl", containsString("/api/transfer/download/stream/")));
 
         verify(permissionAssertService, org.mockito.Mockito.never()).assertApiPermission(PermissionCodes.API_FILE_OPERATE);
         verify(permissionAssertService, org.mockito.Mockito.never()).assertBucketPermission("bucket-a", BucketAction.DOWNLOAD);

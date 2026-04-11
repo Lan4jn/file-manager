@@ -20,6 +20,7 @@ import java.util.Map;
 public class TransferSessionService {
 
     private static final long DEFAULT_DOWNLOAD_TOKEN_TTL_MS = 10 * 60 * 1000L;
+    private static final long DEFAULT_UPLOAD_TOKEN_TTL_MS = 10 * 60 * 1000L;
     private static final String DEFAULT_TRANSFER_JWT_SECRET = "transfer-download-session-default-secret-32bytes";
 
     @Value("${jwt.secret:" + DEFAULT_TRANSFER_JWT_SECRET + "}")
@@ -27,6 +28,9 @@ public class TransferSessionService {
 
     @Value("${transfer.download-token-ttl-ms:" + DEFAULT_DOWNLOAD_TOKEN_TTL_MS + "}")
     private long downloadTokenTtlMs = DEFAULT_DOWNLOAD_TOKEN_TTL_MS;
+
+    @Value("${transfer.upload-token-ttl-ms:" + DEFAULT_UPLOAD_TOKEN_TTL_MS + "}")
+    private long uploadTokenTtlMs = DEFAULT_UPLOAD_TOKEN_TTL_MS;
 
     public String issueFileDownloadToken(String ownerUsername, String bucket, String objectName, String fileName) {
         return issueDownloadToken("FILE", ownerUsername, bucket, objectName, fileName, downloadTokenTtlMs);
@@ -101,6 +105,66 @@ public class TransferSessionService {
         return new DownloadTicket(ownerUsername, scene, bucket, objectName, fileName, expireAt);
     }
 
+    public String issueUploadToken(String ownerUsername,
+                                   String bucket,
+                                   String objectName,
+                                   String fileName,
+                                   String contentType,
+                                   Long size) {
+        String normalizedOwner = requireText(ownerUsername, "ownerUsername");
+        String normalizedBucket = requireText(bucket, "bucket");
+        String normalizedObjectName = requireText(objectName, "objectName");
+        String normalizedFileName = requireText(fileName, "fileName");
+        long now = System.currentTimeMillis();
+        long expireAt = now + uploadTokenTtlMs;
+        Map<String, Object> claims = new HashMap<>();
+        claims.put("ownerUsername", normalizedOwner);
+        claims.put("bucket", normalizedBucket);
+        claims.put("objectName", normalizedObjectName);
+        claims.put("fileName", normalizedFileName);
+        claims.put("contentType", nullableText(contentType));
+        claims.put("size", size);
+        claims.put("expireAt", expireAt);
+
+        return Jwts.builder()
+                .claims(claims)
+                .subject(normalizedOwner)
+                .issuedAt(new Date(now))
+                .expiration(new Date(expireAt))
+                .signWith(signingKey())
+                .compact();
+    }
+
+    public UploadTicket requireUploadTicket(String token, String operatorUsername) {
+        if (token == null || token.trim().isEmpty()) {
+            throw new IllegalArgumentException("上传 token 不能为空");
+        }
+        String normalizedOperator = requireText(operatorUsername, "operatorUsername");
+        UploadTicket ticket = requireUploadTicket(token);
+        if (!normalizedOperator.equals(ticket.getOwnerUsername())) {
+            throw new SecurityException("上传会话与当前用户不匹配");
+        }
+        return ticket;
+    }
+
+    public UploadTicket requireUploadTicket(String token) {
+        if (token == null || token.trim().isEmpty()) {
+            throw new IllegalArgumentException("上传 token 不能为空");
+        }
+        Claims claims = parseClaims(token);
+        String ownerUsername = claims.get("ownerUsername", String.class);
+        String bucket = claims.get("bucket", String.class);
+        String objectName = claims.get("objectName", String.class);
+        String fileName = claims.get("fileName", String.class);
+        String contentType = claims.get("contentType", String.class);
+        Long size = toLong(claims.get("size"));
+        Long expireAt = toLong(claims.get("expireAt"));
+        if (expireAt == null || expireAt <= System.currentTimeMillis()) {
+            throw new IllegalArgumentException("上传会话不存在或已过期");
+        }
+        return new UploadTicket(ownerUsername, bucket, objectName, fileName, contentType, size, expireAt);
+    }
+
     private Claims parseClaims(String token) {
         try {
             return Jwts.parser()
@@ -131,6 +195,13 @@ public class TransferSessionService {
     private String requireText(String value, String fieldName) {
         if (value == null || value.trim().isEmpty()) {
             throw new IllegalArgumentException(fieldName + "不能为空");
+        }
+        return value.trim();
+    }
+
+    private String nullableText(String value) {
+        if (value == null || value.trim().isEmpty()) {
+            return null;
         }
         return value.trim();
     }
@@ -195,6 +266,60 @@ public class TransferSessionService {
 
         public String getFileName() {
             return fileName;
+        }
+
+        public long getExpireAt() {
+            return expireAt;
+        }
+    }
+
+    public static class UploadTicket {
+        private final String ownerUsername;
+        private final String bucket;
+        private final String objectName;
+        private final String fileName;
+        private final String contentType;
+        private final Long size;
+        private final long expireAt;
+
+        public UploadTicket(String ownerUsername,
+                            String bucket,
+                            String objectName,
+                            String fileName,
+                            String contentType,
+                            Long size,
+                            long expireAt) {
+            this.ownerUsername = ownerUsername;
+            this.bucket = bucket;
+            this.objectName = objectName;
+            this.fileName = fileName;
+            this.contentType = contentType;
+            this.size = size;
+            this.expireAt = expireAt;
+        }
+
+        public String getOwnerUsername() {
+            return ownerUsername;
+        }
+
+        public String getBucket() {
+            return bucket;
+        }
+
+        public String getObjectName() {
+            return objectName;
+        }
+
+        public String getFileName() {
+            return fileName;
+        }
+
+        public String getContentType() {
+            return contentType;
+        }
+
+        public Long getSize() {
+            return size;
         }
 
         public long getExpireAt() {

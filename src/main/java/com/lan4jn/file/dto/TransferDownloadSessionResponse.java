@@ -6,6 +6,7 @@ public class TransferDownloadSessionResponse {
     private TransportMode mode;
     private String fileName;
     private String downloadUrl;
+    private String fallbackUrl;
     private Boolean useTask;
     private String taskId;
 
@@ -31,6 +32,14 @@ public class TransferDownloadSessionResponse {
 
     public void setDownloadUrl(String downloadUrl) {
         this.downloadUrl = downloadUrl;
+    }
+
+    public String getFallbackUrl() {
+        return fallbackUrl;
+    }
+
+    public void setFallbackUrl(String fallbackUrl) {
+        this.fallbackUrl = fallbackUrl;
     }
 
     public Boolean getUseTask() {

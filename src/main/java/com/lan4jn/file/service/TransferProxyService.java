@@ -3,8 +3,12 @@ package com.lan4jn.file.service;
 import com.lan4jn.file.dto.TransferArchiveTaskRequest;
 import com.lan4jn.file.dto.TransferDownloadSessionRequest;
 import com.lan4jn.file.dto.TransferDownloadSessionResponse;
+import com.lan4jn.file.dto.TransferUploadSessionRequest;
+import com.lan4jn.file.dto.TransferUploadSessionResponse;
+import com.lan4jn.file.dto.UploadResponse;
 import com.lan4jn.file.entity.TransferArchiveTask;
 import com.lan4jn.file.model.FileInfo;
+import com.lan4jn.file.model.ShareLink;
 import com.lan4jn.file.model.TransportMode;
 import com.lan4jn.file.rbac.BucketAction;
 import com.lan4jn.file.rbac.PermissionCodes;
@@ -21,9 +25,11 @@ import java.io.InputStream;
 import java.net.URLEncoder;
 import java.nio.charset.StandardCharsets;
 import java.util.Locale;
+import java.util.Map;
 
 @Service
 public class TransferProxyService {
+    private static final String SHARE_DOWNLOAD_OWNER = "__share__";
 
     private final ConfigService configService;
     private final FileService fileService;
@@ -65,7 +71,8 @@ public class TransferProxyService {
             String password = nullableText(request.getPassword());
             shareService.peekShareInfo(shareCode, password);
             FileInfo fileInfo = shareService.getFileByShareCode(shareCode, password);
-            return buildShareSceneDownloadSession(fileInfo, buildShareFileDownloadUrl(shareCode, password));
+            ShareLink link = shareService.peekShareInfo(shareCode, password);
+            return buildShareSceneDownloadSession(fileInfo, link.getBucket(), buildShareFileDownloadUrl(shareCode, password));
         }
 
         if ("SHARE_ITEM".equals(scene)) {
@@ -74,10 +81,66 @@ public class TransferProxyService {
             String password = nullableText(request.getPassword());
             shareService.peekShareInfo(shareCode, password);
             FileInfo fileInfo = shareService.getSharedItemInfo(shareCode, password, objectName);
-            return buildShareSceneDownloadSession(fileInfo, buildShareItemDownloadUrl(shareCode, password, objectName));
+            ShareLink link = shareService.peekShareInfo(shareCode, password);
+            return buildShareSceneDownloadSession(fileInfo, link.getBucket(), buildShareItemDownloadUrl(shareCode, password, objectName));
         }
 
         throw new IllegalArgumentException("不支持的下载场景");
+    }
+
+    public TransferUploadSessionResponse createUploadSession(TransferUploadSessionRequest request) {
+        if (request == null) {
+            throw new IllegalArgumentException("请求不能为空");
+        }
+        permissionAssertService.assertApiPermission(PermissionCodes.API_FILE_OPERATE);
+        String bucket = resolveBucket(request.getBucket());
+        permissionAssertService.assertBucketPermission(bucket, BucketAction.UPLOAD);
+        String operatorUsername = permissionAssertService.currentSnapshot().username();
+        FileDomainSupport.PreparedUpload preparedUpload = fileService.prepareDirectUpload(
+                requireText(request.getFileName(), "fileName"),
+                request.getSize(),
+                nullableText(request.getFolder()),
+                bucket
+        );
+
+        TransportMode mode = resolveUploadMode(request.getSize());
+        TransferUploadSessionResponse response = new TransferUploadSessionResponse();
+        response.setMode(mode);
+        response.setBucket(preparedUpload.getBucket());
+        response.setObjectName(preparedUpload.getObjectName());
+        response.setFileName(preparedUpload.getFileName());
+        response.setContentType(nullableText(request.getContentType()));
+        if (mode == TransportMode.DIRECT) {
+            response.setUploadUrl(fileService.getPresignedUploadUrl(preparedUpload.getObjectName(), preparedUpload.getBucket()));
+            response.setUploadToken(transferSessionService.issueUploadToken(
+                    operatorUsername,
+                    preparedUpload.getBucket(),
+                    preparedUpload.getObjectName(),
+                    preparedUpload.getFileName(),
+                    nullableText(request.getContentType()),
+                    request.getSize()
+            ));
+            response.setHeaders(buildDirectUploadHeaders(request.getContentType()));
+            return response;
+        }
+
+        response.setUploadUrl("/api/file/upload");
+        response.setHeaders(Map.of());
+        return response;
+    }
+
+    public UploadResponse completeUpload(String uploadToken) {
+        permissionAssertService.assertApiPermission(PermissionCodes.API_FILE_OPERATE);
+        String operatorUsername = permissionAssertService.currentSnapshot().username();
+        TransferSessionService.UploadTicket ticket = transferSessionService.requireUploadTicket(uploadToken, operatorUsername);
+        permissionAssertService.assertBucketPermission(resolveBucket(ticket.getBucket()), BucketAction.UPLOAD);
+        return fileService.completeDirectUpload(
+                ticket.getBucket(),
+                ticket.getObjectName(),
+                ticket.getFileName(),
+                ticket.getContentType(),
+                ticket.getSize()
+        );
     }
 
     public ResponseEntity<InputStreamResource> buildDownloadResponse(String token, String rangeHeader) {
@@ -166,11 +229,19 @@ public class TransferProxyService {
         response.setFileName(fileInfo.getFileName());
         response.setUseTask(false);
         response.setTaskId(null);
+        response.setFallbackUrl(buildProxyDownloadUrl(
+                scene,
+                permissionAssertService.currentSnapshot().username(),
+                bucket,
+                objectName,
+                fileInfo.getFileName()
+        ));
         if (mode == TransportMode.PROXY) {
-            String ownerUsername = permissionAssertService.currentSnapshot().username();
-            String token = transferSessionService.issueDownloadToken(
-                    scene, ownerUsername, bucket, objectName, fileInfo.getFileName());
-            response.setDownloadUrl("/api/transfer/download/stream/" + token);
+            response.setDownloadUrl(response.getFallbackUrl());
+            return response;
+        }
+        if (mode == TransportMode.DIRECT) {
+            response.setDownloadUrl(fileService.getPresignedDownloadUrl(objectName, bucket, fileInfo.getFileName()));
             return response;
         }
 
@@ -178,16 +249,36 @@ public class TransferProxyService {
         return response;
     }
 
-    private TransferDownloadSessionResponse buildShareSceneDownloadSession(FileInfo fileInfo, String downloadUrl) {
+    private TransferDownloadSessionResponse buildShareSceneDownloadSession(FileInfo fileInfo, String bucket, String downloadUrl) {
         if (Boolean.TRUE.equals(fileInfo.getIsFolder())) {
             throw new IllegalArgumentException("目录请使用归档下载");
         }
 
         TransferDownloadSessionResponse response = new TransferDownloadSessionResponse();
-        response.setMode(resolveDownloadMode(fileInfo.getSize()));
+        TransportMode mode = resolveDownloadMode(fileInfo.getSize());
+        response.setMode(mode);
         response.setFileName(fileInfo.getFileName());
         response.setUseTask(false);
         response.setTaskId(null);
+        response.setFallbackUrl(buildProxyDownloadUrl(
+                "FILE",
+                SHARE_DOWNLOAD_OWNER,
+                requireText(bucket, "bucket"),
+                requireText(fileInfo.getObjectName(), "objectName"),
+                requireText(fileInfo.getFileName(), "fileName")
+        ));
+        if (mode == TransportMode.PROXY) {
+            response.setDownloadUrl(response.getFallbackUrl());
+            return response;
+        }
+        if (mode == TransportMode.DIRECT) {
+            response.setDownloadUrl(fileService.getPresignedDownloadUrl(
+                    requireText(fileInfo.getObjectName(), "objectName"),
+                    bucket,
+                    requireText(fileInfo.getFileName(), "fileName")
+            ));
+            return response;
+        }
         response.setDownloadUrl(downloadUrl);
         return response;
     }
@@ -200,6 +291,19 @@ public class TransferProxyService {
         long size = fileSize == null ? 0L : fileSize;
         long threshold = configService.getDownloadProxyThresholdBytes();
         return size >= threshold ? TransportMode.PROXY : TransportMode.APPLICATION;
+    }
+
+    private TransportMode resolveUploadMode(Long fileSize) {
+        TransportMode configured = TransportMode.from(configService.getUploadTransportMode());
+        if (configured == TransportMode.PROXY) {
+            return TransportMode.APPLICATION;
+        }
+        if (configured != TransportMode.HYBRID) {
+            return configured;
+        }
+        long size = fileSize == null ? 0L : fileSize;
+        long threshold = configService.getUploadProxyThresholdBytes();
+        return size >= threshold ? TransportMode.DIRECT : TransportMode.APPLICATION;
     }
 
     private String buildApplicationDownloadUrl(String bucket, String objectName) {
@@ -222,6 +326,21 @@ public class TransferProxyService {
                 .append(URLEncoder.encode(objectName, StandardCharsets.UTF_8));
         appendOptionalQuery(builder, "password", password);
         return builder.toString();
+    }
+
+    private String buildProxyDownloadUrl(String scene,
+                                         String ownerUsername,
+                                         String bucket,
+                                         String objectName,
+                                         String fileName) {
+        String token = transferSessionService.issueDownloadToken(
+                scene,
+                ownerUsername,
+                requireText(bucket, "bucket"),
+                requireText(objectName, "objectName"),
+                requireText(fileName, "fileName")
+        );
+        return "/api/transfer/download/stream/" + token;
     }
 
     private ResponseEntity<InputStreamResource> buildFileDownloadResponse(
@@ -307,6 +426,14 @@ public class TransferProxyService {
             return bucket.trim();
         }
         return fileService.getDefaultBucket();
+    }
+
+    private Map<String, String> buildDirectUploadHeaders(String contentType) {
+        String resolved = nullableText(contentType);
+        if (resolved == null) {
+            return Map.of();
+        }
+        return Map.of(HttpHeaders.CONTENT_TYPE, resolved);
     }
 
     private void decorateArchiveDownloadUrl(TransferArchiveTask task, String shareCode, String password) {

@@ -146,7 +146,7 @@ public class TransferArchiveTaskService {
         task.setStage(STAGE_QUEUED);
         task.setOwnerUsername(SHARE_TASK_OWNER);
         task.setBucketName(plan.getShareLink().getBucket());
-        task.setSourceDescriptor(plan.getShareLink().getObjectName());
+        task.setSourceDescriptor(buildShareSourceDescriptor(plan.getShareLink().getObjectName(), nullableText(password)));
         task.setShareCode(plan.getShareLink().getShareCode());
         task.setFileCountTotal(plan.getEntries().size());
         task.setFileCountProcessed(0);
@@ -298,7 +298,7 @@ public class TransferArchiveTaskService {
         if (cachedPlan != null) {
             return cachedPlan;
         }
-        return requireShareService().prepareShareArchive(task.getShareCode(), null);
+        return requireShareService().prepareShareArchive(task.getShareCode(), extractSharePassword(task.getSourceDescriptor()));
     }
 
     private Path prepareArchivePath(TransferArchiveTask task) {
@@ -321,6 +321,25 @@ public class TransferArchiveTaskService {
 
     private String sanitizeFileName(String fileName) {
         return fileName.replaceAll("[\\\\/:*?\"<>|]", "_");
+    }
+
+    private String buildShareSourceDescriptor(String objectName, String password) {
+        String normalizedObjectName = objectName == null ? "" : objectName;
+        String normalizedPassword = password == null ? "" : password;
+        return "objectName=" + normalizedObjectName + "\npassword=" + normalizedPassword;
+    }
+
+    private String extractSharePassword(String descriptor) {
+        if (descriptor == null || descriptor.isBlank()) {
+            return null;
+        }
+        for (String line : descriptor.split("\\n")) {
+            if (line.startsWith("password=")) {
+                String value = line.substring("password=".length()).trim();
+                return value.isEmpty() ? null : value;
+            }
+        }
+        return null;
     }
 
     private List<String> parseDescriptorLines(String descriptor) {

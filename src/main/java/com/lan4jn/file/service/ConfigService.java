@@ -32,7 +32,7 @@ public class ConfigService {
     private static final long DEFAULT_DOWNLOAD_PROXY_THRESHOLD_BYTES = 134217728L;
     private static final int DEFAULT_ARCHIVE_TASK_RETENTION_MINUTES = 120;
     private static final int DEFAULT_ARCHIVE_TASK_MAX_CONCURRENT = 2;
-    private static final Set<String> ALLOWED_TRANSPORT_MODES = Set.of("APPLICATION", "PROXY", "HYBRID");
+    private static final Set<String> ALLOWED_TRANSPORT_MODES = Set.of("APPLICATION", "PROXY", "DIRECT", "HYBRID");
 
     private final ConfigRepository configRepository;
 
