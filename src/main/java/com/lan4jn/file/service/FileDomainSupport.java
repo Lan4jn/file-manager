@@ -19,6 +19,7 @@ import java.io.InputStream;
 import java.nio.charset.StandardCharsets;
 import java.time.LocalDateTime;
 import java.time.ZoneId;
+import java.time.ZonedDateTime;
 import java.util.Arrays;
 import java.util.Collections;
 import java.util.LinkedHashMap;
@@ -65,8 +66,7 @@ public final class FileDomainSupport {
         fileInfo.setSize(stat.size());
         fileInfo.setContentType(stat.contentType());
         fileInfo.setEtag(stat.etag());
-        fileInfo.setUploadTime(LocalDateTime.ofInstant(
-                stat.lastModified().toInstant(), ZoneId.systemDefault()));
+        fileInfo.setUploadTime(resolveUploadTime(stat));
         fileInfo.setUrl(buildPublicObjectUrl(publicUrl, bucket, objectName));
         fileInfo.setIsFolder(objectName.endsWith("/"));
         return fileInfo;
@@ -85,11 +85,30 @@ public final class FileDomainSupport {
     }
 
     LocalDateTime resolveUploadTime(Item item) {
-        if (item == null || item.lastModified() == null) {
+        if (item == null) {
             return null;
         }
         try {
-            return LocalDateTime.ofInstant(item.lastModified().toInstant(), ZoneId.systemDefault());
+            ZonedDateTime lastModified = item.lastModified();
+            if (lastModified == null) {
+                return null;
+            }
+            return LocalDateTime.ofInstant(lastModified.toInstant(), ZoneId.systemDefault());
+        } catch (Exception e) {
+            return null;
+        }
+    }
+
+    LocalDateTime resolveUploadTime(StatObjectResponse stat) {
+        if (stat == null) {
+            return null;
+        }
+        try {
+            ZonedDateTime lastModified = stat.lastModified();
+            if (lastModified == null) {
+                return null;
+            }
+            return LocalDateTime.ofInstant(lastModified.toInstant(), ZoneId.systemDefault());
         } catch (Exception e) {
             return null;
         }
