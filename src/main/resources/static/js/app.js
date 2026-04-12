@@ -1,4 +1,4 @@
-const { createApp, ref, computed, onMounted, onUnmounted, nextTick, watch } = Vue;
+const { createApp, ref, computed, onMounted, onUnmounted, nextTick, watch, h } = Vue;
 const permissionUiHelpers = window.PermissionUiHelpers || {
     shouldLoadRolesForUserDialog: (permissionCodes) => Array.isArray(permissionCodes)
         && permissionCodes.includes('API_ROLE_MANAGE'),
@@ -200,7 +200,7 @@ const app = createApp({
         const folderFirstMode = ref(true);
         // 分页相关
         const filePage = ref(1);
-        const filePageSize = ref(10);
+const filePageSize = ref(25);
         const fileTotal = ref(0);
         // 导航历史
         const folderHistory = ref([]);
@@ -1033,9 +1033,9 @@ const app = createApp({
                 showClose: true,
                 position: 'top-right',
                 customClass: 'upload-success-notification',
-                message: () => Vue.h('div', { class: 'upload-success-notification__body' }, [
-                    Vue.h('div', { class: 'upload-success-notification__text' }, message),
-                    Vue.h(ElementPlus.ElButton, {
+                message: h('div', { class: 'upload-success-notification__body' }, [
+                    h('div', { class: 'upload-success-notification__text' }, message),
+                    h(ElementPlus.ElButton, {
                         text: true,
                         type: 'primary',
                         class: 'upload-success-notification__action',
