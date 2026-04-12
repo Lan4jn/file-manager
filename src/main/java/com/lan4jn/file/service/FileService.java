@@ -47,7 +47,7 @@ public class FileService {
         this.bucketService = new BucketService(minioClient);
         this.fileQueryService = new FileQueryService(minioClient, support);
         this.fileCommandService = new FileCommandService(minioClient, support);
-        this.archiveService = new ArchiveService(support, fileQueryService);
+        this.archiveService = new ArchiveService(support, fileQueryService, configService);
     }
 
     public List<BucketInfo> listBuckets(String sortBy, String order) {

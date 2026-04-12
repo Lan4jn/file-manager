@@ -15,14 +15,15 @@ import java.util.zip.ZipOutputStream;
 final class ArchiveService {
 
     private static final Logger log = LoggerFactory.getLogger(ArchiveService.class);
-    private static final long MAX_ARCHIVE_SIZE = 2147483648L;
 
     private final FileDomainSupport support;
     private final FileQueryService fileQueryService;
+    private final ConfigService configService;
 
-    ArchiveService(FileDomainSupport support, FileQueryService fileQueryService) {
+    ArchiveService(FileDomainSupport support, FileQueryService fileQueryService, ConfigService configService) {
         this.support = support;
         this.fileQueryService = fileQueryService;
+        this.configService = configService;
     }
 
     void downloadFolderAsZip(String folder, String bucket, String defaultBucket, OutputStream outputStream) {
@@ -54,7 +55,7 @@ final class ArchiveService {
 
     List<FileInfo> resolveFolderEntries(String folder, String bucket) {
         List<FileInfo> files = fileQueryService.listFilesRecursive(folder, bucket, bucket);
-        assertArchiveWithinLimit(files, "目录压缩后大小超过2GB，无法下载");
+        assertArchiveWithinLimit(files, "目录压缩后大小超过限制");
         return files;
     }
 
@@ -67,7 +68,7 @@ final class ArchiveService {
                 files.add(fileQueryService.getFileInfo(objectName, bucket, bucket, ""));
             }
         }
-        assertArchiveWithinLimit(files, "批量下载总大小超过限制(2.00 GB)");
+        assertArchiveWithinLimit(files, "批量下载总大小超过限制");
         return files;
     }
 
@@ -100,8 +101,9 @@ final class ArchiveService {
             int len;
             while ((len = is.read(buffer)) > 0) {
                 totalWritten += len;
-                if (totalWritten > MAX_ARCHIVE_SIZE) {
-                    throw new RuntimeException("批量下载压缩后大小超过2GB，无法下载");
+                long maxArchiveSize = getMaxArchiveSize();
+                if (maxArchiveSize > 0 && totalWritten > maxArchiveSize) {
+                    throw new RuntimeException("批量下载压缩后大小超过限制(" + formatSize(maxArchiveSize) + ")，无法下载");
                 }
                 zos.write(buffer, 0, len);
             }
@@ -112,12 +114,35 @@ final class ArchiveService {
     }
 
     private void assertArchiveWithinLimit(List<FileInfo> files, String message) {
+        long maxArchiveSize = getMaxArchiveSize();
+        if (maxArchiveSize <= 0) {
+            return;
+        }
         long totalSize = 0L;
         for (FileInfo file : files) {
             totalSize += file.getSize() != null ? file.getSize() : 0L;
         }
-        if (totalSize > MAX_ARCHIVE_SIZE) {
-            throw new RuntimeException(message);
+        if (totalSize > maxArchiveSize) {
+            throw new RuntimeException(message + "(" + formatSize(maxArchiveSize) + ")");
         }
+    }
+
+    private long getMaxArchiveSize() {
+        Long maxSize = configService.getBatchDownloadMaxSize();
+        return maxSize == null ? -1L : maxSize;
+    }
+
+    private String formatSize(long size) {
+        if (size < 0) {
+            return "无限制";
+        }
+        double value = size;
+        String[] units = {"B", "KB", "MB", "GB", "TB"};
+        int unitIndex = 0;
+        while (value >= 1024 && unitIndex < units.length - 1) {
+            value /= 1024.0;
+            unitIndex++;
+        }
+        return String.format(java.util.Locale.ROOT, "%.2f %s", value, units[unitIndex]);
     }
 }
