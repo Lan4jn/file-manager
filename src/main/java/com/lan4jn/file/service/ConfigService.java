@@ -22,17 +22,25 @@ public class ConfigService {
     public static final String KEY_SHARE_EXPIRE_HOURS = "share_expire_hours";
     public static final String KEY_UPLOAD_TRANSPORT_MODE = "upload_transport_mode";
     public static final String KEY_DOWNLOAD_TRANSPORT_MODE = "download_transport_mode";
+    public static final String KEY_UPLOAD_TRANSPORT_PRIORITY = "upload_transport_priority";
+    public static final String KEY_DOWNLOAD_TRANSPORT_PRIORITY = "download_transport_priority";
+    public static final String KEY_UPLOAD_DIALOG_MODE = "upload_dialog_mode";
+    public static final String KEY_FILE_DROP_MODE = "file_drop_mode";
     public static final String KEY_UPLOAD_PROXY_THRESHOLD = "upload_proxy_threshold_bytes";
     public static final String KEY_DOWNLOAD_PROXY_THRESHOLD = "download_proxy_threshold_bytes";
     public static final String KEY_ARCHIVE_RETENTION_MINUTES = "archive_task_retention_minutes";
     public static final String KEY_ARCHIVE_MAX_CONCURRENT = "archive_task_max_concurrent";
 
     private static final String DEFAULT_TRANSPORT_MODE = "APPLICATION";
+    private static final String DEFAULT_UPLOAD_DIALOG_MODE = "INSTANT";
     private static final long DEFAULT_UPLOAD_PROXY_THRESHOLD_BYTES = 268435456L;
     private static final long DEFAULT_DOWNLOAD_PROXY_THRESHOLD_BYTES = 134217728L;
     private static final int DEFAULT_ARCHIVE_TASK_RETENTION_MINUTES = 120;
     private static final int DEFAULT_ARCHIVE_TASK_MAX_CONCURRENT = 2;
     private static final Set<String> ALLOWED_TRANSPORT_MODES = Set.of("APPLICATION", "PROXY", "DIRECT", "HYBRID");
+    private static final List<String> ALLOWED_UPLOAD_TRANSPORT_PRIORITY = Arrays.asList("DIRECT", "APPLICATION");
+    private static final List<String> ALLOWED_DOWNLOAD_TRANSPORT_PRIORITY = Arrays.asList("DIRECT", "PROXY", "APPLICATION");
+    private static final Set<String> ALLOWED_UPLOAD_DIALOG_MODES = Set.of("MANUAL", "INSTANT");
 
     private final ConfigRepository configRepository;
 
@@ -166,6 +174,42 @@ public class ConfigService {
         return normalizeTransportMode(getConfig(KEY_DOWNLOAD_TRANSPORT_MODE, DEFAULT_TRANSPORT_MODE));
     }
 
+    public List<String> getUploadTransportPriority() {
+        String raw = getConfig(KEY_UPLOAD_TRANSPORT_PRIORITY, "");
+        List<String> parsed = normalizePriorityList(raw, ALLOWED_UPLOAD_TRANSPORT_PRIORITY);
+        if (!parsed.isEmpty()) {
+            return parsed;
+        }
+        return mapLegacyUploadPriority(getUploadTransportMode());
+    }
+
+    public List<String> getDownloadTransportPriority() {
+        String raw = getConfig(KEY_DOWNLOAD_TRANSPORT_PRIORITY, "");
+        List<String> parsed = normalizePriorityList(raw, ALLOWED_DOWNLOAD_TRANSPORT_PRIORITY);
+        if (!parsed.isEmpty()) {
+            return parsed;
+        }
+        return mapLegacyDownloadPriority(getDownloadTransportMode());
+    }
+
+    public String getUploadDialogMode() {
+        String raw = getConfig(KEY_UPLOAD_DIALOG_MODE, DEFAULT_UPLOAD_DIALOG_MODE);
+        return normalizeUploadTriggerMode(raw);
+    }
+
+    public String getFileDropMode() {
+        String raw = getConfig(KEY_FILE_DROP_MODE, DEFAULT_UPLOAD_DIALOG_MODE);
+        return normalizeUploadTriggerMode(raw);
+    }
+
+    private String normalizeUploadTriggerMode(String raw) {
+        if (raw == null) {
+            return DEFAULT_UPLOAD_DIALOG_MODE;
+        }
+        String normalized = raw.trim().toUpperCase();
+        return ALLOWED_UPLOAD_DIALOG_MODES.contains(normalized) ? normalized : DEFAULT_UPLOAD_DIALOG_MODE;
+    }
+
     public Long getUploadProxyThresholdBytes() {
         String value = getConfig(KEY_UPLOAD_PROXY_THRESHOLD, String.valueOf(DEFAULT_UPLOAD_PROXY_THRESHOLD_BYTES));
         try {
@@ -213,6 +257,13 @@ public class ConfigService {
         return ALLOWED_TRANSPORT_MODES.contains(mode.trim().toUpperCase());
     }
 
+    public boolean isAllowedUploadDialogMode(String mode) {
+        if (mode == null) {
+            return false;
+        }
+        return ALLOWED_UPLOAD_DIALOG_MODES.contains(mode.trim().toUpperCase());
+    }
+
     @Transactional
     public void setUploadTransportMode(String mode) {
         if (isAllowedTransportMode(mode)) {
@@ -224,6 +275,38 @@ public class ConfigService {
     public void setDownloadTransportMode(String mode) {
         if (isAllowedTransportMode(mode)) {
             setConfig(KEY_DOWNLOAD_TRANSPORT_MODE, mode.trim().toUpperCase(), "下载传输模式");
+        }
+    }
+
+    @Transactional
+    public void setUploadTransportPriority(List<String> modes) {
+        List<String> normalized = normalizePriorityList(modes, ALLOWED_UPLOAD_TRANSPORT_PRIORITY);
+        if (!normalized.isEmpty()) {
+            setConfig(KEY_UPLOAD_TRANSPORT_PRIORITY, String.join(",", normalized), "上传传输机制优先级");
+            setConfig(KEY_UPLOAD_TRANSPORT_MODE, normalized.get(0), "上传/下载的传输模式");
+        }
+    }
+
+    @Transactional
+    public void setDownloadTransportPriority(List<String> modes) {
+        List<String> normalized = normalizePriorityList(modes, ALLOWED_DOWNLOAD_TRANSPORT_PRIORITY);
+        if (!normalized.isEmpty()) {
+            setConfig(KEY_DOWNLOAD_TRANSPORT_PRIORITY, String.join(",", normalized), "下载传输机制优先级");
+            setConfig(KEY_DOWNLOAD_TRANSPORT_MODE, normalized.get(0), "下载传输模式");
+        }
+    }
+
+    @Transactional
+    public void setUploadDialogMode(String mode) {
+        if (isAllowedUploadDialogMode(mode)) {
+            setConfig(KEY_UPLOAD_DIALOG_MODE, mode.trim().toUpperCase(), "上传弹窗模式");
+        }
+    }
+
+    @Transactional
+    public void setFileDropMode(String mode) {
+        if (isAllowedUploadDialogMode(mode)) {
+            setConfig(KEY_FILE_DROP_MODE, mode.trim().toUpperCase(), "文件列表拖拽上传模式");
         }
     }
 
@@ -261,5 +344,49 @@ public class ConfigService {
         }
         String normalized = mode.trim().toUpperCase();
         return ALLOWED_TRANSPORT_MODES.contains(normalized) ? normalized : DEFAULT_TRANSPORT_MODE;
+    }
+
+    private List<String> normalizePriorityList(String raw, List<String> allowed) {
+        if (raw == null || raw.trim().isEmpty()) {
+            return java.util.Collections.emptyList();
+        }
+        return normalizePriorityList(Arrays.asList(raw.split(",")), allowed);
+    }
+
+    private List<String> normalizePriorityList(List<String> raw, List<String> allowed) {
+        if (raw == null) {
+            return java.util.Collections.emptyList();
+        }
+        return raw.stream()
+                .map(item -> item == null ? "" : item.trim().toUpperCase())
+                .map(item -> "PROXY".equals(item) && allowed == ALLOWED_UPLOAD_TRANSPORT_PRIORITY ? "APPLICATION" : item)
+                .filter(allowed::contains)
+                .distinct()
+                .collect(Collectors.toList());
+    }
+
+    private List<String> mapLegacyUploadPriority(String mode) {
+        String normalized = normalizeTransportMode(mode);
+        if ("DIRECT".equals(normalized)) {
+            return Arrays.asList("DIRECT", "APPLICATION");
+        }
+        if ("HYBRID".equals(normalized)) {
+            return Arrays.asList("DIRECT", "APPLICATION");
+        }
+        return java.util.Collections.singletonList("APPLICATION");
+    }
+
+    private List<String> mapLegacyDownloadPriority(String mode) {
+        String normalized = normalizeTransportMode(mode);
+        if ("DIRECT".equals(normalized)) {
+            return Arrays.asList("DIRECT", "PROXY", "APPLICATION");
+        }
+        if ("PROXY".equals(normalized)) {
+            return Arrays.asList("PROXY", "APPLICATION");
+        }
+        if ("HYBRID".equals(normalized)) {
+            return Arrays.asList("PROXY", "APPLICATION");
+        }
+        return Arrays.asList("APPLICATION", "PROXY");
     }
 }

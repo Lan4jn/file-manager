@@ -115,6 +115,8 @@ public class FileController {
         Map<String, Object> config = new HashMap<>();
         config.put("allowedExtensions", configService.getAllowedExtensions());
         config.put("maxFileSize", configService.getMaxFileSize());
+        config.put("uploadDialogMode", configService.getUploadDialogMode());
+        config.put("fileDropMode", configService.getFileDropMode());
         return Result.success(config);
     }
 

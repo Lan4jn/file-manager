@@ -24,6 +24,7 @@ import org.springframework.stereotype.Service;
 import java.io.InputStream;
 import java.net.URLEncoder;
 import java.nio.charset.StandardCharsets;
+import java.util.List;
 import java.util.Locale;
 import java.util.Map;
 
@@ -103,30 +104,7 @@ public class TransferProxyService {
                 bucket
         );
 
-        TransportMode mode = resolveUploadMode(request.getSize());
-        TransferUploadSessionResponse response = new TransferUploadSessionResponse();
-        response.setMode(mode);
-        response.setBucket(preparedUpload.getBucket());
-        response.setObjectName(preparedUpload.getObjectName());
-        response.setFileName(preparedUpload.getFileName());
-        response.setContentType(nullableText(request.getContentType()));
-        if (mode == TransportMode.DIRECT) {
-            response.setUploadUrl(fileService.getPresignedUploadUrl(preparedUpload.getObjectName(), preparedUpload.getBucket()));
-            response.setUploadToken(transferSessionService.issueUploadToken(
-                    operatorUsername,
-                    preparedUpload.getBucket(),
-                    preparedUpload.getObjectName(),
-                    preparedUpload.getFileName(),
-                    nullableText(request.getContentType()),
-                    request.getSize()
-            ));
-            response.setHeaders(buildDirectUploadHeaders(request.getContentType()));
-            return response;
-        }
-
-        response.setUploadUrl("/api/file/upload");
-        response.setHeaders(Map.of());
-        return response;
+        return buildUploadSessionResponse(request, preparedUpload, operatorUsername);
     }
 
     public UploadResponse completeUpload(String uploadToken) {
@@ -223,9 +201,7 @@ public class TransferProxyService {
             throw new IllegalArgumentException("目录请使用归档下载");
         }
 
-        TransportMode mode = resolveDownloadMode(fileInfo.getSize());
         TransferDownloadSessionResponse response = new TransferDownloadSessionResponse();
-        response.setMode(mode);
         response.setFileName(fileInfo.getFileName());
         response.setUseTask(false);
         response.setTaskId(null);
@@ -236,16 +212,7 @@ public class TransferProxyService {
                 objectName,
                 fileInfo.getFileName()
         ));
-        if (mode == TransportMode.PROXY) {
-            response.setDownloadUrl(response.getFallbackUrl());
-            return response;
-        }
-        if (mode == TransportMode.DIRECT) {
-            response.setDownloadUrl(fileService.getPresignedDownloadUrl(objectName, bucket, fileInfo.getFileName()));
-            return response;
-        }
-
-        response.setDownloadUrl(buildApplicationDownloadUrl(bucket, objectName));
+        populateDownloadSessionResponse(response, bucket, objectName, fileInfo.getFileName());
         return response;
     }
 
@@ -255,8 +222,6 @@ public class TransferProxyService {
         }
 
         TransferDownloadSessionResponse response = new TransferDownloadSessionResponse();
-        TransportMode mode = resolveDownloadMode(fileInfo.getSize());
-        response.setMode(mode);
         response.setFileName(fileInfo.getFileName());
         response.setUseTask(false);
         response.setTaskId(null);
@@ -267,43 +232,114 @@ public class TransferProxyService {
                 requireText(fileInfo.getObjectName(), "objectName"),
                 requireText(fileInfo.getFileName(), "fileName")
         ));
-        if (mode == TransportMode.PROXY) {
-            response.setDownloadUrl(response.getFallbackUrl());
-            return response;
-        }
-        if (mode == TransportMode.DIRECT) {
-            response.setDownloadUrl(fileService.getPresignedDownloadUrl(
-                    requireText(fileInfo.getObjectName(), "objectName"),
-                    bucket,
-                    requireText(fileInfo.getFileName(), "fileName")
-            ));
-            return response;
-        }
-        response.setDownloadUrl(downloadUrl);
+        populateShareDownloadSessionResponse(
+                response,
+                requireText(bucket, "bucket"),
+                requireText(fileInfo.getObjectName(), "objectName"),
+                requireText(fileInfo.getFileName(), "fileName"),
+                downloadUrl
+        );
         return response;
     }
 
-    private TransportMode resolveDownloadMode(Long fileSize) {
-        TransportMode configured = TransportMode.from(configService.getDownloadTransportMode());
-        if (configured != TransportMode.HYBRID) {
-            return configured;
+    private TransferUploadSessionResponse buildUploadSessionResponse(TransferUploadSessionRequest request,
+                                                                    FileDomainSupport.PreparedUpload preparedUpload,
+                                                                    String operatorUsername) {
+        List<String> priorities = configService.getUploadTransportPriority();
+        for (String candidate : priorities) {
+            if ("DIRECT".equals(candidate)) {
+                try {
+                    TransferUploadSessionResponse response = new TransferUploadSessionResponse();
+                    response.setMode(TransportMode.DIRECT);
+                    response.setBucket(preparedUpload.getBucket());
+                    response.setObjectName(preparedUpload.getObjectName());
+                    response.setFileName(preparedUpload.getFileName());
+                    response.setContentType(nullableText(request.getContentType()));
+                    response.setUploadUrl(fileService.getPresignedUploadUrl(preparedUpload.getObjectName(), preparedUpload.getBucket()));
+                    response.setUploadToken(transferSessionService.issueUploadToken(
+                            operatorUsername,
+                            preparedUpload.getBucket(),
+                            preparedUpload.getObjectName(),
+                            preparedUpload.getFileName(),
+                            nullableText(request.getContentType()),
+                            request.getSize()
+                    ));
+                    response.setHeaders(buildDirectUploadHeaders(request.getContentType()));
+                    return response;
+                } catch (RuntimeException ignored) {
+                    // continue to next available mechanism
+                }
+            }
+            if ("APPLICATION".equals(candidate) || "PROXY".equals(candidate)) {
+                TransferUploadSessionResponse response = new TransferUploadSessionResponse();
+                response.setMode(TransportMode.APPLICATION);
+                response.setBucket(preparedUpload.getBucket());
+                response.setObjectName(preparedUpload.getObjectName());
+                response.setFileName(preparedUpload.getFileName());
+                response.setContentType(nullableText(request.getContentType()));
+                response.setUploadUrl("/api/file/upload");
+                response.setHeaders(Map.of());
+                return response;
+            }
         }
-        long size = fileSize == null ? 0L : fileSize;
-        long threshold = configService.getDownloadProxyThresholdBytes();
-        return size >= threshold ? TransportMode.PROXY : TransportMode.APPLICATION;
+        throw new IllegalStateException("未配置可用的上传机制");
     }
 
-    private TransportMode resolveUploadMode(Long fileSize) {
-        TransportMode configured = TransportMode.from(configService.getUploadTransportMode());
-        if (configured == TransportMode.PROXY) {
-            return TransportMode.APPLICATION;
+    private void populateDownloadSessionResponse(TransferDownloadSessionResponse response,
+                                                 String bucket,
+                                                 String objectName,
+                                                 String fileName) {
+        for (String candidate : configService.getDownloadTransportPriority()) {
+            if ("DIRECT".equals(candidate)) {
+                try {
+                    response.setMode(TransportMode.DIRECT);
+                    response.setDownloadUrl(fileService.getPresignedDownloadUrl(objectName, bucket, fileName));
+                    return;
+                } catch (RuntimeException ignored) {
+                    // continue to next available mechanism
+                }
+            }
+            if ("PROXY".equals(candidate)) {
+                response.setMode(TransportMode.PROXY);
+                response.setDownloadUrl(response.getFallbackUrl());
+                return;
+            }
+            if ("APPLICATION".equals(candidate)) {
+                response.setMode(TransportMode.APPLICATION);
+                response.setDownloadUrl(buildApplicationDownloadUrl(bucket, objectName));
+                return;
+            }
         }
-        if (configured != TransportMode.HYBRID) {
-            return configured;
+        throw new IllegalStateException("未配置可用的下载机制");
+    }
+
+    private void populateShareDownloadSessionResponse(TransferDownloadSessionResponse response,
+                                                      String bucket,
+                                                      String objectName,
+                                                      String fileName,
+                                                      String shareDownloadUrl) {
+        for (String candidate : configService.getDownloadTransportPriority()) {
+            if ("DIRECT".equals(candidate)) {
+                try {
+                    response.setMode(TransportMode.DIRECT);
+                    response.setDownloadUrl(fileService.getPresignedDownloadUrl(objectName, bucket, fileName));
+                    return;
+                } catch (RuntimeException ignored) {
+                    // continue to next available mechanism
+                }
+            }
+            if ("PROXY".equals(candidate)) {
+                response.setMode(TransportMode.PROXY);
+                response.setDownloadUrl(response.getFallbackUrl());
+                return;
+            }
+            if ("APPLICATION".equals(candidate)) {
+                response.setMode(TransportMode.APPLICATION);
+                response.setDownloadUrl(shareDownloadUrl);
+                return;
+            }
         }
-        long size = fileSize == null ? 0L : fileSize;
-        long threshold = configService.getUploadProxyThresholdBytes();
-        return size >= threshold ? TransportMode.DIRECT : TransportMode.APPLICATION;
+        throw new IllegalStateException("未配置可用的下载机制");
     }
 
     private String buildApplicationDownloadUrl(String bucket, String objectName) {

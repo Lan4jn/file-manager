@@ -36,6 +36,10 @@ public class AdminConfigController {
         config.put("frontendDownloadThresholdMB", frontendDownloadThreshold / 1024 / 1024);
         config.put("uploadTransportMode", configService.getUploadTransportMode());
         config.put("downloadTransportMode", configService.getDownloadTransportMode());
+        config.put("uploadTransportPriority", configService.getUploadTransportPriority());
+        config.put("downloadTransportPriority", configService.getDownloadTransportPriority());
+        config.put("uploadDialogMode", configService.getUploadDialogMode());
+        config.put("fileDropMode", configService.getFileDropMode());
         config.put("uploadProxyThresholdMB", configService.getUploadProxyThresholdBytes() / 1024 / 1024);
         config.put("downloadProxyThresholdMB", configService.getDownloadProxyThresholdBytes() / 1024 / 1024);
         config.put("archiveTaskRetentionMinutes", configService.getArchiveTaskRetentionMinutes());
@@ -73,6 +77,36 @@ public class AdminConfigController {
                 String mode = raw.toString();
                 if (configService.isAllowedTransportMode(mode)) {
                     configService.setDownloadTransportMode(mode);
+                }
+            }
+        }
+        if (configData.containsKey("uploadTransportPriority")) {
+            Object raw = configData.get("uploadTransportPriority");
+            if (raw instanceof List) {
+                configService.setUploadTransportPriority((List<String>) raw);
+            }
+        }
+        if (configData.containsKey("downloadTransportPriority")) {
+            Object raw = configData.get("downloadTransportPriority");
+            if (raw instanceof List) {
+                configService.setDownloadTransportPriority((List<String>) raw);
+            }
+        }
+        if (configData.containsKey("uploadDialogMode")) {
+            Object raw = configData.get("uploadDialogMode");
+            if (raw != null) {
+                String mode = raw.toString();
+                if (configService.isAllowedUploadDialogMode(mode)) {
+                    configService.setUploadDialogMode(mode);
+                }
+            }
+        }
+        if (configData.containsKey("fileDropMode")) {
+            Object raw = configData.get("fileDropMode");
+            if (raw != null) {
+                String mode = raw.toString();
+                if (configService.isAllowedUploadDialogMode(mode)) {
+                    configService.setFileDropMode(mode);
                 }
             }
         }

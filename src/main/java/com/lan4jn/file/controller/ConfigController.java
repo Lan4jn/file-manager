@@ -33,6 +33,10 @@ public class ConfigController {
         config.put("port", serverPort);
         config.put("uploadTransportMode", configService.getUploadTransportMode());
         config.put("downloadTransportMode", configService.getDownloadTransportMode());
+        config.put("uploadTransportPriority", configService.getUploadTransportPriority());
+        config.put("downloadTransportPriority", configService.getDownloadTransportPriority());
+        config.put("uploadDialogMode", configService.getUploadDialogMode());
+        config.put("fileDropMode", configService.getFileDropMode());
         return Result.success(config);
     }
 }

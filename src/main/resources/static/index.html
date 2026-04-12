@@ -731,6 +731,102 @@
                                 <el-input-number v-model="fileConfig.frontendDownloadThresholdMB" :min="1" :max="102400"></el-input-number>
                                 <span style="margin-left: 10px">MB</span>
                             </el-form-item>
+                            <el-form-item label="上传窗口模式">
+                                <el-select v-model="fileConfig.uploadDialogMode" style="width: 220px">
+                                    <el-option
+                                        v-for="item in uploadDialogModeOptions"
+                                        :key="item.value"
+                                        :label="item.label"
+                                        :value="item.value"
+                                    ></el-option>
+                                </el-select>
+                            </el-form-item>
+                            <el-form-item label="文件拖拽模式">
+                                <el-select v-model="fileConfig.fileDropMode" style="width: 220px">
+                                    <el-option
+                                        v-for="item in uploadDialogModeOptions"
+                                        :key="'drop-' + item.value"
+                                        :label="item.label"
+                                        :value="item.value"
+                                    ></el-option>
+                                </el-select>
+                            </el-form-item>
+                            <el-form-item label="上传机制顺序">
+                                <div class="transport-priority-editor">
+                                    <div
+                                        v-for="item in uploadTransportOptions"
+                                        :key="item.value"
+                                        class="transport-priority-editor__row"
+                                    >
+                                        <el-checkbox
+                                            :model-value="fileConfig.uploadTransportPriority.includes(item.value)"
+                                            @change="checked => toggleTransportPriority('upload', item.value, checked)"
+                                        >
+                                            {{ item.label }}
+                                        </el-checkbox>
+                                        <div
+                                            v-if="fileConfig.uploadTransportPriority.includes(item.value)"
+                                            class="transport-priority-editor__controls"
+                                        >
+                                            <span class="transport-priority-editor__index">
+                                                #{{ fileConfig.uploadTransportPriority.indexOf(item.value) + 1 }}
+                                            </span>
+                                            <el-button
+                                                text
+                                                :disabled="fileConfig.uploadTransportPriority.indexOf(item.value) === 0"
+                                                @click="moveTransportPriority('upload', fileConfig.uploadTransportPriority.indexOf(item.value), -1)"
+                                            >
+                                                上移
+                                            </el-button>
+                                            <el-button
+                                                text
+                                                :disabled="fileConfig.uploadTransportPriority.indexOf(item.value) === fileConfig.uploadTransportPriority.length - 1"
+                                                @click="moveTransportPriority('upload', fileConfig.uploadTransportPriority.indexOf(item.value), 1)"
+                                            >
+                                                下移
+                                            </el-button>
+                                        </div>
+                                    </div>
+                                </div>
+                            </el-form-item>
+                            <el-form-item label="下载机制顺序">
+                                <div class="transport-priority-editor">
+                                    <div
+                                        v-for="item in downloadTransportOptions"
+                                        :key="item.value"
+                                        class="transport-priority-editor__row"
+                                    >
+                                        <el-checkbox
+                                            :model-value="fileConfig.downloadTransportPriority.includes(item.value)"
+                                            @change="checked => toggleTransportPriority('download', item.value, checked)"
+                                        >
+                                            {{ item.label }}
+                                        </el-checkbox>
+                                        <div
+                                            v-if="fileConfig.downloadTransportPriority.includes(item.value)"
+                                            class="transport-priority-editor__controls"
+                                        >
+                                            <span class="transport-priority-editor__index">
+                                                #{{ fileConfig.downloadTransportPriority.indexOf(item.value) + 1 }}
+                                            </span>
+                                            <el-button
+                                                text
+                                                :disabled="fileConfig.downloadTransportPriority.indexOf(item.value) === 0"
+                                                @click="moveTransportPriority('download', fileConfig.downloadTransportPriority.indexOf(item.value), -1)"
+                                            >
+                                                上移
+                                            </el-button>
+                                            <el-button
+                                                text
+                                                :disabled="fileConfig.downloadTransportPriority.indexOf(item.value) === fileConfig.downloadTransportPriority.length - 1"
+                                                @click="moveTransportPriority('download', fileConfig.downloadTransportPriority.indexOf(item.value), 1)"
+                                            >
+                                                下移
+                                            </el-button>
+                                        </div>
+                                    </div>
+                                </div>
+                            </el-form-item>
                             <el-form-item>
                                 <el-button v-if="isSuperAdmin" type="primary" @click="saveFileConfig">保存配置</el-button>
                             </el-form-item>
@@ -864,29 +960,48 @@
                     <span style="cursor: pointer; text-decoration: underline;">查看支持的文件类型</span>
                 </el-tooltip>
             </el-alert>
-            <el-upload
-                ref="uploadRef"
-                class="upload-demo"
-                :action="uploadUrl"
-                :headers="uploadHeaders"
-                :data="uploadData"
-                :on-success="handleUploadSuccess"
-                :on-error="handleUploadError"
-                :on-progress="handleUploadProgress"
-                :auto-upload="false"
-                :http-request="customUploadRequest"
-                drag
-                multiple
+            <div
+                class="upload-drop-panel"
+                :class="{ 'upload-drop-panel--active': uploadDialogDropActive }"
+                @dragover.prevent="handleUploadDialogDragOver"
+                @dragleave.prevent="handleUploadDialogDragLeave"
+                @drop.prevent="handleUploadDialogDrop"
             >
-                <el-icon class="el-icon--upload"><Upload /></el-icon>
-                <div class="el-upload__text">将文件拖到此处，或<em>点击上传</em></div>
-                <template #tip>
-                    <div class="el-upload__tip">
-                        <span v-if="fileConfig.maxFileSizeMB !== -1">单个文件最大: {{ fileConfig.maxFileSizeMB }}MB</span>
-                        <span v-else>单个文件最大: 无限制</span>
+                <div v-if="uploadDialogDropActive" class="upload-drop-panel__overlay">
+                    <strong>释放鼠标，立即上传到当前目录</strong>
+                    <span>文件会马上出现在下方任务列表，并实时显示进度</span>
+                </div>
+                <el-upload
+                    ref="uploadRef"
+                    class="upload-demo"
+                    :auto-upload="false"
+                    :show-file-list="false"
+                    :on-change="handleUploadDialogChange"
+                    drag
+                    multiple
+                >
+                    <el-icon class="el-icon--upload"><Upload /></el-icon>
+                    <div class="el-upload__text">将文件拖到此处，或<em>点击上传</em></div>
+                    <template #tip>
+                        <div class="el-upload__tip">
+                            <template v-if="fileConfig.uploadDialogMode === 'MANUAL'">选择文件后先加入待上传列表，点击下方“上传”开始执行</template>
+                            <template v-else>选择文件后会立即开始上传并显示进度</template>
+                            <span v-if="fileConfig.maxFileSizeMB !== -1">，单个文件最大: {{ fileConfig.maxFileSizeMB }}MB</span>
+                            <span v-else>，单个文件最大: 无限制</span>
+                        </div>
+                    </template>
+                </el-upload>
+            </div>
+            <div v-if="fileConfig.uploadDialogMode === 'MANUAL' && pendingUploadFiles.length" class="upload-task-panel">
+                <div class="upload-task-panel__title">待上传文件</div>
+                <div v-for="file in pendingUploadFiles" :key="file.id" class="upload-pending-list__item">
+                    <div class="upload-pending-list__meta">
+                        <span class="upload-pending-list__name">{{ file.name }}</span>
+                        <span class="upload-pending-list__size">{{ formatSize(file.size || 0) }}</span>
                     </div>
-                </template>
-            </el-upload>
+                    <el-button text @click="removePendingUploadFile(file.id)">移除</el-button>
+                </div>
+            </div>
             <div v-if="uploadTasks.length" class="upload-task-panel">
                 <div class="upload-task-panel__title">上传任务</div>
                 <div v-for="task in uploadTasks" :key="task.id" class="download-task-center__item upload-task-panel__item">
@@ -903,7 +1018,14 @@
             </div>
             <template #footer>
                 <el-button @click="cancelUpload">取消</el-button>
-                <el-button type="primary" @click="submitUpload" :loading="uploading">上传</el-button>
+                <el-button
+                    v-if="fileConfig.uploadDialogMode === 'MANUAL'"
+                    type="primary"
+                    @click="submitUpload"
+                    :loading="uploading"
+                >
+                    上传
+                </el-button>
             </template>
         </el-dialog>
 

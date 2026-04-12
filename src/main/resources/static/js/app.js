@@ -215,11 +215,14 @@ const filePageSize = ref(25);
         const runtimeConfig = ref({ httpPort: null, httpsPort: null, forceHttps: false, appVersion: '' });
         const showHttpsNotice = computed(() => window.location.protocol === 'http:' && runtimeConfig.value.forceHttps);
         const fileDropActive = ref(false);
+        const uploadDialogDropActive = ref(false);
         const uploadTasks = ref([]);
+        const pendingUploadFiles = ref([]);
         const syncingFileKeys = ref(new Set());
         const syncingFileMeta = ref({});
         const uploadCancelRequested = ref(false);
         let syncingRetryTimer = null;
+        let uploadDialogSelectionTimer = null;
 
         // Dialogs
         const showUploadDialog = ref(false);
@@ -397,11 +400,30 @@ const filePageSize = ref(25);
             allowedExtensionsText: '',
             maxFileSizeMB: 100,
             frontendDownloadThresholdMB: 100,
+            fileDropMode: 'INSTANT',
+            uploadDialogMode: 'INSTANT',
             uploadTransportMode: 'APPLICATION',
             downloadTransportMode: 'APPLICATION',
+            uploadTransportPriority: ['DIRECT', 'APPLICATION'],
+            downloadTransportPriority: ['DIRECT', 'PROXY', 'APPLICATION'],
             uploadProxyThresholdMB: 256,
             downloadProxyThresholdMB: 128
         });
+        const uploadDialogModeOptions = [
+            { label: '手动上传', value: 'MANUAL' },
+            { label: '立即上传', value: 'INSTANT' }
+        ];
+        const uploadTransportOptions = [
+            { label: 'MinIO 直传', value: 'DIRECT' },
+            { label: '应用代理上传', value: 'APPLICATION' }
+        ];
+        const downloadTransportOptions = [
+            { label: 'MinIO 直连下载', value: 'DIRECT' },
+            { label: 'Jar 流式代理', value: 'PROXY' },
+            { label: '应用下载接口', value: 'APPLICATION' }
+        ];
+        const uploadTransportLabelMap = Object.fromEntries(uploadTransportOptions.map(item => [item.value, item.label]));
+        const downloadTransportLabelMap = Object.fromEntries(downloadTransportOptions.map(item => [item.value, item.label]));
 
         // Share config
         const shareConfig = ref({
@@ -1028,12 +1050,15 @@ const filePageSize = ref(25);
                 : ('本次成功上传 ' + uploadedItems.length + ' 个文件');
             let undoing = false;
             const notification = ElementPlus.ElNotification({
-                title: '上传完成',
+                title: '',
                 duration: 0,
                 showClose: true,
                 position: 'top-right',
                 customClass: 'upload-success-notification',
                 message: h('div', { class: 'upload-success-notification__body' }, [
+                    h('div', { class: 'upload-success-notification__icon' }, [
+                        h(ElementPlus.ElIcon, null, () => h(ElementPlusIconsVue.CircleCheck))
+                    ]),
                     h('div', { class: 'upload-success-notification__text' }, message),
                     h(ElementPlus.ElButton, {
                         text: true,
@@ -2238,6 +2263,8 @@ const filePageSize = ref(25);
                     } else {
                         fileConfig.value.maxFileSizeMB = Math.floor((res.data.maxFileSize || 104857600) / 1024 / 1024);
                     }
+                    fileConfig.value.fileDropMode = res.data.fileDropMode || fileConfig.value.fileDropMode || 'INSTANT';
+                    fileConfig.value.uploadDialogMode = res.data.uploadDialogMode || fileConfig.value.uploadDialogMode || 'INSTANT';
                 }
             } catch (error) {
                 ElementPlus.ElMessage.error('加载上传配置失败');
@@ -2247,6 +2274,11 @@ const filePageSize = ref(25);
         // 打开上传对话框时加载配置
         const openUploadDialog = () => {
             loadUploadConfig();
+            uploadDialogDropActive.value = false;
+            pendingUploadFiles.value = [];
+            if (uploadRef.value) {
+                uploadRef.value.clearFiles();
+            }
             showUploadDialog.value = true;
         };
 
@@ -2470,7 +2502,87 @@ const filePageSize = ref(25);
             if (!droppedFiles.length) {
                 return;
             }
+            await loadUploadConfig();
+            showUploadDialog.value = true;
+            if (fileConfig.value.fileDropMode === 'MANUAL') {
+                pendingUploadFiles.value = pendingUploadFiles.value.concat(normalizePendingUploadFiles(droppedFiles));
+                return;
+            }
             await runUploadBatch(droppedFiles, { closeDialog: false });
+        };
+
+        const handleUploadDialogDragOver = (event) => {
+            if (!currentBucket.value || uploading.value) {
+                return;
+            }
+            if (event?.dataTransfer) {
+                event.dataTransfer.dropEffect = 'copy';
+            }
+            uploadDialogDropActive.value = true;
+        };
+
+        const handleUploadDialogDragLeave = (event) => {
+            const relatedTarget = event?.relatedTarget;
+            if (event?.currentTarget && relatedTarget && event.currentTarget.contains(relatedTarget)) {
+                return;
+            }
+            uploadDialogDropActive.value = false;
+        };
+
+        const queueDialogUploadFiles = async (files) => {
+            const rawFiles = (files || []).filter(Boolean);
+            if (!rawFiles.length) {
+                return;
+            }
+            if (!currentBucket.value) {
+                ElementPlus.ElMessage.warning('请先选择存储桶');
+                return;
+            }
+            if (uploading.value) {
+                ElementPlus.ElMessage.warning('已有上传任务进行中');
+                return;
+            }
+            showUploadDialog.value = true;
+            await runUploadBatch(rawFiles, { closeDialog: false });
+        };
+
+        const normalizePendingUploadFiles = (files) => {
+            return (files || []).map((item, index) => {
+                if (!item) {
+                    return null;
+                }
+                const raw = item.raw || item;
+                if (!raw) {
+                    return null;
+                }
+                return {
+                    id: item.uid || ('pending-' + raw.name + '-' + raw.size + '-' + raw.lastModified + '-' + index),
+                    name: raw.name || item.name || '待上传文件',
+                    size: raw.size || item.size || 0,
+                    raw
+                };
+            }).filter(Boolean);
+        };
+
+        const syncPendingUploadFilesFromUploadRef = () => {
+            pendingUploadFiles.value = normalizePendingUploadFiles(uploadRef.value?.uploadFiles || []);
+        };
+
+        const handleUploadDialogDrop = async (event) => {
+            uploadDialogDropActive.value = false;
+            const droppedFiles = Array.from(event?.dataTransfer?.files || []).filter(Boolean);
+            if (!droppedFiles.length) {
+                return;
+            }
+            if (uploadRef.value) {
+                uploadRef.value.clearFiles();
+            }
+            if (fileConfig.value.uploadDialogMode === 'MANUAL') {
+                pendingUploadFiles.value = pendingUploadFiles.value.concat(normalizePendingUploadFiles(droppedFiles));
+                showUploadDialog.value = true;
+                return;
+            }
+            await queueDialogUploadFiles(droppedFiles);
         };
 
         const downloadFile = async (file) => {
@@ -2861,61 +2973,49 @@ const filePageSize = ref(25);
             selectedFiles.value = (selection || []).filter(item => canSelectFileRow(item));
         };
 
-        const submitUpload = () => {
-            const rawFiles = (uploadRef.value?.uploadFiles || [])
+        const handleUploadDialogChange = () => {
+            if (fileConfig.value.uploadDialogMode === 'MANUAL') {
+                syncPendingUploadFilesFromUploadRef();
+                return;
+            }
+            if (uploadDialogSelectionTimer) {
+                clearTimeout(uploadDialogSelectionTimer);
+            }
+            uploadDialogSelectionTimer = setTimeout(async () => {
+                uploadDialogSelectionTimer = null;
+                const rawFiles = (uploadRef.value?.uploadFiles || [])
+                    .map(item => item.raw)
+                    .filter(Boolean);
+                if (uploadRef.value) {
+                    uploadRef.value.clearFiles();
+                }
+                await queueDialogUploadFiles(rawFiles);
+            }, 0);
+        };
+
+        const removePendingUploadFile = (fileId) => {
+            pendingUploadFiles.value = pendingUploadFiles.value.filter(item => item.id !== fileId);
+            if (uploadRef.value) {
+                const target = (uploadRef.value.uploadFiles || []).find(item => String(item.uid) === String(fileId));
+                if (target) {
+                    uploadRef.value.handleRemove(target);
+                }
+            }
+        };
+
+        const submitUpload = async () => {
+            const rawFiles = pendingUploadFiles.value
                 .map(item => item.raw)
                 .filter(Boolean);
-            runUploadBatch(rawFiles, { closeDialog: true });
-        };
-
-        const handleUploadProgress = (event) => {
-            console.log('Upload progress:', event.percent);
-        };
-
-        // 自定义上传请求，使用XMLHttpRequest获取真实进度
-        const customUploadRequest = (options) => {
-            const { file, onProgress, onSuccess, onError } = options;
-            uploading.value = true;
-            uploadFileRequest({
-                file,
-                onXhr: (xhr) => {
-                    options.xhr = xhr;
-                },
-                onProgress: (progress) => {
-                    if (typeof onProgress === 'function') {
-                        onProgress({ percent: progress.percent });
-                    }
-                }
-            }).then((result) => {
-                uploading.value = false;
-                onSuccess(result.response);
-            }).catch((error) => {
-                uploading.value = false;
-                onError(error);
-            });
-        };
-
-        const handleUploadSuccess = (response) => {
-            console.log('Upload success:', response);
-            uploading.value = false;
-            ElementPlus.ElMessage.success('上传成功');
-            // 重置上传对话框
+            if (!rawFiles.length) {
+                ElementPlus.ElMessage.warning('请选择需要上传的文件');
+                return;
+            }
+            pendingUploadFiles.value = [];
             if (uploadRef.value) {
                 uploadRef.value.clearFiles();
             }
-            showUploadDialog.value = false;
-            loadFiles();
-        };
-
-        const handleUploadError = (err) => {
-            console.error('Upload error:', err);
-            uploading.value = false;
-            const errorMsg = extractUploadErrorMessage(err);
-            ElementPlus.ElMessage.error(errorMsg);
-            // 重置上传对话框
-            if (uploadRef.value) {
-                uploadRef.value.clearFiles();
-            }
+            await queueDialogUploadFiles(rawFiles);
         };
 
         const cancelUpload = async () => {
@@ -2934,6 +3034,7 @@ const filePageSize = ref(25);
                     });
                     uploading.value = false;
                     showUploadDialog.value = false;
+                    pendingUploadFiles.value = [];
                     if (uploadRef.value) {
                         uploadRef.value.clearFiles();
                     }
@@ -2942,9 +3043,11 @@ const filePageSize = ref(25);
                 }
             } else {
                 showUploadDialog.value = false;
+                pendingUploadFiles.value = [];
                 if (uploadRef.value) {
                     uploadRef.value.clearFiles();
                 }
+                uploadDialogDropActive.value = false;
             }
         };
 
@@ -3546,6 +3649,67 @@ const filePageSize = ref(25);
         };
 
         // Config
+        const normalizeTransportPriority = (values, availableValues) => {
+            const allowed = new Set(availableValues || []);
+            return (values || [])
+                .map(item => String(item || '').trim().toUpperCase())
+                .filter(item => allowed.has(item))
+                .filter((item, index, arr) => arr.indexOf(item) === index);
+        };
+
+        const ensureTransportPriorityDefaults = () => {
+            const uploadDefaults = uploadTransportOptions.map(item => item.value);
+            const downloadDefaults = downloadTransportOptions.map(item => item.value);
+            const normalizedUpload = normalizeTransportPriority(fileConfig.value.uploadTransportPriority, uploadDefaults);
+            const normalizedDownload = normalizeTransportPriority(fileConfig.value.downloadTransportPriority, downloadDefaults);
+            fileConfig.value.uploadTransportPriority = normalizedUpload.length ? normalizedUpload : uploadDefaults.slice();
+            fileConfig.value.downloadTransportPriority = normalizedDownload.length ? normalizedDownload : downloadDefaults.slice();
+            fileConfig.value.uploadTransportMode = fileConfig.value.uploadTransportPriority[0] || 'APPLICATION';
+            fileConfig.value.downloadTransportMode = fileConfig.value.downloadTransportPriority[0] || 'APPLICATION';
+        };
+
+        const toggleTransportPriority = (target, mode, enabled) => {
+            const key = target === 'download' ? 'downloadTransportPriority' : 'uploadTransportPriority';
+            const options = target === 'download' ? downloadTransportOptions : uploadTransportOptions;
+            const defaultOrder = options.map(item => item.value);
+            const current = normalizeTransportPriority(fileConfig.value[key], defaultOrder);
+            let next;
+            if (enabled) {
+                next = current.includes(mode) ? current.slice() : current.concat(mode);
+                next.sort((a, b) => defaultOrder.indexOf(a) - defaultOrder.indexOf(b));
+            } else {
+                next = current.filter(item => item !== mode);
+            }
+            fileConfig.value[key] = next;
+            if (next.length > 0) {
+                if (target === 'download') {
+                    fileConfig.value.downloadTransportMode = next[0];
+                } else {
+                    fileConfig.value.uploadTransportMode = next[0];
+                }
+            }
+        };
+
+        const moveTransportPriority = (target, index, direction) => {
+            const key = target === 'download' ? 'downloadTransportPriority' : 'uploadTransportPriority';
+            const current = (fileConfig.value[key] || []).slice();
+            const nextIndex = index + direction;
+            if (index < 0 || nextIndex < 0 || nextIndex >= current.length) {
+                return;
+            }
+            const swapped = current[index];
+            current[index] = current[nextIndex];
+            current[nextIndex] = swapped;
+            fileConfig.value[key] = current;
+            if (current.length > 0) {
+                if (target === 'download') {
+                    fileConfig.value.downloadTransportMode = current[0];
+                } else {
+                    fileConfig.value.uploadTransportMode = current[0];
+                }
+            }
+        };
+
         const loadFileConfig = async () => {
             try {
                 const res = await api.get('/admin/file-config');
@@ -3559,10 +3723,15 @@ const filePageSize = ref(25);
                         fileConfig.value.maxFileSizeMB = Math.floor((res.data.maxFileSize || 104857600) / 1024 / 1024);
                     }
                     fileConfig.value.frontendDownloadThresholdMB = res.data.frontendDownloadThresholdMB || 100;
+                    fileConfig.value.fileDropMode = res.data.fileDropMode || 'INSTANT';
+                    fileConfig.value.uploadDialogMode = res.data.uploadDialogMode || 'INSTANT';
                     fileConfig.value.uploadTransportMode = res.data.uploadTransportMode || 'APPLICATION';
                     fileConfig.value.downloadTransportMode = res.data.downloadTransportMode || 'APPLICATION';
+                    fileConfig.value.uploadTransportPriority = res.data.uploadTransportPriority || [fileConfig.value.uploadTransportMode];
+                    fileConfig.value.downloadTransportPriority = res.data.downloadTransportPriority || [fileConfig.value.downloadTransportMode];
                     fileConfig.value.uploadProxyThresholdMB = res.data.uploadProxyThresholdMB || 256;
                     fileConfig.value.downloadProxyThresholdMB = res.data.downloadProxyThresholdMB || 128;
+                    ensureTransportPriorityDefaults();
                 }
             } catch (error) {
                 ElementPlus.ElMessage.error('加载配置失败');
@@ -3571,6 +3740,7 @@ const filePageSize = ref(25);
 
         const saveFileConfig = async () => {
             try {
+                ensureTransportPriorityDefaults();
                 const extensions = fileConfig.value.allowedExtensionsText
                     .split(',')
                     .map(e => e.trim())
@@ -3579,8 +3749,12 @@ const filePageSize = ref(25);
                     allowedExtensions: extensions,
                     maxFileSize: fileConfig.value.maxFileSizeMB * 1024 * 1024,
                     frontendDownloadThresholdMB: fileConfig.value.frontendDownloadThresholdMB,
+                    fileDropMode: fileConfig.value.fileDropMode,
+                    uploadDialogMode: fileConfig.value.uploadDialogMode,
                     uploadTransportMode: fileConfig.value.uploadTransportMode,
                     downloadTransportMode: fileConfig.value.downloadTransportMode,
+                    uploadTransportPriority: fileConfig.value.uploadTransportPriority,
+                    downloadTransportPriority: fileConfig.value.downloadTransportPriority,
                     uploadProxyThresholdMB: fileConfig.value.uploadProxyThresholdMB,
                     downloadProxyThresholdMB: fileConfig.value.downloadProxyThresholdMB
                 });
@@ -3891,6 +4065,12 @@ const filePageSize = ref(25);
             userLoading,
             roleLoading,
             fileConfig,
+            pendingUploadFiles,
+            uploadDialogModeOptions,
+            uploadTransportOptions,
+            downloadTransportOptions,
+            uploadTransportLabelMap,
+            downloadTransportLabelMap,
             shareConfig,
             permissionInfo,
             permissionList,
@@ -3954,6 +4134,10 @@ const filePageSize = ref(25);
             handleFileDragOver,
             handleFileDragLeave,
             handleFileDrop,
+            uploadDialogDropActive,
+            handleUploadDialogDragOver,
+            handleUploadDialogDragLeave,
+            handleUploadDialogDrop,
             downloadFile,
             previewFile,
             deleteFile,
@@ -3969,10 +4153,8 @@ const filePageSize = ref(25);
             createShare,
             handleSelectionChange,
             submitUpload,
-            handleUploadSuccess,
-            handleUploadError,
-            handleUploadProgress,
-            customUploadRequest,
+            handleUploadDialogChange,
+            removePendingUploadFile,
             cancelUpload,
             uploading,
             copyShareLink,
@@ -4017,6 +4199,8 @@ const filePageSize = ref(25);
             deleteMinioKey,
             loadFileConfig,
             saveFileConfig,
+            toggleTransportPriority,
+            moveTransportPriority,
             loadShareConfig,
             saveShareConfig,
             openDownloadCenter,

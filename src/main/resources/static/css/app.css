@@ -1048,20 +1048,23 @@ body {
 
 .file-drop-zone--active {
     border-color: rgba(29, 111, 220, 0.36);
-    background: rgba(29, 111, 220, 0.05);
-    box-shadow: inset 0 0 0 1px rgba(29, 111, 220, 0.12);
+    background: rgba(29, 111, 220, 0.12);
+    box-shadow: inset 0 0 0 1px rgba(29, 111, 220, 0.18);
 }
 
 .file-drop-zone__hint {
     position: absolute;
-    top: 14px;
-    right: 16px;
+    inset: 16px;
     z-index: 3;
-    padding: 6px 10px;
-    border-radius: 999px;
-    background: rgba(29, 111, 220, 0.92);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    border-radius: 16px;
+    background: rgba(15, 23, 42, 0.28);
     color: #fff;
-    font-size: 12px;
+    font-size: 18px;
+    font-weight: 700;
+    backdrop-filter: blur(2px);
     box-shadow: 0 10px 24px rgba(29, 111, 220, 0.18);
 }
 
@@ -1176,6 +1179,45 @@ body {
     text-align: center;
 }
 
+.upload-drop-panel {
+    position: relative;
+    border-radius: 18px;
+    transition: background-color 0.2s ease, box-shadow 0.2s ease;
+}
+
+.upload-drop-panel--active {
+    background: rgba(29, 111, 220, 0.08);
+    box-shadow: inset 0 0 0 1px rgba(29, 111, 220, 0.18);
+}
+
+.upload-drop-panel__overlay {
+    position: absolute;
+    inset: 12px;
+    z-index: 4;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    gap: 8px;
+    border-radius: 16px;
+    background: rgba(15, 23, 42, 0.52);
+    color: #fff;
+    text-align: center;
+    padding: 20px;
+    backdrop-filter: blur(4px);
+}
+
+.upload-drop-panel__overlay strong {
+    font-size: 18px;
+    font-weight: 700;
+}
+
+.upload-drop-panel__overlay span {
+    font-size: 13px;
+    line-height: 1.6;
+    color: rgba(255, 255, 255, 0.9);
+}
+
 .upload-task-panel {
     margin-top: 18px;
     display: flex;
@@ -1193,29 +1235,90 @@ body {
     margin-bottom: 0;
 }
 
+.upload-pending-list__item {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 12px;
+    padding: 12px 14px;
+    border: 1px solid var(--line);
+    border-radius: 14px;
+    background: #f8fbff;
+}
+
+.upload-pending-list__meta {
+    min-width: 0;
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+}
+
+.upload-pending-list__name {
+    color: var(--text);
+    font-weight: 600;
+    word-break: break-all;
+}
+
+.upload-pending-list__size {
+    color: var(--muted);
+    font-size: 12px;
+}
+
 .upload-success-notification {
     width: 360px !important;
+    border-radius: 18px !important;
+    border: 1px solid #b7ebc6 !important;
+    background: linear-gradient(180deg, #ecfff1 0%, #e4f8ea 100%) !important;
+    box-shadow: 0 14px 36px rgba(34, 139, 74, 0.16) !important;
 }
 
 .upload-success-notification__body {
     display: flex;
     align-items: center;
     justify-content: space-between;
-    gap: 16px;
-    padding-right: 8px;
+    gap: 12px;
+    padding-right: 4px;
+}
+
+.upload-success-notification .el-notification__group {
+    width: 100%;
+    margin-left: 0;
+}
+
+.upload-success-notification .el-notification__content {
+    margin: 0;
+}
+
+.upload-success-notification .el-notification__closeBtn {
+    color: #53a66f;
+}
+
+.upload-success-notification__icon {
+    flex: none;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 24px;
+    height: 24px;
+    border-radius: 999px;
+    color: #16a34a;
+    background: rgba(34, 197, 94, 0.12);
+    font-size: 16px;
 }
 
 .upload-success-notification__text {
     flex: 1;
     min-width: 0;
-    color: var(--text);
+    color: #1f7a3f;
     line-height: 1.5;
+    font-weight: 600;
     word-break: break-word;
 }
 
 .upload-success-notification__action {
     flex: none;
     font-weight: 700;
+    color: #1f7a3f !important;
 }
 
 .el-icon.el-icon--upload {
@@ -1290,6 +1393,38 @@ body {
     color: var(--muted);
     font-size: 13px;
     line-height: 1.7;
+}
+
+.transport-priority-editor {
+    width: 100%;
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+}
+
+.transport-priority-editor__row {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 12px;
+    padding: 10px 14px;
+    border: 1px solid var(--line);
+    border-radius: 14px;
+    background: #f8fbff;
+}
+
+.transport-priority-editor__controls {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    flex-wrap: wrap;
+}
+
+.transport-priority-editor__index {
+    min-width: 34px;
+    color: var(--muted);
+    font-size: 12px;
+    text-align: right;
 }
 
 .help-content,
