@@ -369,11 +369,12 @@
                         </div>
 
                         <div
-                            class="file-drop-zone"
-                            :class="{ 'file-drop-zone--active': fileDropActive }"
-                            @dragover.prevent="handleFileDragOver"
-                            @dragleave.prevent="handleFileDragLeave"
-                            @drop.prevent="handleFileDrop"
+                                class="file-drop-zone"
+                                :class="{ 'file-drop-zone--active': fileDropActive }"
+                                @dragenter.prevent="handleFileDragEnter"
+                                @dragover.prevent="handleFileDragOver"
+                                @dragleave.prevent="handleFileDragLeave"
+                                @drop.prevent="handleFileDrop"
                         >
                             <div v-if="fileDropActive" class="file-drop-zone__hint">释放鼠标即可上传到当前目录</div>
                             <el-table :data="fileList" v-loading="fileLoading" @selection-change="handleSelectionChange" @sort-change="handleFileSortChange">

@@ -215,6 +215,7 @@ const filePageSize = ref(25);
         const runtimeConfig = ref({ httpPort: null, httpsPort: null, forceHttps: false, appVersion: '' });
         const showHttpsNotice = computed(() => window.location.protocol === 'http:' && runtimeConfig.value.forceHttps);
         const fileDropActive = ref(false);
+        let fileDropDragDepth = 0;
         const uploadDialogDropActive = ref(false);
         const uploadTasks = ref([]);
         const pendingUploadFiles = ref([]);
@@ -1051,7 +1052,7 @@ const filePageSize = ref(25);
             let undoing = false;
             const notification = ElementPlus.ElNotification({
                 title: '',
-                duration: 0,
+                duration: 30000,
                 showClose: true,
                 position: 'top-right',
                 customClass: 'upload-success-notification',
@@ -2484,11 +2485,33 @@ const filePageSize = ref(25);
             fileDropActive.value = true;
         };
 
-        const handleFileDragLeave = () => {
-            fileDropActive.value = false;
+        const handleFileDragEnter = (event) => {
+            if (!currentBucket.value || uploading.value) {
+                return;
+            }
+            if (event?.dataTransfer) {
+                event.dataTransfer.dropEffect = 'copy';
+            }
+            if (fileDropDragDepth <= 0) {
+                fileDropDragDepth = 0;
+            }
+            fileDropDragDepth += 1;
+            fileDropActive.value = true;
+        };
+
+        const handleFileDragLeave = (event) => {
+            const relatedTarget = event?.relatedTarget;
+            if (event?.currentTarget && relatedTarget && event.currentTarget.contains(relatedTarget)) {
+                return;
+            }
+            fileDropDragDepth = Math.max(0, fileDropDragDepth - 1);
+            if (fileDropDragDepth === 0) {
+                fileDropActive.value = false;
+            }
         };
 
         const handleFileDrop = async (event) => {
+            fileDropDragDepth = 0;
             fileDropActive.value = false;
             if (!currentBucket.value) {
                 ElementPlus.ElMessage.warning('请先选择存储桶');
@@ -4131,6 +4154,7 @@ const filePageSize = ref(25);
             navigateToFolder,
             handleFileNameClick,
             canSelectFileRow,
+            handleFileDragEnter,
             handleFileDragOver,
             handleFileDragLeave,
             handleFileDrop,
