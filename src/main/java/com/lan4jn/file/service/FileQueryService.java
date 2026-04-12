@@ -13,7 +13,6 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 import java.time.LocalDateTime;
-import java.time.ZoneId;
 import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.HashSet;
@@ -61,7 +60,7 @@ final class FileQueryService {
                 fileList.add(support.buildFileInfo(item, resolvedBucket, objectName, isFolder, publicUrl));
             }
 
-            sortFiles(fileList, sortBy, order);
+            sortFiles(fileList, sortBy, order, true);
             return fileList;
         } catch (Exception e) {
             log.error("Failed to list files", e);
@@ -71,39 +70,27 @@ final class FileQueryService {
 
     PageResult<FileInfo> listFiles(String folder, String bucket, String defaultBucket, String publicUrl,
                                    String sortBy, String order, int page, int size) {
+        boolean folderFirst = (StrUtil.isBlank(sortBy) || "name".equalsIgnoreCase(sortBy))
+                && !"desc".equalsIgnoreCase(order);
+        return listFiles(folder, bucket, defaultBucket, publicUrl, sortBy, order, folderFirst, page, size);
+    }
+
+    PageResult<FileInfo> listFiles(String folder, String bucket, String defaultBucket, String publicUrl,
+                                   String sortBy, String order, boolean folderFirst, int page, int size) {
         int normalizedPage = page < 1 ? 1 : page;
-        int normalizedSize = (size == 10 || size == 20 || size == 50 || size == 100) ? size : 10;
+        int normalizedSize = size > 0 ? size : 10;
         String resolvedBucket = support.resolveBucket(bucket, defaultBucket);
         String normalizedFolder = support.normalizeFolder(folder);
 
-        if ((StrUtil.isBlank(sortBy) || "name".equalsIgnoreCase(sortBy)) && !"desc".equalsIgnoreCase(order)) {
-            return listFilesFolderFirstPaged(normalizedFolder, resolvedBucket, publicUrl, normalizedPage, normalizedSize);
-        }
-
         try {
-            String startAfter = null;
-            if (normalizedPage > 1) {
-                startAfter = calculateStartAfterForPage(
-                        normalizedFolder, resolvedBucket, publicUrl, sortBy, order, normalizedPage - 1, normalizedSize);
-                if (startAfter == null) {
-                    return new PageResult<>(new ArrayList<>(), 0, normalizedPage, normalizedSize);
-                }
-            }
-
-            ListObjectsArgs.Builder argsBuilder = ListObjectsArgs.builder()
+            Iterable<Result<Item>> results = minioClient.listObjects(
+                    ListObjectsArgs.builder()
                     .bucket(resolvedBucket)
                     .prefix(normalizedFolder)
                     .recursive(false)
-                    .maxKeys(normalizedSize + 1);
-            if (startAfter != null) {
-                argsBuilder.startAfter(startAfter);
-            }
-
-            Iterable<Result<Item>> results = minioClient.listObjects(argsBuilder.build());
+                    .build()
+            );
             List<FileInfo> fileList = new ArrayList<>();
-            String lastObjectName = null;
-            boolean hasMore = false;
-            int count = 0;
 
             for (Result<Item> result : results) {
                 Item item = result.get();
@@ -117,19 +104,19 @@ final class FileQueryService {
                     continue;
                 }
 
-                count++;
-                if (count > normalizedSize) {
-                    hasMore = true;
-                    continue;
-                }
-
-                lastObjectName = objectName;
                 fileList.add(support.buildFileInfo(item, resolvedBucket, objectName, isFolder, publicUrl));
             }
 
-            sortFiles(fileList, sortBy, order);
-            long total = hasMore ? (long) normalizedPage * normalizedSize + 1 : fileList.size();
-            return new PageResult<>(fileList, total, normalizedPage, normalizedSize, hasMore ? lastObjectName : null, hasMore);
+            sortFiles(fileList, sortBy, order, folderFirst);
+
+            int fromIndex = Math.min((normalizedPage - 1) * normalizedSize, fileList.size());
+            int toIndex = Math.min(fromIndex + normalizedSize, fileList.size());
+            List<FileInfo> pageItems = new ArrayList<>(fileList.subList(fromIndex, toIndex));
+            boolean hasMore = toIndex < fileList.size();
+            String nextMarker = hasMore && !pageItems.isEmpty()
+                    ? pageItems.get(pageItems.size() - 1).getObjectName()
+                    : null;
+            return new PageResult<>(pageItems, fileList.size(), normalizedPage, normalizedSize, nextMarker, hasMore);
         } catch (Exception e) {
             log.error("Failed to list files with pagination", e);
             throw new RuntimeException("获取文件列表失败: " + e.getMessage(), e);
@@ -162,7 +149,7 @@ final class FileQueryService {
 
     String getPreviewUrl(String objectName, String bucket, String defaultBucket, String publicUrl) {
         String resolvedBucket = support.resolveBucket(bucket, defaultBucket);
-        return publicUrl + "/" + resolvedBucket + "/" + objectName;
+        return support.buildPublicObjectUrl(publicUrl, resolvedBucket, objectName);
     }
 
     List<FileInfo> listFilesRecursive(String folder, String bucket, String defaultBucket) {
@@ -192,16 +179,7 @@ final class FileQueryService {
                 fileInfo.setFileName(relativePath);
                 fileInfo.setSize(item.size());
                 fileInfo.setIsFolder(false);
-                try {
-                    if (item.lastModified() != null) {
-                        fileInfo.setUploadTime(LocalDateTime.ofInstant(
-                                item.lastModified().toInstant(), ZoneId.systemDefault()));
-                    } else {
-                        fileInfo.setUploadTime(LocalDateTime.now());
-                    }
-                } catch (Exception e) {
-                    fileInfo.setUploadTime(LocalDateTime.now());
-                }
+                fileInfo.setUploadTime(support.resolveUploadTime(item));
                 fileList.add(fileInfo);
             }
             return fileList;
@@ -385,7 +363,7 @@ final class FileQueryService {
                 allFiles.add(support.buildFileInfo(item, bucket, objectName, isFolder, publicUrl));
             }
 
-            sortFiles(allFiles, sortBy, order);
+            sortFiles(allFiles, sortBy, order, false);
             int offset = (targetPage - 1) * size;
             if (offset >= allFiles.size()) {
                 return null;
@@ -397,13 +375,24 @@ final class FileQueryService {
         }
     }
 
-    private void sortFiles(List<FileInfo> fileList, String sortBy, String order) {
+    private void sortFiles(List<FileInfo> fileList, String sortBy, String order, boolean folderFirst) {
         fileList.sort((f1, f2) -> {
-            boolean f1IsFolder = Boolean.TRUE.equals(f1.getIsFolder());
-            boolean f2IsFolder = Boolean.TRUE.equals(f2.getIsFolder());
+            boolean defaultFolderFirstMode = folderFirst
+                    && (StrUtil.isBlank(sortBy) || "name".equalsIgnoreCase(sortBy))
+                    && !"desc".equalsIgnoreCase(order);
+            if (folderFirst) {
+                boolean f1IsFolder = Boolean.TRUE.equals(f1.getIsFolder());
+                boolean f2IsFolder = Boolean.TRUE.equals(f2.getIsFolder());
 
-            if (f1IsFolder != f2IsFolder) {
-                return f1IsFolder ? -1 : 1;
+                if (f1IsFolder != f2IsFolder) {
+                    return f1IsFolder ? -1 : 1;
+                }
+                if (defaultFolderFirstMode) {
+                    if (f1IsFolder) {
+                        return valueOf(f1.getFileName()).compareToIgnoreCase(valueOf(f2.getFileName()));
+                    }
+                    return 0;
+                }
             }
 
             int result;
@@ -415,7 +404,10 @@ final class FileQueryService {
                     result = valueOf(f1.getUploadTime()).compareTo(valueOf(f2.getUploadTime()));
                     break;
                 default:
-                    result = valueOf(f1.getFileName()).compareTo(valueOf(f2.getFileName()));
+                    result = valueOf(f1.getFileName()).compareToIgnoreCase(valueOf(f2.getFileName()));
+            }
+            if (result == 0) {
+                result = valueOf(f1.getObjectName()).compareToIgnoreCase(valueOf(f2.getObjectName()));
             }
             return "desc".equalsIgnoreCase(order) ? -result : result;
         });

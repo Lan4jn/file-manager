@@ -115,6 +115,8 @@ public class FileController {
         Map<String, Object> config = new HashMap<>();
         config.put("allowedExtensions", configService.getAllowedExtensions());
         config.put("maxFileSize", configService.getMaxFileSize());
+        config.put("uploadDialogMode", configService.getUploadDialogMode());
+        config.put("fileDropMode", configService.getFileDropMode());
         return Result.success(config);
     }
 
@@ -137,6 +139,7 @@ public class FileController {
             @RequestParam(value = "bucket", required = false, defaultValue = "") String bucket,
             @RequestParam(value = "sortBy", required = false, defaultValue = "name") String sortBy,
             @RequestParam(value = "order", required = false, defaultValue = "asc") String order,
+            @RequestParam(value = "folderFirst", required = false, defaultValue = "true") boolean folderFirst,
             @RequestParam(value = "page", required = false, defaultValue = "0") int page,
             @RequestParam(value = "size", required = false, defaultValue = "0") int size) {
         folder = RequestValidationUtils.optionalText(folder, "folder");
@@ -150,7 +153,7 @@ public class FileController {
             return Result.success(fileService.listFiles(folder, bucket, sortBy, order));
         }
 
-        PageResult<FileInfo> pageResult = fileService.listFiles(folder, bucket, sortBy, order, page, size);
+        PageResult<FileInfo> pageResult = fileService.listFiles(folder, bucket, sortBy, order, folderFirst, page, size);
         return Result.success(pageResult);
     }
 

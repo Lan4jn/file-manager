@@ -1,4 +1,4 @@
-const { createApp, ref, computed, onMounted, onUnmounted, nextTick, watch } = Vue;
+const { createApp, ref, computed, onMounted, onUnmounted, nextTick, watch, h } = Vue;
 const permissionUiHelpers = window.PermissionUiHelpers || {
     shouldLoadRolesForUserDialog: (permissionCodes) => Array.isArray(permissionCodes)
         && permissionCodes.includes('API_ROLE_MANAGE'),
@@ -35,6 +35,122 @@ const loginErrorHelpers = window.LoginErrorHelpers || {
     }
 };
 const downloadHelpers = window.FileManagerDownloads || {};
+const transferUiHelpers = window.TransferUiHelpers || {
+    resolveDownloadSessionUrl: () => '/transfer/download/session',
+    resolveUploadSessionUrl: () => '/transfer/upload/session',
+    resolveUploadCompleteUrl: () => '/transfer/upload/complete',
+    createNativeDownload: (url) => {
+        if (!url) {
+            throw new Error('当前会话未返回可用下载地址');
+        }
+        const link = document.createElement('a');
+        link.href = url;
+        link.rel = 'noopener';
+        document.body.appendChild(link);
+        link.click();
+        link.remove();
+        return url;
+    },
+    runSingleFileDownload: async (session, navigate) => {
+        if (!session || !session.downloadUrl) {
+            throw new Error('当前会话未返回可用下载地址');
+        }
+        const effectiveNavigate = typeof navigate === 'function'
+            ? navigate
+            : transferUiHelpers.createNativeDownload;
+        effectiveNavigate(session.downloadUrl);
+        return session.downloadUrl;
+    },
+    uploadWithXhr: ({ url, method, headers, body, onProgress, onXhr }) => new Promise((resolve, reject) => {
+        const xhr = new XMLHttpRequest();
+        xhr.open(method || 'PUT', url, true);
+        if (typeof onXhr === 'function') {
+            onXhr(xhr);
+        }
+        Object.entries(headers || {}).forEach(([key, value]) => {
+            xhr.setRequestHeader(key, value);
+        });
+        xhr.upload.onprogress = (event) => {
+            if (!event.lengthComputable || typeof onProgress !== 'function') {
+                return;
+            }
+            onProgress({
+                loaded: event.loaded,
+                total: event.total,
+                percent: event.total > 0 ? (event.loaded / event.total) * 100 : 0
+            });
+        };
+        xhr.onload = () => {
+            if (xhr.status >= 200 && xhr.status < 300) {
+                resolve(xhr);
+                return;
+            }
+            reject(new Error('上传失败: HTTP ' + xhr.status));
+        };
+        xhr.onerror = () => reject(new Error('网络错误'));
+        xhr.onabort = () => reject(new Error('上传已取消'));
+        xhr.send(body);
+    })
+};
+const fileListUiHelpers = window.FileListUiHelpers || {
+    buildFileSyncKey: (bucket, objectName) => String(bucket || '') + '::' + String(objectName || ''),
+    isFileSyncing: () => false,
+    canOperateFile: () => true,
+    applySyncingState: (items) => Array.isArray(items) ? items.slice() : [],
+    resolveFileSortState: () => ({ sortBy: 'name', order: 'asc', folderFirst: true, explicitSort: false })
+};
+const urlHelpers = window.UrlHelpers || {
+    buildApiUrl: (origin, basePath, params) => {
+        const url = new URL(basePath, origin);
+        Object.entries(params || {}).forEach(([key, value]) => {
+            if (value !== undefined && value !== null && value !== '') {
+                url.searchParams.set(key, value);
+            }
+        });
+        return url.toString();
+    },
+    buildShareUrl: (origin, share, includePassword) => {
+        const url = new URL('/share/' + (share?.shareCode || ''), origin);
+        if (includePassword && share?.hasPassword && share?.password) {
+            url.searchParams.set('password', share.password);
+        }
+        return url.toString();
+    }
+};
+const messageCenterHelpers = window.MessageCenterHelpers || {
+    countUnreadShareSources: (messages) => {
+        if (!Array.isArray(messages)) {
+            return 0;
+        }
+        const senderSet = new Set(
+            messages
+                .filter(item => item && !item.read && (!item.messageType || String(item.messageType).toUpperCase() === 'SHARE'))
+                .map(item => (item.senderUsername || '').trim())
+                .filter(Boolean)
+        );
+        return senderSet.size;
+    },
+    buildMessageSubtitle: (message) => {
+        const originSenderUsername = (message?.originSenderUsername || '').trim();
+        const forwardedByUsername = (message?.forwardedByUsername || '').trim();
+        if (originSenderUsername && forwardedByUsername) {
+            return '初始分享人 ' + originSenderUsername + '，由 ' + forwardedByUsername + ' 转存';
+        }
+        const senderUsername = (message?.senderUsername || '').trim();
+        return senderUsername ? (senderUsername + ' 分享给你') : '系统消息';
+    },
+    mergeIncomingMessage: (existingMessages, incomingMessage) => {
+        const normalizedExisting = Array.isArray(existingMessages) ? existingMessages : [];
+        if (!incomingMessage || incomingMessage.id === null || incomingMessage.id === undefined) {
+            return normalizedExisting.slice();
+        }
+        const nextMessages = normalizedExisting.filter(item => item && item.id !== incomingMessage.id);
+        if (!incomingMessage.deleted) {
+            nextMessages.unshift(incomingMessage);
+        }
+        return nextMessages;
+    }
+};
 
 const zhCnLocale = {
     name: 'zh-cn',
@@ -81,9 +197,10 @@ const app = createApp({
         const selectedFiles = ref([]);
         const fileSortBy = ref('name');
         const fileOrder = ref('asc');
+        const folderFirstMode = ref(true);
         // 分页相关
         const filePage = ref(1);
-        const filePageSize = ref(10);
+const filePageSize = ref(25);
         const fileTotal = ref(0);
         // 导航历史
         const folderHistory = ref([]);
@@ -97,6 +214,16 @@ const app = createApp({
         const pathEditInputRef = ref(null);
         const runtimeConfig = ref({ httpPort: null, httpsPort: null, forceHttps: false, appVersion: '' });
         const showHttpsNotice = computed(() => window.location.protocol === 'http:' && runtimeConfig.value.forceHttps);
+        const fileDropActive = ref(false);
+        let fileDropDragDepth = 0;
+        const uploadDialogDropActive = ref(false);
+        const uploadTasks = ref([]);
+        const pendingUploadFiles = ref([]);
+        const syncingFileKeys = ref(new Set());
+        const syncingFileMeta = ref({});
+        const uploadCancelRequested = ref(false);
+        let syncingRetryTimer = null;
+        let uploadDialogSelectionTimer = null;
 
         // Dialogs
         const showUploadDialog = ref(false);
@@ -115,6 +242,9 @@ const app = createApp({
         const downloadTasks = ref([]);
         const downloadCenterVisible = ref(false);
         const downloadCenterMinimized = ref(false);
+        const messageCenterVisible = ref(false);
+        const messageCenterTab = ref('messages');
+        const showForwardDialog = ref(false);
         const helpContent = ref('');
         const versionList = ref([]);
         const selectedVersion = ref('');
@@ -228,6 +358,21 @@ const app = createApp({
         const inboxLoading = ref(false);
         const recipientList = ref([]);
         const recipientLoading = ref(false);
+        const forwardMessageTarget = ref(null);
+        const forwardRecipientUserIds = ref([]);
+        const feedbackForm = ref({
+            category: 'GENERAL',
+            title: '',
+            body: ''
+        });
+        const feedbackCategories = [
+            { label: '通用反馈', value: 'GENERAL' },
+            { label: '产品建议', value: 'SUGGESTION' },
+            { label: '故障问题', value: 'BUG' },
+            { label: '体验问题', value: 'UX' }
+        ];
+        let messageSocket = null;
+        let messageSocketReconnectTimer = null;
         const userList = ref([]);
         const roleList = ref([]);
         const minioKeyList = ref([]);
@@ -255,8 +400,31 @@ const app = createApp({
         const fileConfig = ref({
             allowedExtensionsText: '',
             maxFileSizeMB: 100,
-            frontendDownloadThresholdMB: 100
+            frontendDownloadThresholdMB: 100,
+            fileDropMode: 'INSTANT',
+            uploadDialogMode: 'INSTANT',
+            uploadTransportMode: 'APPLICATION',
+            downloadTransportMode: 'APPLICATION',
+            uploadTransportPriority: ['DIRECT', 'APPLICATION'],
+            downloadTransportPriority: ['DIRECT', 'PROXY', 'APPLICATION'],
+            uploadProxyThresholdMB: 256,
+            downloadProxyThresholdMB: 128
         });
+        const uploadDialogModeOptions = [
+            { label: '手动上传', value: 'MANUAL' },
+            { label: '立即上传', value: 'INSTANT' }
+        ];
+        const uploadTransportOptions = [
+            { label: 'MinIO 直传', value: 'DIRECT' },
+            { label: '应用代理上传', value: 'APPLICATION' }
+        ];
+        const downloadTransportOptions = [
+            { label: 'MinIO 直连下载', value: 'DIRECT' },
+            { label: 'Jar 流式代理', value: 'PROXY' },
+            { label: '应用下载接口', value: 'APPLICATION' }
+        ];
+        const uploadTransportLabelMap = Object.fromEntries(uploadTransportOptions.map(item => [item.value, item.label]));
+        const downloadTransportLabelMap = Object.fromEntries(downloadTransportOptions.map(item => [item.value, item.label]));
 
         // Share config
         const shareConfig = ref({
@@ -395,14 +563,9 @@ const app = createApp({
             return inboxList.value.filter(item => !item.read).length;
         });
         const inboxUnreadSourceCount = computed(() => {
-            const senderSet = new Set(
-                inboxList.value
-                    .filter(item => !item.read)
-                    .map(item => item.senderUsername || '')
-                    .filter(Boolean)
-            );
-            return senderSet.size;
+            return messageCenterHelpers.countUnreadShareSources(inboxList.value);
         });
+        const messageCenterMessages = computed(() => inboxList.value);
         const textPreviewMaxSize = 2 * 1024 * 1024;
         const httpsSuggestionUrl = computed(() => {
             const url = new URL(window.location.href);
@@ -502,6 +665,15 @@ const app = createApp({
             });
         };
 
+        const markDelegatedDownloadTask = (taskId, patch = {}) => {
+            updateDownloadTask(taskId, {
+                status: 'delegated',
+                progress: 100,
+                speedBytesPerSecond: 0,
+                ...patch
+            });
+        };
+
         const markPausedDownloadTask = (taskId) => {
             updateDownloadTask(taskId, {
                 status: 'paused',
@@ -527,6 +699,160 @@ const app = createApp({
             openDownloadCenter();
         };
 
+        const createUploadTask = (file) => ({
+            id: 'upload-' + Date.now() + '-' + Math.random().toString(36).slice(2, 8),
+            name: file?.name || '上传文件',
+            status: 'running',
+            step: '准备上传',
+            progress: 0,
+            uploadedBytes: 0,
+            totalBytes: file?.size || 0,
+            error: '',
+            xhr: null,
+            objectName: ''
+        });
+
+        const updateUploadTask = (taskId, patch) => {
+            const index = uploadTasks.value.findIndex(task => task.id === taskId);
+            if (index < 0) {
+                return;
+            }
+            uploadTasks.value[index] = {
+                ...uploadTasks.value[index],
+                ...patch
+            };
+        };
+
+        const removeUploadTask = (taskId) => {
+            uploadTasks.value = uploadTasks.value.filter(task => task.id !== taskId);
+        };
+
+        const clearFinishedUploadTasks = () => {
+            uploadTasks.value = uploadTasks.value.filter(task => task.status === 'running');
+        };
+
+        const registerSyncingFile = (bucket, uploadInfo) => {
+            if (!uploadInfo || !uploadInfo.objectName) {
+                return;
+            }
+            const key = fileListUiHelpers.buildFileSyncKey(bucket, uploadInfo.objectName);
+            const nextKeys = new Set(syncingFileKeys.value);
+            nextKeys.add(key);
+            syncingFileKeys.value = nextKeys;
+            syncingFileMeta.value = {
+                ...syncingFileMeta.value,
+                [key]: {
+                    bucket,
+                    objectName: uploadInfo.objectName,
+                    fileName: uploadInfo.fileName || uploadInfo.objectName.split('/').filter(Boolean).pop() || uploadInfo.objectName,
+                    size: uploadInfo.size || 0,
+                    uploadTime: uploadInfo.uploadTime || '',
+                    retryCount: 0
+                }
+            };
+        };
+
+        const clearSyncingFile = (bucket, objectName) => {
+            const key = fileListUiHelpers.buildFileSyncKey(bucket, objectName);
+            const nextKeys = new Set(syncingFileKeys.value);
+            nextKeys.delete(key);
+            syncingFileKeys.value = nextKeys;
+            const nextMeta = { ...syncingFileMeta.value };
+            delete nextMeta[key];
+            syncingFileMeta.value = nextMeta;
+        };
+
+        const currentFolderMatchesObject = (objectName) => {
+            const normalizedObject = objectName || '';
+            const lastSlashIndex = normalizedObject.lastIndexOf('/');
+            const parent = lastSlashIndex >= 0 ? normalizedObject.slice(0, lastSlashIndex + 1) : '';
+            return parent === (currentFolder.value || '');
+        };
+
+        const normalizeFileRow = (item) => ({
+            ...(item || {}),
+            bucket: item?.bucket || item?.bucketName || currentBucket.value
+        });
+
+        const buildSyncingPlaceholderRows = (items) => {
+            const rows = [];
+            const existingObjectNames = new Set((items || []).map(item => item.objectName));
+            Object.values(syncingFileMeta.value || {}).forEach(meta => {
+                if (!meta || meta.bucket !== currentBucket.value || !currentFolderMatchesObject(meta.objectName)) {
+                    return;
+                }
+                if (existingObjectNames.has(meta.objectName)) {
+                    return;
+                }
+                rows.push({
+                    bucket: meta.bucket,
+                    objectName: meta.objectName,
+                    fileName: meta.fileName,
+                    size: meta.size,
+                    isFolder: false,
+                    uploadTime: '',
+                    syncing: true
+                });
+            });
+            return rows;
+        };
+
+        const decorateFileRows = (items) => {
+            const normalizedRows = (items || []).map(normalizeFileRow);
+            const syncingRows = fileListUiHelpers.applySyncingState(normalizedRows, syncingFileKeys.value);
+            return syncingRows.concat(buildSyncingPlaceholderRows(syncingRows));
+        };
+
+        const scheduleSyncingRetry = () => {
+            if (syncingRetryTimer || syncingFileKeys.value.size === 0 || !token.value) {
+                return;
+            }
+            syncingRetryTimer = setTimeout(async () => {
+                syncingRetryTimer = null;
+                const metaEntries = Object.values(syncingFileMeta.value || {});
+                if (!metaEntries.length) {
+                    return;
+                }
+                await Promise.all(metaEntries.map(async (meta) => {
+                    try {
+                        await api.get('/file/info', {
+                            params: {
+                                objectName: meta.objectName,
+                                bucket: meta.bucket
+                            }
+                        });
+                        clearSyncingFile(meta.bucket, meta.objectName);
+                    } catch (error) {
+                        const key = fileListUiHelpers.buildFileSyncKey(meta.bucket, meta.objectName);
+                        const currentMeta = syncingFileMeta.value[key];
+                        if (currentMeta) {
+                            syncingFileMeta.value = {
+                                ...syncingFileMeta.value,
+                                [key]: {
+                                    ...currentMeta,
+                                    retryCount: (currentMeta.retryCount || 0) + 1
+                                }
+                            };
+                        }
+                    }
+                }));
+                if (currentMenu.value === 'files') {
+                    await loadFiles();
+                }
+                if (syncingFileKeys.value.size > 0) {
+                    scheduleSyncingRetry();
+                }
+            }, 2000);
+        };
+
+        const stopSyncingRetry = () => {
+            if (!syncingRetryTimer) {
+                return;
+            }
+            clearTimeout(syncingRetryTimer);
+            syncingRetryTimer = null;
+        };
+
         const buildAuthorizedHeaders = () => {
             if (!token.value) {
                 return {};
@@ -536,15 +862,320 @@ const app = createApp({
             };
         };
 
-        const toQueryUrl = (basePath, params) => {
-            const url = new URL('/api' + basePath, window.location.origin);
-            Object.entries(params || {}).forEach(([key, value]) => {
-                if (value !== undefined && value !== null && value !== '') {
-                    url.searchParams.set(key, value);
+        const buildDownloadHeadersForUrl = (url) => {
+            if (!url) {
+                return {};
+            }
+            try {
+                const resolved = new URL(url, window.location.origin);
+                if (resolved.origin === window.location.origin
+                    && resolved.pathname.indexOf('/api/file/download') === 0) {
+                    return buildAuthorizedHeaders();
                 }
-            });
-            return url.toString();
+            } catch (error) {
+                return {};
+            }
+            return {};
         };
+
+        const extractUploadErrorMessage = (error, fallbackMessage = '上传失败') => {
+            if (!error) {
+                return fallbackMessage;
+            }
+            const responseMessage = error.response?.data?.message;
+            const httpStatus = Number(error.response?.status || 0);
+            const rawMessage = typeof responseMessage === 'string' && responseMessage.trim()
+                ? responseMessage.trim()
+                : (typeof error.message === 'string' && error.message.trim() ? error.message.trim() : '');
+            const normalized = rawMessage.toLowerCase();
+
+            if (normalized.includes('上传已取消')) {
+                return '已取消上传';
+            }
+            if (normalized.includes('网络错误')) {
+                return '上传失败：网络错误，请检查与服务端或 MinIO 的连接';
+            }
+            if (normalized.includes('确认失败')) {
+                return '上传失败：文件已传到对象存储，但服务端确认失败';
+            }
+            if (httpStatus === 401 || normalized.includes('401')) {
+                return '上传失败：登录已失效或未认证';
+            }
+            if (httpStatus === 403 || normalized.includes('403') || normalized.includes('forbidden')) {
+                return '上传失败：权限不足，当前账号没有上传权限';
+            }
+            if (httpStatus === 413 || normalized.includes('文件大小超出限制') || normalized.includes('payload too large')) {
+                return '上传失败：文件太大，超过系统限制';
+            }
+            if (normalized.includes('不允许上传此类型文件') || normalized.includes('extension')) {
+                return '上传失败：文件类型不允许';
+            }
+            if (normalized.includes('minio') || normalized.includes('s3') || normalized.includes('对象存储')) {
+                return '上传失败：对象存储不可达或响应异常';
+            }
+            if (rawMessage) {
+                return '上传失败：' + rawMessage;
+            }
+            return fallbackMessage;
+        };
+
+        const canUseNativeDownload = (url) => {
+            if (!url) {
+                return false;
+            }
+            try {
+                const resolved = new URL(url, window.location.origin);
+                return resolved.origin !== window.location.origin
+                    || resolved.pathname.indexOf('/api/transfer/download/stream/') === 0;
+            } catch (error) {
+                return false;
+            }
+        };
+
+        const uploadFileRequest = async ({ file, onProgress, onXhr }) => {
+            const sessionRes = await api.post(transferUiHelpers.resolveUploadSessionUrl(), {
+                fileName: file.name,
+                size: file.size,
+                contentType: file.type || 'application/octet-stream',
+                folder: currentFolder.value,
+                bucket: currentBucket.value
+            });
+            const session = sessionRes.data || sessionRes || {};
+            const retryCompleteUpload = async (uploadToken, maxAttempts = 3) => {
+                let lastError = null;
+                for (let attempt = 1; attempt <= maxAttempts; attempt++) {
+                    try {
+                        const completeRes = await api.post(transferUiHelpers.resolveUploadCompleteUrl(), {
+                            uploadToken
+                        });
+                        return completeRes;
+                    } catch (error) {
+                        lastError = error;
+                        if (attempt < maxAttempts) {
+                            await new Promise((resolve) => setTimeout(resolve, attempt * 500));
+                        }
+                    }
+                }
+                throw lastError || new Error('上传确认失败');
+            };
+
+            const uploadThroughApplication = () => new Promise((resolve, reject) => {
+                const xhr = new XMLHttpRequest();
+                xhr.open('POST', uploadUrl.value, true);
+                if (typeof onXhr === 'function') {
+                    onXhr(xhr);
+                }
+                Object.entries(uploadHeaders.value || {}).forEach(([key, value]) => {
+                    xhr.setRequestHeader(key, value);
+                });
+                xhr.upload.onprogress = (event) => {
+                    if (!event.lengthComputable || typeof onProgress !== 'function') {
+                        return;
+                    }
+                    onProgress({
+                        loaded: event.loaded,
+                        total: event.total,
+                        percent: event.total > 0 ? (event.loaded / event.total) * 100 : 0
+                    });
+                };
+                xhr.onload = () => {
+                    if (xhr.status >= 200 && xhr.status < 300) {
+                        try {
+                            const response = JSON.parse(xhr.responseText);
+                            if (response.code === 200) {
+                                resolve({ xhr, response, mode: 'APPLICATION' });
+                                return;
+                            }
+                            reject(new Error(response.message || '上传失败'));
+                        } catch (error) {
+                            reject(error);
+                        }
+                        return;
+                    }
+                    try {
+                        const response = JSON.parse(xhr.responseText);
+                        reject(new Error(response.message || ('上传失败: HTTP ' + xhr.status)));
+                    } catch (error) {
+                        reject(new Error('上传失败: HTTP ' + xhr.status));
+                    }
+                };
+                xhr.onerror = () => reject(new Error('网络错误'));
+                xhr.onabort = () => reject(new Error('上传已取消'));
+                const formData = new FormData();
+                formData.append('file', file);
+                Object.entries(uploadData.value || {}).forEach(([key, value]) => {
+                    formData.append(key, value);
+                });
+                xhr.send(formData);
+            });
+
+            const uploadDirectly = async () => {
+                await transferUiHelpers.uploadWithXhr({
+                    url: session.uploadUrl,
+                    method: 'PUT',
+                    headers: session.headers || {},
+                    body: file,
+                    onProgress,
+                    onXhr
+                });
+                const completeRes = await retryCompleteUpload(session.uploadToken);
+                return {
+                    response: { code: 200, data: completeRes.data || completeRes },
+                    mode: 'DIRECT'
+                };
+            };
+
+            if (session.mode === 'DIRECT') {
+                try {
+                    return await uploadDirectly();
+                } catch (error) {
+                    if (error.message === '上传已取消') {
+                        throw error;
+                    }
+                    if (session.uploadToken) {
+                        throw new Error('文件已上传到对象存储，但上传确认失败: ' + extractUploadErrorMessage(error, '请稍后重试'));
+                    }
+                    return uploadThroughApplication();
+                }
+            }
+
+            return uploadThroughApplication();
+        };
+
+        const promptUndoUploadedFiles = (uploadedItems, bucketName) => {
+            if (!uploadedItems || uploadedItems.length === 0) {
+                return;
+            }
+            const message = uploadedItems.length === 1
+                ? ('文件 "' + uploadedItems[0].fileName + '" 上传成功')
+                : ('本次成功上传 ' + uploadedItems.length + ' 个文件');
+            let undoing = false;
+            const notification = ElementPlus.ElNotification({
+                title: '',
+                duration: 30000,
+                showClose: true,
+                position: 'top-right',
+                customClass: 'upload-success-notification',
+                message: h('div', { class: 'upload-success-notification__body' }, [
+                    h('div', { class: 'upload-success-notification__icon' }, [
+                        h(ElementPlus.ElIcon, null, () => h(ElementPlusIconsVue.CircleCheck))
+                    ]),
+                    h('div', { class: 'upload-success-notification__text' }, message),
+                    h(ElementPlus.ElButton, {
+                        text: true,
+                        type: 'primary',
+                        class: 'upload-success-notification__action',
+                        onClick: async () => {
+                            if (undoing) {
+                                return;
+                            }
+                            undoing = true;
+                            try {
+                                await api.delete('/file/batch-delete', {
+                                    params: {
+                                        objectNames: uploadedItems.map(item => item.objectName).join(','),
+                                        bucket: bucketName || currentBucket.value
+                                    }
+                                });
+                                uploadedItems.forEach(item => clearSyncingFile(bucketName || currentBucket.value, item.objectName));
+                                notification.close();
+                                ElementPlus.ElMessage.success('已撤销本次上传');
+                                await loadFiles();
+                            } catch (error) {
+                                ElementPlus.ElMessage.error('撤销上传失败: ' + (error.response?.data?.message || error.message || '未知错误'));
+                            } finally {
+                                undoing = false;
+                            }
+                        }
+                    }, () => '撤销上传')
+                ])
+            });
+        };
+
+        const runUploadBatch = async (files, options = {}) => {
+            const rawFiles = (files || []).filter(Boolean);
+            if (!rawFiles.length) {
+                ElementPlus.ElMessage.warning('请先选择要上传的文件');
+                return;
+            }
+            if (uploading.value) {
+                ElementPlus.ElMessage.warning('已有上传任务进行中');
+                return;
+            }
+            uploading.value = true;
+            uploadCancelRequested.value = false;
+            clearFinishedUploadTasks();
+            const uploadedItems = [];
+            const uploadBucket = currentBucket.value;
+            try {
+                for (const file of rawFiles) {
+                    if (uploadCancelRequested.value) {
+                        break;
+                    }
+                    const task = createUploadTask(file);
+                    uploadTasks.value = [task, ...uploadTasks.value];
+                    updateUploadTask(task.id, { step: '正在上传', progress: 0 });
+                    try {
+                        const result = await uploadFileRequest({
+                            file,
+                            onXhr: (xhr) => {
+                                updateUploadTask(task.id, { xhr });
+                            },
+                            onProgress: (progress) => {
+                                updateUploadTask(task.id, {
+                                    step: '正在上传',
+                                    progress: progress.percent,
+                                    uploadedBytes: progress.loaded,
+                                    totalBytes: progress.total
+                                });
+                            }
+                        });
+                        const uploadInfo = result.response.data || {};
+                        uploadedItems.push(uploadInfo);
+                        registerSyncingFile(uploadBucket, uploadInfo);
+                        updateUploadTask(task.id, {
+                            status: 'completed',
+                            step: '上传完成，等待信息同步',
+                            progress: 100,
+                            uploadedBytes: file.size || task.uploadedBytes,
+                            totalBytes: file.size || task.totalBytes,
+                            objectName: uploadInfo.objectName || '',
+                            xhr: null
+                        });
+                    } catch (error) {
+                        updateUploadTask(task.id, {
+                            status: error.message === '上传已取消' ? 'cancelled' : 'failed',
+                            step: error.message === '上传已取消' ? '已取消' : '上传失败',
+                            error: extractUploadErrorMessage(error),
+                            xhr: null
+                        });
+                        if (uploadCancelRequested.value || error.message === '上传已取消') {
+                            break;
+                        }
+                    }
+                }
+                if (uploadRef.value) {
+                    uploadRef.value.clearFiles();
+                }
+                await loadFiles();
+                scheduleSyncingRetry();
+                if (uploadedItems.length > 0) {
+                    promptUndoUploadedFiles(uploadedItems, uploadBucket);
+                }
+                if (options.closeDialog !== false) {
+                    showUploadDialog.value = false;
+                }
+            } finally {
+                uploading.value = false;
+                uploadCancelRequested.value = false;
+            }
+        };
+
+        const toQueryUrl = (basePath, params) => {
+            return urlHelpers.buildApiUrl(window.location.origin, '/api' + basePath, params);
+        };
+
+        const openNativeDownload = (url) => transferUiHelpers.createNativeDownload(url);
 
         const shouldUseTaskCenterForFile = (file) => {
             if (!file || file.isFolder || !downloadHelpers.shouldUseChunkedDownload) {
@@ -556,7 +1187,7 @@ const app = createApp({
             );
         };
 
-        const runChunkedFileDownload = async (file, urlBuilder, taskId) => {
+        const runChunkedFileDownload = async (file, session, taskId) => {
             const currentTaskId = taskId || addDownloadTask(createDownloadTask({
                 type: 'single-file',
                 name: file.fileName,
@@ -575,27 +1206,67 @@ const app = createApp({
                 error: '',
                 abortController: null
             });
-            const controller = downloadHelpers.createChunkedDownloader({
-                url: urlBuilder(),
-                fileName: file.fileName,
-                totalSize: file.size || 0,
-                headers: buildAuthorizedHeaders(),
-                chunkSize: downloadHelpers.DEFAULT_CHUNK_SIZE,
-                onProgress: (progress) => {
-                    updateDownloadTask(currentTaskId, {
-                        step: '正在下载大文件',
-                        progress: progress.progress,
-                        downloadedBytes: progress.downloadedBytes,
-                        totalBytes: progress.totalBytes,
-                        speedBytesPerSecond: progress.speedBytesPerSecond
-                    });
-                }
-            });
+            const directUrl = session?.downloadUrl;
+            const nativeUrl = session?.fallbackUrl || session?.downloadUrl;
+            const progressHandler = (progress) => {
+                updateDownloadTask(currentTaskId, {
+                    step: '正在下载大文件',
+                    progress: progress.progress,
+                    downloadedBytes: progress.downloadedBytes,
+                    totalBytes: progress.totalBytes,
+                    speedBytesPerSecond: progress.speedBytesPerSecond
+                });
+            };
             updateDownloadTask(currentTaskId, {
-                controller,
-                retryHandler: () => runChunkedFileDownload(file, urlBuilder, currentTaskId)
+                controller: null,
+                retryHandler: () => runChunkedFileDownload(file, session, currentTaskId)
             });
             try {
+                if (downloadHelpers.supportsStreamToDisk && downloadHelpers.supportsStreamToDisk()) {
+                    await downloadHelpers.streamDownloadToDisk({
+                        url: directUrl,
+                        fileName: file.fileName,
+                        totalSize: file.size || 0,
+                        headers: buildDownloadHeadersForUrl(directUrl),
+                        onProgress: progressHandler
+                    });
+                    completeDownloadTask(currentTaskId, {
+                        step: '保存完成',
+                        downloadedBytes: file.size || 0
+                    });
+                    ElementPlus.ElMessage.success('下载完成');
+                    return;
+                }
+
+                if (canUseNativeDownload(nativeUrl)) {
+                    updateDownloadTask(currentTaskId, {
+                        step: '已交给浏览器下载',
+                        progress: 100,
+                        downloadedBytes: file.size || 0,
+                        totalBytes: file.size || 0,
+                        speedBytesPerSecond: 0
+                    });
+                    openNativeDownload(nativeUrl);
+                    markDelegatedDownloadTask(currentTaskId, {
+                        step: '浏览器下载中',
+                        downloadedBytes: file.size || 0
+                    });
+                    ElementPlus.ElMessage.success('已交给浏览器下载');
+                    return;
+                }
+
+                const controller = downloadHelpers.createChunkedDownloader({
+                    url: directUrl,
+                    fileName: file.fileName,
+                    totalSize: file.size || 0,
+                    headers: buildDownloadHeadersForUrl(directUrl),
+                    chunkSize: downloadHelpers.DEFAULT_CHUNK_SIZE,
+                    onProgress: progressHandler
+                });
+                updateDownloadTask(currentTaskId, {
+                    controller,
+                    retryHandler: () => runChunkedFileDownload(file, session, currentTaskId)
+                });
                 await controller.start();
                 const state = controller.getState();
                 if (state.status === 'paused') {
@@ -617,18 +1288,68 @@ const app = createApp({
             }
         };
 
+        const resolveArchiveTaskStep = (task) => {
+            const status = String(task?.status || '').toUpperCase();
+            const stage = String(task?.stage || '').toUpperCase();
+            if (status === 'COMPLETED') {
+                return downloadHelpers.BATCH_DOWNLOAD_STEPS ? downloadHelpers.BATCH_DOWNLOAD_STEPS[2] : '开始下载';
+            }
+            if (status === 'FAILED') {
+                return '归档失败';
+            }
+            if (status === 'EXPIRED') {
+                return '归档已过期';
+            }
+            if (stage === 'QUEUED') {
+                return '排队中';
+            }
+            if (stage === 'ARCHIVING') {
+                return downloadHelpers.BATCH_DOWNLOAD_STEPS ? downloadHelpers.BATCH_DOWNLOAD_STEPS[1] : '等待归档完成';
+            }
+            return downloadHelpers.BATCH_DOWNLOAD_STEPS ? downloadHelpers.BATCH_DOWNLOAD_STEPS[1] : '等待归档完成';
+        };
+
+        const resolveArchiveTaskProgress = (task) => {
+            const status = String(task?.status || '').toUpperCase();
+            if (status === 'COMPLETED') {
+                return 98;
+            }
+            const total = Number(task?.fileCountTotal || 0);
+            const processed = Number(task?.fileCountProcessed || 0);
+            if (total > 0) {
+                return Math.max(5, Math.min(95, 5 + (processed / total) * 90));
+            }
+            return 10;
+        };
+
+        const createAbortablePollWait = (abortController) => (delayMs) => new Promise((resolve, reject) => {
+            if (abortController.signal.aborted) {
+                reject(new Error('ARCHIVE_TASK_CANCELLED'));
+                return;
+            }
+            const timer = setTimeout(() => {
+                abortController.signal.removeEventListener('abort', onAbort);
+                resolve();
+            }, Math.max(0, Number(delayMs || 0)));
+            const onAbort = () => {
+                clearTimeout(timer);
+                reject(new Error('ARCHIVE_TASK_CANCELLED'));
+            };
+            abortController.signal.addEventListener('abort', onAbort, { once: true });
+        });
+
         const runBatchDownloadTask = async (objectNames, fileName, taskId) => {
             const currentTaskId = taskId || addDownloadTask(createDownloadTask({
                 type: 'batch-download',
                 name: fileName,
-                step: downloadHelpers.BATCH_DOWNLOAD_STEPS ? downloadHelpers.BATCH_DOWNLOAD_STEPS[0] : '校验文件'
+                step: downloadHelpers.BATCH_DOWNLOAD_STEPS ? downloadHelpers.BATCH_DOWNLOAD_STEPS[0] : '创建归档任务'
             })).id;
             const abortController = new AbortController();
             updateDownloadTask(currentTaskId, {
                 type: 'batch-download',
                 name: fileName,
                 status: 'running',
-                step: downloadHelpers.BATCH_DOWNLOAD_STEPS ? downloadHelpers.BATCH_DOWNLOAD_STEPS[0] : '校验文件',
+                step: downloadHelpers.BATCH_DOWNLOAD_STEPS ? downloadHelpers.BATCH_DOWNLOAD_STEPS[0] : '创建归档任务',
                 progress: 0,
                 downloadedBytes: 0,
                 totalBytes: 0,
@@ -639,41 +1360,106 @@ const app = createApp({
                 retryHandler: () => runBatchDownloadTask(objectNames, fileName, currentTaskId)
             });
             try {
-                updateDownloadTask(currentTaskId, {
-                    step: downloadHelpers.BATCH_DOWNLOAD_STEPS ? downloadHelpers.BATCH_DOWNLOAD_STEPS[1] : '请求服务端打包',
-                    progress: 5
-                });
-                await downloadHelpers.downloadBlob({
-                    fileName,
-                    request: (onProgress) => api.get('/file/batch-download', {
-                        params: { objectNames: objectNames.join(','), bucket: currentBucket.value },
-                        responseType: 'blob',
-                        timeout: 600000,
-                        signal: abortController.signal,
-                        onDownloadProgress: (event) => {
-                            updateDownloadTask(currentTaskId, {
-                                step: downloadHelpers.BATCH_DOWNLOAD_STEPS ? downloadHelpers.BATCH_DOWNLOAD_STEPS[2] : '接收压缩包',
-                                progress: event.total > 0 ? Math.min(95, (event.loaded / event.total) * 100) : 60
-                            });
-                            onProgress(event);
-                        }
-                    }),
-                    onProgress: (progress) => {
+                const result = await downloadHelpers.runArchiveTaskDownload({
+                    payload: {
+                        scene: 'FILE',
+                        taskType: 'BATCH',
+                        bucket: currentBucket.value,
+                        objectNames: objectNames.slice()
+                    },
+                    createTaskRequest: (payload) => api.post('/transfer/archive-tasks', payload),
+                    getTaskRequest: (archiveTaskId) => api.get('/transfer/archive-tasks/' + archiveTaskId),
+                    onUpdate: (task) => {
                         updateDownloadTask(currentTaskId, {
-                            downloadedBytes: progress.downloadedBytes,
-                            totalBytes: progress.totalBytes,
-                            speedBytesPerSecond: progress.speedBytesPerSecond
+                            step: resolveArchiveTaskStep(task),
+                            progress: resolveArchiveTaskProgress(task),
+                            downloadedBytes: Number(task?.bytesWritten || 0),
+                            totalBytes: Number(task?.bytesWritten || 0),
+                            speedBytesPerSecond: 0
                         });
-                    }
+                    },
+                    wait: createAbortablePollWait(abortController),
+                    openDownload: (url) => openNativeDownload(url)
                 });
-                updateDownloadTask(currentTaskId, {
-                    step: downloadHelpers.BATCH_DOWNLOAD_STEPS ? downloadHelpers.BATCH_DOWNLOAD_STEPS[3] : '保存文件',
-                    progress: 98
+                completeDownloadTask(currentTaskId, {
+                    step: '保存完成',
+                    downloadedBytes: Number(result?.task?.bytesWritten || 0),
+                    totalBytes: Number(result?.task?.bytesWritten || 0)
                 });
-                completeDownloadTask(currentTaskId, { step: '保存完成' });
                 ElementPlus.ElMessage.success('下载完成');
             } catch (error) {
-                if (abortController.signal.aborted || error?.code === 'ERR_CANCELED' || error?.name === 'CanceledError') {
+                if (
+                    abortController.signal.aborted
+                    || error?.code === 'ERR_CANCELED'
+                    || error?.name === 'CanceledError'
+                    || error?.message === 'ARCHIVE_TASK_CANCELLED'
+                ) {
+                    markCancelledDownloadTask(currentTaskId);
+                    return;
+                }
+                const message = error.response?.data?.message || error.message || '下载失败';
+                failDownloadTask(currentTaskId, message);
+                ElementPlus.ElMessage.error('下载失败: ' + message);
+            }
+        };
+
+        const runFolderDownloadTask = async (file, taskId) => {
+            const archiveName = (file?.fileName || '目录') + '.zip';
+            const currentTaskId = taskId || addDownloadTask(createDownloadTask({
+                type: 'folder-download',
+                name: archiveName,
+                step: downloadHelpers.BATCH_DOWNLOAD_STEPS ? downloadHelpers.BATCH_DOWNLOAD_STEPS[0] : '创建归档任务'
+            })).id;
+            const abortController = new AbortController();
+            updateDownloadTask(currentTaskId, {
+                type: 'folder-download',
+                name: archiveName,
+                status: 'running',
+                step: downloadHelpers.BATCH_DOWNLOAD_STEPS ? downloadHelpers.BATCH_DOWNLOAD_STEPS[0] : '创建归档任务',
+                progress: 0,
+                downloadedBytes: 0,
+                totalBytes: 0,
+                speedBytesPerSecond: 0,
+                error: '',
+                controller: null,
+                abortController,
+                retryHandler: () => runFolderDownloadTask(file, currentTaskId)
+            });
+            try {
+                const result = await downloadHelpers.runArchiveTaskDownload({
+                    payload: {
+                        scene: 'FILE',
+                        taskType: 'FOLDER',
+                        bucket: currentBucket.value,
+                        objectName: file.objectName
+                    },
+                    createTaskRequest: (payload) => api.post('/transfer/archive-tasks', payload),
+                    getTaskRequest: (archiveTaskId) => api.get('/transfer/archive-tasks/' + archiveTaskId),
+                    onUpdate: (task) => {
+                        updateDownloadTask(currentTaskId, {
+                            step: resolveArchiveTaskStep(task),
+                            progress: resolveArchiveTaskProgress(task),
+                            downloadedBytes: Number(task?.bytesWritten || 0),
+                            totalBytes: Number(task?.bytesWritten || 0),
+                            speedBytesPerSecond: 0
+                        });
+                    },
+                    wait: createAbortablePollWait(abortController),
+                    openDownload: (url) => openNativeDownload(url)
+                });
+                completeDownloadTask(currentTaskId, {
+                    step: '保存完成',
+                    downloadedBytes: Number(result?.task?.bytesWritten || 0),
+                    totalBytes: Number(result?.task?.bytesWritten || 0)
+                });
+                ElementPlus.ElMessage.success('下载完成');
+            } catch (error) {
+                if (
+                    abortController.signal.aborted
+                    || error?.code === 'ERR_CANCELED'
+                    || error?.name === 'CanceledError'
+                    || error?.message === 'ARCHIVE_TASK_CANCELLED'
+                ) {
                     markCancelledDownloadTask(currentTaskId);
                     return;
                 }
@@ -1039,6 +1825,7 @@ const app = createApp({
                     await loadCurrentPermissions();
                     await loadPermissions();
                     await loadInbox();
+                    connectMessageSocket();
                     handleMenuSelect(currentMenu.value);
                 } else {
                     ElementPlus.ElMessage.error(res.message || '登录失败');
@@ -1067,6 +1854,13 @@ const app = createApp({
             permissionList.value = [];
             inboxList.value = [];
             recipientList.value = [];
+            disconnectMessageSocket();
+            messageCenterVisible.value = false;
+            messageCenterTab.value = 'messages';
+            showForwardDialog.value = false;
+            forwardMessageTarget.value = null;
+            forwardRecipientUserIds.value = [];
+            feedbackForm.value = { category: 'GENERAL', title: '', body: '' };
             isLoggedIn.value = false;
             currentMenu.value = 'buckets';
             shareTab.value = 'my-shares';
@@ -1139,6 +1933,7 @@ const app = createApp({
                     await loadCurrentPermissions();
                     await loadPermissions();
                     await loadInbox();
+                    connectMessageSocket();
                     handleMenuSelect(currentMenu.value);
                 } else {
                     logout();
@@ -1146,6 +1941,93 @@ const app = createApp({
             } catch (error) {
                 logout();
             }
+        };
+
+        const buildMessageSocketUrl = () => {
+            const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
+            return protocol + '//' + window.location.host + '/ws/messages?token=' + encodeURIComponent(token.value);
+        };
+
+        const clearMessageSocketReconnectTimer = () => {
+            if (messageSocketReconnectTimer) {
+                clearTimeout(messageSocketReconnectTimer);
+                messageSocketReconnectTimer = null;
+            }
+        };
+
+        const scheduleMessageSocketReconnect = () => {
+            if (!isLoggedIn.value || !token.value) {
+                return;
+            }
+            clearMessageSocketReconnectTimer();
+            messageSocketReconnectTimer = setTimeout(() => {
+                connectMessageSocket();
+            }, 2000);
+        };
+
+        const handleSocketMessageEvent = async (eventName, payload) => {
+            if (!eventName) {
+                await loadInbox();
+                return;
+            }
+            if (eventName === 'message.read' || eventName === 'message.deleted') {
+                applyIncomingInboxMessage(payload || {});
+                return;
+            }
+            if (eventName === 'message.created' || eventName === 'feedback.received') {
+                await loadInbox();
+            }
+        };
+
+        const connectMessageSocket = () => {
+            if (!isLoggedIn.value || !token.value || typeof WebSocket === 'undefined') {
+                return;
+            }
+            if (messageSocket && (
+                messageSocket.readyState === WebSocket.OPEN || messageSocket.readyState === WebSocket.CONNECTING
+            )) {
+                return;
+            }
+            try {
+                const socket = new WebSocket(buildMessageSocketUrl());
+                messageSocket = socket;
+                socket.onopen = () => {
+                    clearMessageSocketReconnectTimer();
+                };
+                socket.onmessage = (event) => {
+                    try {
+                        const data = JSON.parse(event.data || '{}');
+                        handleSocketMessageEvent(data.event, data.payload);
+                    } catch (error) {
+                        loadInbox();
+                    }
+                };
+                socket.onerror = () => {
+                    if (messageSocket === socket) {
+                        socket.close();
+                    }
+                };
+                socket.onclose = () => {
+                    if (messageSocket === socket) {
+                        messageSocket = null;
+                    }
+                    scheduleMessageSocketReconnect();
+                };
+            } catch (error) {
+                scheduleMessageSocketReconnect();
+            }
+        };
+
+        const disconnectMessageSocket = () => {
+            clearMessageSocketReconnectTimer();
+            if (!messageSocket) {
+                return;
+            }
+            messageSocket.onclose = null;
+            messageSocket.onerror = null;
+            messageSocket.onmessage = null;
+            messageSocket.close();
+            messageSocket = null;
         };
 
         const handleMenuSelect = (index) => {
@@ -1321,6 +2203,7 @@ const app = createApp({
                         bucket: currentBucket.value,
                         sortBy: fileSortBy.value,
                         order: fileOrder.value,
+                        folderFirst: folderFirstMode.value,
                         page: filePage.value,
                         size: filePageSize.value
                     }
@@ -1329,11 +2212,11 @@ const app = createApp({
                     // 判断返回的是分页结果还是普通列表
                     if (res.data.items !== undefined) {
                         // 分页模式
-                        fileList.value = ensureFolderFirst(res.data.items);
+                        fileList.value = decorateFileRows(res.data.items || []);
                         fileTotal.value = res.data.total || 0;
                     } else {
                         // 非分页模式（兼容旧版）
-                        fileList.value = ensureFolderFirst(res.data);
+                        fileList.value = decorateFileRows(res.data || []);
                         fileTotal.value = res.data ? res.data.length : 0;
                     }
                 }
@@ -1358,15 +2241,11 @@ const app = createApp({
         };
 
         const handleFileSortChange = ({ prop, order }) => {
-            if (!prop) return;
-            if (prop === 'fileName') {
-                fileSortBy.value = 'name';
-            } else if (prop === 'uploadTime') {
-                fileSortBy.value = 'time';
-            } else {
-                fileSortBy.value = prop;
-            }
-            fileOrder.value = order === 'ascending' ? 'asc' : 'desc';
+            const nextSortState = fileListUiHelpers.resolveFileSortState({ prop, order });
+            fileSortBy.value = nextSortState.sortBy;
+            fileOrder.value = nextSortState.order;
+            folderFirstMode.value = nextSortState.folderFirst;
+            filePage.value = 1;
             loadFiles();
         };
 
@@ -1385,6 +2264,8 @@ const app = createApp({
                     } else {
                         fileConfig.value.maxFileSizeMB = Math.floor((res.data.maxFileSize || 104857600) / 1024 / 1024);
                     }
+                    fileConfig.value.fileDropMode = res.data.fileDropMode || fileConfig.value.fileDropMode || 'INSTANT';
+                    fileConfig.value.uploadDialogMode = res.data.uploadDialogMode || fileConfig.value.uploadDialogMode || 'INSTANT';
                 }
             } catch (error) {
                 ElementPlus.ElMessage.error('加载上传配置失败');
@@ -1394,6 +2275,11 @@ const app = createApp({
         // 打开上传对话框时加载配置
         const openUploadDialog = () => {
             loadUploadConfig();
+            uploadDialogDropActive.value = false;
+            pendingUploadFiles.value = [];
+            if (uploadRef.value) {
+                uploadRef.value.clearFiles();
+            }
             showUploadDialog.value = true;
         };
 
@@ -1566,60 +2452,193 @@ const app = createApp({
             breadcrumb.value = crumbs;
         };
 
+        const canSelectFileRow = (row) => {
+            return fileListUiHelpers.canOperateFile(normalizeFileRow(row), syncingFileKeys.value);
+        };
+
+        const guardFileOperation = (file, actionLabel) => {
+            if (canSelectFileRow(file)) {
+                return true;
+            }
+            ElementPlus.ElMessage.warning((actionLabel || '当前操作') + '暂不可用，文件信息同步中');
+            return false;
+        };
+
+        const handleFileNameClick = (file) => {
+            if (file?.isFolder && !guardFileOperation(file, '打开目录')) {
+                return;
+            }
+            if (file.isFolder) {
+                navigateToFolder(file.objectName);
+                return;
+            }
+            previewFile(file);
+        };
+
+        const handleFileDragOver = (event) => {
+            if (!currentBucket.value || uploading.value) {
+                return;
+            }
+            if (event?.dataTransfer) {
+                event.dataTransfer.dropEffect = 'copy';
+            }
+            fileDropActive.value = true;
+        };
+
+        const handleFileDragEnter = (event) => {
+            if (!currentBucket.value || uploading.value) {
+                return;
+            }
+            if (event?.dataTransfer) {
+                event.dataTransfer.dropEffect = 'copy';
+            }
+            if (fileDropDragDepth <= 0) {
+                fileDropDragDepth = 0;
+            }
+            fileDropDragDepth += 1;
+            fileDropActive.value = true;
+        };
+
+        const handleFileDragLeave = (event) => {
+            const relatedTarget = event?.relatedTarget;
+            if (event?.currentTarget && relatedTarget && event.currentTarget.contains(relatedTarget)) {
+                return;
+            }
+            fileDropDragDepth = Math.max(0, fileDropDragDepth - 1);
+            if (fileDropDragDepth === 0) {
+                fileDropActive.value = false;
+            }
+        };
+
+        const handleFileDrop = async (event) => {
+            fileDropDragDepth = 0;
+            fileDropActive.value = false;
+            if (!currentBucket.value) {
+                ElementPlus.ElMessage.warning('请先选择存储桶');
+                return;
+            }
+            if (!hasApiPermission('API_FILE_OPERATE') || !hasBucketPermission(currentBucket.value, 'UPLOAD')) {
+                ElementPlus.ElMessage.warning('当前账号无上传权限');
+                return;
+            }
+            const droppedFiles = Array.from(event?.dataTransfer?.files || []).filter(Boolean);
+            if (!droppedFiles.length) {
+                return;
+            }
+            await loadUploadConfig();
+            showUploadDialog.value = true;
+            if (fileConfig.value.fileDropMode === 'MANUAL') {
+                pendingUploadFiles.value = pendingUploadFiles.value.concat(normalizePendingUploadFiles(droppedFiles));
+                return;
+            }
+            await runUploadBatch(droppedFiles, { closeDialog: false });
+        };
+
+        const handleUploadDialogDragOver = (event) => {
+            if (!currentBucket.value || uploading.value) {
+                return;
+            }
+            if (event?.dataTransfer) {
+                event.dataTransfer.dropEffect = 'copy';
+            }
+            uploadDialogDropActive.value = true;
+        };
+
+        const handleUploadDialogDragLeave = (event) => {
+            const relatedTarget = event?.relatedTarget;
+            if (event?.currentTarget && relatedTarget && event.currentTarget.contains(relatedTarget)) {
+                return;
+            }
+            uploadDialogDropActive.value = false;
+        };
+
+        const queueDialogUploadFiles = async (files) => {
+            const rawFiles = (files || []).filter(Boolean);
+            if (!rawFiles.length) {
+                return;
+            }
+            if (!currentBucket.value) {
+                ElementPlus.ElMessage.warning('请先选择存储桶');
+                return;
+            }
+            if (uploading.value) {
+                ElementPlus.ElMessage.warning('已有上传任务进行中');
+                return;
+            }
+            showUploadDialog.value = true;
+            await runUploadBatch(rawFiles, { closeDialog: false });
+        };
+
+        const normalizePendingUploadFiles = (files) => {
+            return (files || []).map((item, index) => {
+                if (!item) {
+                    return null;
+                }
+                const raw = item.raw || item;
+                if (!raw) {
+                    return null;
+                }
+                return {
+                    id: item.uid || ('pending-' + raw.name + '-' + raw.size + '-' + raw.lastModified + '-' + index),
+                    name: raw.name || item.name || '待上传文件',
+                    size: raw.size || item.size || 0,
+                    raw
+                };
+            }).filter(Boolean);
+        };
+
+        const syncPendingUploadFilesFromUploadRef = () => {
+            pendingUploadFiles.value = normalizePendingUploadFiles(uploadRef.value?.uploadFiles || []);
+        };
+
+        const handleUploadDialogDrop = async (event) => {
+            uploadDialogDropActive.value = false;
+            const droppedFiles = Array.from(event?.dataTransfer?.files || []).filter(Boolean);
+            if (!droppedFiles.length) {
+                return;
+            }
+            if (uploadRef.value) {
+                uploadRef.value.clearFiles();
+            }
+            if (fileConfig.value.uploadDialogMode === 'MANUAL') {
+                pendingUploadFiles.value = pendingUploadFiles.value.concat(normalizePendingUploadFiles(droppedFiles));
+                showUploadDialog.value = true;
+                return;
+            }
+            await queueDialogUploadFiles(droppedFiles);
+        };
+
         const downloadFile = async (file) => {
+            if (!guardFileOperation(file, '下载文件')) {
+                return;
+            }
             // 目录下载
             if (file.isFolder) {
-                try {
-                    ElementPlus.ElMessage.info('正在打包目录，请稍候...');
-                    const response = await api.get('/file/download-folder', {
-                        params: { objectName: file.objectName, bucket: currentBucket.value },
-                        responseType: 'blob',
-                        timeout: 300000 // 5分钟超时
-                    });
-                    const url = window.URL.createObjectURL(new Blob([response.data]));
-                    const link = document.createElement('a');
-                    link.href = url;
-                    link.setAttribute('download', file.fileName + '.zip');
-                    document.body.appendChild(link);
-                    link.click();
-                    link.remove();
-                    window.URL.revokeObjectURL(url);
-                    ElementPlus.ElMessage.success('下载完成');
-                } catch (error) {
-                    if (error.response?.data?.message) {
-                        ElementPlus.ElMessage.error(error.response.data.message);
-                    } else {
-                        ElementPlus.ElMessage.error('下载失败: ' + (error.message || ''));
-                    }
-                }
+                await runFolderDownloadTask(file);
                 return;
             }
 
             // 文件下载
-            if (shouldUseTaskCenterForFile(file) && downloadHelpers.downloadInChunks) {
-                await runChunkedFileDownload(file, () => toQueryUrl('/file/download', {
-                    objectName: file.objectName,
-                    bucket: currentBucket.value
-                }));
-                return;
-            }
-            try {
-                const response = await api.get('/file/download', {
-                    params: { objectName: file.objectName, bucket: currentBucket.value },
-                    responseType: 'blob'
-                });
-                const url = window.URL.createObjectURL(new Blob([response.data]));
-                const link = document.createElement('a');
-                link.href = url;
-                link.setAttribute('download', file.fileName);
-                document.body.appendChild(link);
-                link.click();
-                link.remove();
-                window.URL.revokeObjectURL(url);
-            } catch (error) {
-                ElementPlus.ElMessage.error('下载失败');
-            }
-        };
+              try {
+                  const sessionRes = await api.post(transferUiHelpers.resolveDownloadSessionUrl({
+                      scene: 'FILE',
+                      bucket: currentBucket.value,
+                      objectName: file.objectName
+                }), {
+                      scene: 'FILE',
+                      bucket: currentBucket.value,
+                      objectName: file.objectName
+                  });
+                  const session = sessionRes.data || sessionRes;
+                  if (shouldUseTaskCenterForFile(file)) {
+                      await runChunkedFileDownload(file, session);
+                      return;
+                  }
+                  await transferUiHelpers.runSingleFileDownload(session, (url) => openNativeDownload(url));
+              } catch (error) {
+                  ElementPlus.ElMessage.error('下载失败: ' + (error.response?.data?.message || error.message || '未知错误'));
+              }
+          };
 
         const imagePreviewExtensions = ['png', 'jpg', 'jpeg', 'gif', 'webp', 'bmp', 'svg'];
         const textPreviewExtensions = ['txt', 'md', 'log', 'json', 'xml', 'yml', 'yaml', 'properties', 'csv', 'java', 'js', 'ts', 'css', 'html', 'htm', 'sql', 'sh'];
@@ -1671,7 +2690,23 @@ const app = createApp({
             resetPreviewContent();
         };
 
+        const copyPreviewText = async () => {
+            if (!previewText.value) {
+                ElementPlus.ElMessage.warning('当前没有可复制的文本内容');
+                return;
+            }
+            try {
+                await copyText(previewText.value);
+                ElementPlus.ElMessage.success('文本已复制到剪贴板');
+            } catch (error) {
+                ElementPlus.ElMessage.error('复制失败: ' + error.message);
+            }
+        };
+
         const previewFile = async (file) => {
+            if (!guardFileOperation(file, '预览文件')) {
+                return;
+            }
             const kind = resolvePreviewKind(file);
             previewTitle.value = file.fileName || '文件预览';
 
@@ -1717,11 +2752,7 @@ const app = createApp({
         };
 
         const buildShareUrl = (share, includePassword = false) => {
-            const url = new URL('/share/' + share.shareCode, window.location.origin);
-            if (includePassword && share.hasPassword && share.password) {
-                url.searchParams.set('password', share.password);
-            }
-            return url.toString();
+            return urlHelpers.buildShareUrl(window.location.origin, share, includePassword);
         };
 
         const buildShareCopyText = (share, mode = 'notice') => {
@@ -1740,6 +2771,9 @@ const app = createApp({
         };
 
         const deleteFile = async (file) => {
+            if (!guardFileOperation(file, '删除文件')) {
+                return;
+            }
             try {
                 await ElementPlus.ElMessageBox.confirm(
                     '确定要删除 ' + (file.isFolder ? '文件夹' : '文件') + ' "' + file.fileName + '" 吗？',
@@ -1891,6 +2925,9 @@ const app = createApp({
         };
 
         const shareFile = (file) => {
+            if (!guardFileOperation(file, '分享文件')) {
+                return;
+            }
             shareForm.value = {
                 objectName: file.objectName,
                 bucket: currentBucket.value,
@@ -1956,114 +2993,52 @@ const app = createApp({
         };
 
         const handleSelectionChange = (selection) => {
-            selectedFiles.value = selection;
+            selectedFiles.value = (selection || []).filter(item => canSelectFileRow(item));
         };
 
-        const submitUpload = () => {
+        const handleUploadDialogChange = () => {
+            if (fileConfig.value.uploadDialogMode === 'MANUAL') {
+                syncPendingUploadFilesFromUploadRef();
+                return;
+            }
+            if (uploadDialogSelectionTimer) {
+                clearTimeout(uploadDialogSelectionTimer);
+            }
+            uploadDialogSelectionTimer = setTimeout(async () => {
+                uploadDialogSelectionTimer = null;
+                const rawFiles = (uploadRef.value?.uploadFiles || [])
+                    .map(item => item.raw)
+                    .filter(Boolean);
+                if (uploadRef.value) {
+                    uploadRef.value.clearFiles();
+                }
+                await queueDialogUploadFiles(rawFiles);
+            }, 0);
+        };
+
+        const removePendingUploadFile = (fileId) => {
+            pendingUploadFiles.value = pendingUploadFiles.value.filter(item => item.id !== fileId);
             if (uploadRef.value) {
-                uploading.value = true;
-                console.log('Submitting upload, ref:', uploadRef.value);
-                uploadRef.value.submit();
-            } else {
-                console.error('Upload ref not found');
+                const target = (uploadRef.value.uploadFiles || []).find(item => String(item.uid) === String(fileId));
+                if (target) {
+                    uploadRef.value.handleRemove(target);
+                }
             }
         };
 
-        const handleUploadProgress = (event) => {
-            console.log('Upload progress:', event.percent);
-        };
-
-        // 自定义上传请求，使用XMLHttpRequest获取真实进度
-        const customUploadRequest = (options) => {
-            const { file, action, headers, data, onProgress, onSuccess, onError } = options;
-
-            const xhr = new XMLHttpRequest();
-            xhr.open('POST', action, true);
-
-            // 设置请求头
-            if (headers) {
-                for (const key in headers) {
-                    xhr.setRequestHeader(key, headers[key]);
-                }
+        const submitUpload = async () => {
+            const rawFiles = pendingUploadFiles.value
+                .map(item => item.raw)
+                .filter(Boolean);
+            if (!rawFiles.length) {
+                ElementPlus.ElMessage.warning('请选择需要上传的文件');
+                return;
             }
-
-            // 上传进度事件
-            xhr.upload.onprogress = (event) => {
-                if (event.lengthComputable) {
-                    const percent = (event.loaded / event.total) * 100;
-                    onProgress({ percent });
-                }
-            };
-
-            // 请求完成
-            xhr.onload = () => {
-                uploading.value = false;
-                if (xhr.status >= 200 && xhr.status < 300) {
-                    try {
-                        const response = JSON.parse(xhr.responseText);
-                        if (response.code === 200) {
-                            onSuccess(response);
-                        } else {
-                            onError(new Error(response.message || '上传失败'));
-                        }
-                    } catch (e) {
-                        onError(e);
-                    }
-                } else {
-                    try {
-                        const response = JSON.parse(xhr.responseText);
-                        onError(new Error(response.message || '上传失败'));
-                    } catch (e) {
-                        onError(new Error('上传失败'));
-                    }
-                }
-            };
-
-            xhr.onerror = () => {
-                uploading.value = false;
-                onError(new Error('网络错误'));
-            };
-
-            // 构建FormData
-            const formData = new FormData();
-            formData.append('file', file);
-            if (data) {
-                for (const key in data) {
-                    formData.append(key, data[key]);
-                }
-            }
-
-            xhr.send(formData);
-
-            // 保存xhr引用以便取消
-            options.xhr = xhr;
-        };
-
-        const handleUploadSuccess = (response) => {
-            console.log('Upload success:', response);
-            uploading.value = false;
-            ElementPlus.ElMessage.success('上传成功');
-            // 重置上传对话框
+            pendingUploadFiles.value = [];
             if (uploadRef.value) {
                 uploadRef.value.clearFiles();
             }
-            showUploadDialog.value = false;
-            loadFiles();
-        };
-
-        const handleUploadError = (err) => {
-            console.error('Upload error:', err);
-            uploading.value = false;
-            // 从错误响应中提取错误信息
-            let errorMsg = '上传失败';
-            if (err.response && err.response.data) {
-                errorMsg = err.response.data.message || errorMsg;
-            }
-            ElementPlus.ElMessage.error(errorMsg);
-            // 重置上传对话框
-            if (uploadRef.value) {
-                uploadRef.value.clearFiles();
-            }
+            await queueDialogUploadFiles(rawFiles);
         };
 
         const cancelUpload = async () => {
@@ -2074,8 +3049,15 @@ const app = createApp({
                         '取消上传',
                         { confirmButtonText: '确定取消', cancelButtonText: '继续上传', type: 'warning' }
                     );
+                    uploadCancelRequested.value = true;
+                    uploadTasks.value.forEach(task => {
+                        if (task.status === 'running' && task.xhr) {
+                            task.xhr.abort();
+                        }
+                    });
                     uploading.value = false;
                     showUploadDialog.value = false;
+                    pendingUploadFiles.value = [];
                     if (uploadRef.value) {
                         uploadRef.value.clearFiles();
                     }
@@ -2084,9 +3066,11 @@ const app = createApp({
                 }
             } else {
                 showUploadDialog.value = false;
+                pendingUploadFiles.value = [];
                 if (uploadRef.value) {
                     uploadRef.value.clearFiles();
                 }
+                uploadDialogDropActive.value = false;
             }
         };
 
@@ -2144,6 +3128,32 @@ const app = createApp({
             }
         };
 
+        const formatInboxMessage = (message) => {
+            if (!message) {
+                return message;
+            }
+            return {
+                ...message,
+                createTimeText: formatDateTime(message.createTime),
+                readTimeText: formatDateTime(message.readTime),
+                subtitle: messageCenterHelpers.buildMessageSubtitle(message)
+            };
+        };
+
+        const applyIncomingInboxMessage = (incomingMessage) => {
+            if (!incomingMessage || incomingMessage.id === null || incomingMessage.id === undefined) {
+                return;
+            }
+            const currentMessage = inboxList.value.find(item => item && item.id === incomingMessage.id);
+            const mergedMessage = currentMessage
+                ? { ...currentMessage, ...incomingMessage }
+                : incomingMessage;
+            inboxList.value = messageCenterHelpers.mergeIncomingMessage(
+                inboxList.value,
+                formatInboxMessage(mergedMessage)
+            );
+        };
+
         const loadInbox = async () => {
             inboxLoading.value = true;
             try {
@@ -2151,11 +3161,7 @@ const app = createApp({
                     params: { page: 1, size: 100 }
                 });
                 if (res.code === 200) {
-                    inboxList.value = (res.data.items || []).map(item => ({
-                        ...item,
-                        createTimeText: formatDateTime(item.createTime),
-                        readTimeText: formatDateTime(item.readTime)
-                    }));
+                    inboxList.value = (res.data.items || []).map(item => formatInboxMessage(item));
                 }
             } catch (error) {
                 ElementPlus.ElMessage.error('加载收件箱失败');
@@ -2194,6 +3200,64 @@ const app = createApp({
                 await loadInbox();
             } catch (error) {
                 ElementPlus.ElMessage.error('删除站内信失败');
+            }
+        };
+
+        const openForwardDialogForMessage = async (message) => {
+            if (!message || !message.id) {
+                return;
+            }
+            forwardMessageTarget.value = message;
+            forwardRecipientUserIds.value = [];
+            showForwardDialog.value = true;
+            if (!recipientList.value.length) {
+                await loadRecipients();
+            }
+        };
+
+        const forwardInboxMessage = async () => {
+            const targetMessageId = forwardMessageTarget.value?.id;
+            if (!targetMessageId) {
+                return;
+            }
+            if (!forwardRecipientUserIds.value.length) {
+                ElementPlus.ElMessage.warning('请选择至少一个接收人');
+                return;
+            }
+            try {
+                const res = await api.post('/messages/' + targetMessageId + '/forward', {
+                    recipientUserIds: forwardRecipientUserIds.value
+                });
+                if (res.code === 200) {
+                    ElementPlus.ElMessage.success('转发成功');
+                    showForwardDialog.value = false;
+                    forwardMessageTarget.value = null;
+                    forwardRecipientUserIds.value = [];
+                }
+            } catch (error) {
+                ElementPlus.ElMessage.error(error.response?.data?.message || error.message || '转发失败');
+            }
+        };
+
+        const submitFeedback = async () => {
+            const payload = {
+                category: (feedbackForm.value.category || '').trim() || 'GENERAL',
+                title: (feedbackForm.value.title || '').trim(),
+                body: (feedbackForm.value.body || '').trim()
+            };
+            if (!payload.body) {
+                ElementPlus.ElMessage.warning('请填写反馈内容');
+                return;
+            }
+            try {
+                const res = await api.post('/messages/feedback', payload);
+                if (res.code === 200) {
+                    ElementPlus.ElMessage.success('反馈已提交');
+                    feedbackForm.value = { category: 'GENERAL', title: '', body: '' };
+                    messageCenterTab.value = 'messages';
+                }
+            } catch (error) {
+                ElementPlus.ElMessage.error(error.response?.data?.message || error.message || '反馈提交失败');
             }
         };
 
@@ -2608,6 +3672,67 @@ const app = createApp({
         };
 
         // Config
+        const normalizeTransportPriority = (values, availableValues) => {
+            const allowed = new Set(availableValues || []);
+            return (values || [])
+                .map(item => String(item || '').trim().toUpperCase())
+                .filter(item => allowed.has(item))
+                .filter((item, index, arr) => arr.indexOf(item) === index);
+        };
+
+        const ensureTransportPriorityDefaults = () => {
+            const uploadDefaults = uploadTransportOptions.map(item => item.value);
+            const downloadDefaults = downloadTransportOptions.map(item => item.value);
+            const normalizedUpload = normalizeTransportPriority(fileConfig.value.uploadTransportPriority, uploadDefaults);
+            const normalizedDownload = normalizeTransportPriority(fileConfig.value.downloadTransportPriority, downloadDefaults);
+            fileConfig.value.uploadTransportPriority = normalizedUpload.length ? normalizedUpload : uploadDefaults.slice();
+            fileConfig.value.downloadTransportPriority = normalizedDownload.length ? normalizedDownload : downloadDefaults.slice();
+            fileConfig.value.uploadTransportMode = fileConfig.value.uploadTransportPriority[0] || 'APPLICATION';
+            fileConfig.value.downloadTransportMode = fileConfig.value.downloadTransportPriority[0] || 'APPLICATION';
+        };
+
+        const toggleTransportPriority = (target, mode, enabled) => {
+            const key = target === 'download' ? 'downloadTransportPriority' : 'uploadTransportPriority';
+            const options = target === 'download' ? downloadTransportOptions : uploadTransportOptions;
+            const defaultOrder = options.map(item => item.value);
+            const current = normalizeTransportPriority(fileConfig.value[key], defaultOrder);
+            let next;
+            if (enabled) {
+                next = current.includes(mode) ? current.slice() : current.concat(mode);
+                next.sort((a, b) => defaultOrder.indexOf(a) - defaultOrder.indexOf(b));
+            } else {
+                next = current.filter(item => item !== mode);
+            }
+            fileConfig.value[key] = next;
+            if (next.length > 0) {
+                if (target === 'download') {
+                    fileConfig.value.downloadTransportMode = next[0];
+                } else {
+                    fileConfig.value.uploadTransportMode = next[0];
+                }
+            }
+        };
+
+        const moveTransportPriority = (target, index, direction) => {
+            const key = target === 'download' ? 'downloadTransportPriority' : 'uploadTransportPriority';
+            const current = (fileConfig.value[key] || []).slice();
+            const nextIndex = index + direction;
+            if (index < 0 || nextIndex < 0 || nextIndex >= current.length) {
+                return;
+            }
+            const swapped = current[index];
+            current[index] = current[nextIndex];
+            current[nextIndex] = swapped;
+            fileConfig.value[key] = current;
+            if (current.length > 0) {
+                if (target === 'download') {
+                    fileConfig.value.downloadTransportMode = current[0];
+                } else {
+                    fileConfig.value.uploadTransportMode = current[0];
+                }
+            }
+        };
+
         const loadFileConfig = async () => {
             try {
                 const res = await api.get('/admin/file-config');
@@ -2621,6 +3746,15 @@ const app = createApp({
                         fileConfig.value.maxFileSizeMB = Math.floor((res.data.maxFileSize || 104857600) / 1024 / 1024);
                     }
                     fileConfig.value.frontendDownloadThresholdMB = res.data.frontendDownloadThresholdMB || 100;
+                    fileConfig.value.fileDropMode = res.data.fileDropMode || 'INSTANT';
+                    fileConfig.value.uploadDialogMode = res.data.uploadDialogMode || 'INSTANT';
+                    fileConfig.value.uploadTransportMode = res.data.uploadTransportMode || 'APPLICATION';
+                    fileConfig.value.downloadTransportMode = res.data.downloadTransportMode || 'APPLICATION';
+                    fileConfig.value.uploadTransportPriority = res.data.uploadTransportPriority || [fileConfig.value.uploadTransportMode];
+                    fileConfig.value.downloadTransportPriority = res.data.downloadTransportPriority || [fileConfig.value.downloadTransportMode];
+                    fileConfig.value.uploadProxyThresholdMB = res.data.uploadProxyThresholdMB || 256;
+                    fileConfig.value.downloadProxyThresholdMB = res.data.downloadProxyThresholdMB || 128;
+                    ensureTransportPriorityDefaults();
                 }
             } catch (error) {
                 ElementPlus.ElMessage.error('加载配置失败');
@@ -2629,6 +3763,7 @@ const app = createApp({
 
         const saveFileConfig = async () => {
             try {
+                ensureTransportPriorityDefaults();
                 const extensions = fileConfig.value.allowedExtensionsText
                     .split(',')
                     .map(e => e.trim())
@@ -2636,7 +3771,15 @@ const app = createApp({
                 const res = await api.post('/admin/file-config', {
                     allowedExtensions: extensions,
                     maxFileSize: fileConfig.value.maxFileSizeMB * 1024 * 1024,
-                    frontendDownloadThresholdMB: fileConfig.value.frontendDownloadThresholdMB
+                    frontendDownloadThresholdMB: fileConfig.value.frontendDownloadThresholdMB,
+                    fileDropMode: fileConfig.value.fileDropMode,
+                    uploadDialogMode: fileConfig.value.uploadDialogMode,
+                    uploadTransportMode: fileConfig.value.uploadTransportMode,
+                    downloadTransportMode: fileConfig.value.downloadTransportMode,
+                    uploadTransportPriority: fileConfig.value.uploadTransportPriority,
+                    downloadTransportPriority: fileConfig.value.downloadTransportPriority,
+                    uploadProxyThresholdMB: fileConfig.value.uploadProxyThresholdMB,
+                    downloadProxyThresholdMB: fileConfig.value.downloadProxyThresholdMB
                 });
                 if (res.code === 200) {
                     ElementPlus.ElMessage.success('保存成功');
@@ -2844,6 +3987,8 @@ const app = createApp({
         onUnmounted(() => {
             document.removeEventListener('click', handleDocumentClick);
             document.removeEventListener('keydown', handleDocumentKeydown);
+            stopSyncingRetry();
+            disconnectMessageSocket();
         });
 
         return {
@@ -2862,6 +4007,7 @@ const app = createApp({
             bucketOrder,
             fileList,
             fileLoading,
+            fileDropActive,
             fileSortBy,
             fileOrder,
             filePage,
@@ -2874,6 +4020,7 @@ const app = createApp({
             selectedFiles,
             showUploadDialog,
             uploadRef,
+            uploadTasks,
             showFolderDialog,
             showShareDialog,
             showBatchShareDialog,
@@ -2887,6 +4034,9 @@ const app = createApp({
             downloadTasks,
             downloadCenterVisible,
             downloadCenterMinimized,
+            messageCenterVisible,
+            messageCenterTab,
+            showForwardDialog,
             helpContent,
             versionList,
             selectedVersion,
@@ -2899,6 +4049,7 @@ const app = createApp({
             previewText,
             previewHintGroups,
             previewSupportHint,
+            copyPreviewText,
             closePreviewDialog,
             minioKeyForm,
             minioKeyList,
@@ -2914,8 +4065,13 @@ const app = createApp({
             inboxLoading,
             inboxUnreadCount,
             inboxUnreadSourceCount,
+            messageCenterMessages,
             recipientList,
             recipientLoading,
+            forwardMessageTarget,
+            forwardRecipientUserIds,
+            feedbackForm,
+            feedbackCategories,
             userForm,
             profileForm,
             roleForm,
@@ -2932,6 +4088,12 @@ const app = createApp({
             userLoading,
             roleLoading,
             fileConfig,
+            pendingUploadFiles,
+            uploadDialogModeOptions,
+            uploadTransportOptions,
+            downloadTransportOptions,
+            uploadTransportLabelMap,
+            downloadTransportLabelMap,
             shareConfig,
             permissionInfo,
             permissionList,
@@ -2990,6 +4152,16 @@ const app = createApp({
             refreshFiles,
             openUploadDialog,
             navigateToFolder,
+            handleFileNameClick,
+            canSelectFileRow,
+            handleFileDragEnter,
+            handleFileDragOver,
+            handleFileDragLeave,
+            handleFileDrop,
+            uploadDialogDropActive,
+            handleUploadDialogDragOver,
+            handleUploadDialogDragLeave,
+            handleUploadDialogDrop,
             downloadFile,
             previewFile,
             deleteFile,
@@ -3005,10 +4177,8 @@ const app = createApp({
             createShare,
             handleSelectionChange,
             submitUpload,
-            handleUploadSuccess,
-            handleUploadError,
-            handleUploadProgress,
-            customUploadRequest,
+            handleUploadDialogChange,
+            removePendingUploadFile,
             cancelUpload,
             uploading,
             copyShareLink,
@@ -3018,6 +4188,9 @@ const app = createApp({
             openInboxShare,
             markInboxRead,
             deleteInboxMessage,
+            openForwardDialogForMessage,
+            forwardInboxMessage,
+            submitFeedback,
             loadAuditLogs,
             resetAuditLogQuery,
             handleAuditLogPageChange,
@@ -3050,6 +4223,8 @@ const app = createApp({
             deleteMinioKey,
             loadFileConfig,
             saveFileConfig,
+            toggleTransportPriority,
+            moveTransportPriority,
             loadShareConfig,
             saveShareConfig,
             openDownloadCenter,

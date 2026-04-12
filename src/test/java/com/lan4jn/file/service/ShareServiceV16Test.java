@@ -10,6 +10,8 @@ import com.lan4jn.file.repository.UserRepository;
 import com.lan4jn.file.repository.UserShareMessageRepository;
 import org.junit.jupiter.api.Test;
 import org.springframework.transaction.annotation.Transactional;
+import org.springframework.transaction.support.TransactionSynchronization;
+import org.springframework.transaction.support.TransactionSynchronizationManager;
 
 import java.lang.reflect.Method;
 import java.util.ArrayList;
@@ -22,6 +24,7 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.argThat;
 import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
@@ -131,6 +134,46 @@ class ShareServiceV16Test {
                     && shareLink.getShareCode().equals(materialized.get(0).getShareCode())
                     && "admin".equals(materialized.get(0).getSenderUsername());
         }));
+    }
+
+    @Test
+    void shouldPushMessageCreatedAfterTransactionCommit() {
+        FileService fileService = mock(FileService.class);
+        ShareLinkRepository shareLinkRepository = mock(ShareLinkRepository.class);
+        ShareFileRecordRepository shareFileRecordRepository = mock(ShareFileRecordRepository.class);
+        UserRepository userRepository = mock(UserRepository.class);
+        UserShareMessageRepository userShareMessageRepository = mock(UserShareMessageRepository.class);
+        ConfigService configService = mock(ConfigService.class);
+        MessagePushService messagePushService = mock(MessagePushService.class);
+
+        when(shareLinkRepository.save(any(ShareLink.class))).thenAnswer(invocation -> invocation.getArgument(0));
+        when(userRepository.findById(2L)).thenReturn(Optional.of(buildUser(2L, "alice")));
+        when(userShareMessageRepository.saveAll(any())).thenAnswer(invocation -> invocation.getArgument(0));
+
+        ShareService shareService = new ShareService(
+                fileService, shareLinkRepository, shareFileRecordRepository,
+                userRepository, userShareMessageRepository, configService, 24, messagePushService);
+
+        CreateShareRequest request = new CreateShareRequest();
+        request.setObjectName("docs/");
+        request.setBucket("bucket-a");
+        request.setTargetType("USER");
+        request.setRecipientUserIds(List.of(2L));
+        request.setExpirationHours(24);
+
+        TransactionSynchronizationManager.initSynchronization();
+        try {
+            shareService.createShareLink(request, "admin");
+            verify(messagePushService, never()).pushMessageCreated(any(), any());
+
+            for (TransactionSynchronization synchronization : TransactionSynchronizationManager.getSynchronizations()) {
+                synchronization.afterCommit();
+            }
+
+            verify(messagePushService).pushMessageCreated(any(), any());
+        } finally {
+            TransactionSynchronizationManager.clearSynchronization();
+        }
     }
 
     @Test

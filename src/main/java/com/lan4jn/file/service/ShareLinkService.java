@@ -14,10 +14,14 @@ import com.lan4jn.file.repository.UserRepository;
 import com.lan4jn.file.repository.UserShareMessageRepository;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.springframework.transaction.support.TransactionSynchronization;
+import org.springframework.transaction.support.TransactionSynchronizationManager;
 
 import java.time.LocalDateTime;
 import java.util.ArrayList;
+import java.util.HashMap;
 import java.util.List;
+import java.util.Map;
 import java.util.Objects;
 import java.util.Optional;
 import java.util.concurrent.ThreadLocalRandom;
@@ -35,6 +39,34 @@ final class ShareLinkService {
     private final UserShareMessageRepository userShareMessageRepository;
     private final ShareSupport shareSupport;
     private final Integer defaultExpiration;
+    private final MessagePushService messagePushService;
+
+    ShareLinkService(FileService fileService,
+                     ShareLinkRepository shareLinkRepository,
+                     ShareFileRecordRepository shareFileRecordRepository,
+                     UserRepository userRepository,
+                     UserShareMessageRepository userShareMessageRepository,
+                     ShareSupport shareSupport,
+                     Integer defaultExpiration,
+                     MessagePushService messagePushService) {
+        this.fileService = fileService;
+        this.shareLinkRepository = shareLinkRepository;
+        this.shareFileRecordRepository = shareFileRecordRepository;
+        this.userRepository = userRepository;
+        this.userShareMessageRepository = userShareMessageRepository;
+        this.shareSupport = shareSupport;
+        this.defaultExpiration = defaultExpiration;
+        this.messagePushService = messagePushService;
+    }
+
+    ShareLinkService(FileService fileService,
+                     ShareLinkRepository shareLinkRepository,
+                     ShareFileRecordRepository shareFileRecordRepository,
+                     ShareSupport shareSupport,
+                     Integer defaultExpiration) {
+        this(fileService, shareLinkRepository, shareFileRecordRepository, null, null,
+                shareSupport, defaultExpiration, null);
+    }
 
     ShareLinkService(FileService fileService,
                      ShareLinkRepository shareLinkRepository,
@@ -43,24 +75,16 @@ final class ShareLinkService {
                      UserShareMessageRepository userShareMessageRepository,
                      ShareSupport shareSupport,
                      Integer defaultExpiration) {
-        this.fileService = fileService;
-        this.shareLinkRepository = shareLinkRepository;
-        this.shareFileRecordRepository = shareFileRecordRepository;
-        this.userRepository = userRepository;
-        this.userShareMessageRepository = userShareMessageRepository;
-        this.shareSupport = shareSupport;
-        this.defaultExpiration = defaultExpiration;
-    }
-
-    ShareLinkService(FileService fileService,
-                     ShareLinkRepository shareLinkRepository,
-                     ShareFileRecordRepository shareFileRecordRepository,
-                     ShareSupport shareSupport,
-                     Integer defaultExpiration) {
-        this(fileService, shareLinkRepository, shareFileRecordRepository, null, null, shareSupport, defaultExpiration);
+        this(fileService, shareLinkRepository, shareFileRecordRepository, userRepository,
+                userShareMessageRepository, shareSupport, defaultExpiration, null);
     }
 
     ShareLink createShareLink(CreateShareRequest request, String createBy) {
+        return createShareLink(request, createBy, null);
+    }
+
+    ShareLink createShareLink(CreateShareRequest request, String createBy,
+                              ShareService.UserShareMessageDispatchContext messageDispatchContext) {
         String shareCode = generateShareCode();
         Integer expirationHours = request.getExpirationHours();
         if (expirationHours == null || expirationHours <= 0) {
@@ -92,7 +116,7 @@ final class ShareLinkService {
 
         ShareLink saved = shareLinkRepository.save(shareLink);
         if (TARGET_TYPE_USER.equals(targetType)) {
-            dispatchUserShareMessages(saved, request.getRecipientUserIds());
+            dispatchUserShareMessages(saved, request.getRecipientUserIds(), messageDispatchContext);
         }
         log.info("Share link created: {}", shareCode);
         return saved;
@@ -101,6 +125,13 @@ final class ShareLinkService {
     ShareLink createBatchShareLink(List<String> objectNames, String bucket, String createBy,
                                    Integer expirationHours, String password,
                                    String targetType, List<Long> recipientUserIds) {
+        return createBatchShareLink(objectNames, bucket, createBy, expirationHours, password, targetType, recipientUserIds, null);
+    }
+
+    ShareLink createBatchShareLink(List<String> objectNames, String bucket, String createBy,
+                                   Integer expirationHours, String password,
+                                   String targetType, List<Long> recipientUserIds,
+                                   ShareService.UserShareMessageDispatchContext messageDispatchContext) {
         if (objectNames == null || objectNames.isEmpty()) {
             throw new RuntimeException("分享对象不能为空");
         }
@@ -129,7 +160,7 @@ final class ShareLinkService {
 
         ShareLink saved = shareLinkRepository.save(shareLink);
         if (TARGET_TYPE_USER.equals(normalizedTargetType)) {
-            dispatchUserShareMessages(saved, recipientUserIds);
+            dispatchUserShareMessages(saved, recipientUserIds, messageDispatchContext);
         }
         log.info("Batch share link created: {}", shareCode);
         return saved;
@@ -238,7 +269,8 @@ final class ShareLinkService {
         return String.format("%04d", ThreadLocalRandom.current().nextInt(10000));
     }
 
-    private void dispatchUserShareMessages(ShareLink shareLink, List<Long> recipientUserIds) {
+    private void dispatchUserShareMessages(ShareLink shareLink, List<Long> recipientUserIds,
+                                           ShareService.UserShareMessageDispatchContext context) {
         if (userRepository == null || userShareMessageRepository == null) {
             throw new RuntimeException("用户分享依赖未初始化");
         }
@@ -246,6 +278,7 @@ final class ShareLinkService {
             throw new RuntimeException("请选择至少一个收件人");
         }
         List<UserShareMessage> messages = new ArrayList<>();
+        List<String> recipientUsernames = new ArrayList<>();
         for (Long recipientUserId : recipientUserIds) {
             User user = userRepository.findById(recipientUserId)
                     .orElseThrow(() -> new RuntimeException("收件人不存在: " + recipientUserId));
@@ -254,12 +287,82 @@ final class ShareLinkService {
             message.setSenderUsername(shareLink.getCreateBy());
             message.setShareCode(shareLink.getShareCode());
             message.setTitle(shareLink.getFileName());
+            message.setMessageType(resolveMessageType(context));
+            message.setBody(context == null ? null : context.getBody());
+            message.setOriginSenderUsername(resolveOriginSenderUsername(shareLink, context));
+            message.setForwardedByUsername(context == null ? null : context.getForwardedByUsername());
+            message.setRelatedShareCode(resolveRelatedShareCode(shareLink, context));
+            message.setConversationKey(resolveConversationKey(shareLink, context));
             message.setRead(false);
             message.setReadTime(null);
             message.setCreateTime(LocalDateTime.now());
             message.setDeleted(false);
             messages.add(message);
+            recipientUsernames.add(user.getUsername());
         }
         userShareMessageRepository.saveAll(messages);
+        if (messagePushService != null) {
+            dispatchMessageCreatedPushes(messages, recipientUsernames, shareLink);
+        }
+    }
+
+    private void dispatchMessageCreatedPushes(List<UserShareMessage> messages,
+                                              List<String> recipientUsernames,
+                                              ShareLink shareLink) {
+        Runnable pushAction = () -> {
+            for (int index = 0; index < messages.size(); index++) {
+                messagePushService.pushMessageCreated(
+                        recipientUsernames.get(index),
+                        buildCreatedPayload(messages.get(index), shareLink)
+                );
+            }
+        };
+        if (TransactionSynchronizationManager.isSynchronizationActive()) {
+            TransactionSynchronizationManager.registerSynchronization(new TransactionSynchronization() {
+                @Override
+                public void afterCommit() {
+                    pushAction.run();
+                }
+            });
+            return;
+        }
+        pushAction.run();
+    }
+
+    private Map<String, Object> buildCreatedPayload(UserShareMessage message, ShareLink shareLink) {
+        Map<String, Object> payload = new HashMap<>();
+        payload.put("id", message.getId());
+        payload.put("shareCode", shareLink.getShareCode());
+        payload.put("title", message.getTitle());
+        payload.put("messageType", message.getMessageType());
+        return payload;
+    }
+
+    private String resolveMessageType(ShareService.UserShareMessageDispatchContext context) {
+        if (context == null || StrUtil.isBlank(context.getMessageType())) {
+            return "SHARE";
+        }
+        return context.getMessageType().trim().toUpperCase();
+    }
+
+    private String resolveOriginSenderUsername(ShareLink shareLink, ShareService.UserShareMessageDispatchContext context) {
+        if (context == null || StrUtil.isBlank(context.getOriginSenderUsername())) {
+            return shareLink.getCreateBy();
+        }
+        return context.getOriginSenderUsername().trim();
+    }
+
+    private String resolveRelatedShareCode(ShareLink shareLink, ShareService.UserShareMessageDispatchContext context) {
+        if (context == null || StrUtil.isBlank(context.getRelatedShareCode())) {
+            return shareLink.getShareCode();
+        }
+        return context.getRelatedShareCode().trim();
+    }
+
+    private String resolveConversationKey(ShareLink shareLink, ShareService.UserShareMessageDispatchContext context) {
+        if (context == null || StrUtil.isBlank(context.getConversationKey())) {
+            return shareLink.getShareCode();
+        }
+        return context.getConversationKey().trim();
     }
 }

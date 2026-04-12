@@ -2,6 +2,8 @@ package com.lan4jn.file.controller;
 
 import com.lan4jn.file.common.PageResult;
 import com.lan4jn.file.common.Result;
+import com.lan4jn.file.dto.FeedbackMessageRequest;
+import com.lan4jn.file.dto.ForwardShareMessageRequest;
 import com.lan4jn.file.dto.ShareRecipientDTO;
 import com.lan4jn.file.model.ShareLink;
 import com.lan4jn.file.model.UserShareMessage;
@@ -12,9 +14,11 @@ import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestMapping;
+import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
 
+import java.util.ArrayList;
 import java.util.List;
 
 @RestController
@@ -54,5 +58,43 @@ public class MessageController {
     @GetMapping("/{id}/share")
     public Result<ShareLink> openShare(@PathVariable("id") Long id, Authentication authentication) {
         return Result.success(userShareMessageService.resolveShareForMessage(id, authentication.getName()));
+    }
+
+    @PostMapping("/{id}/forward")
+    public Result<ShareLink> forwardMessage(@PathVariable("id") Long id,
+                                            @RequestBody ForwardShareMessageRequest request,
+                                            Authentication authentication) {
+        List<Long> recipientUserIds = normalizeRecipientUserIds(request == null ? null : request.getRecipientUserIds());
+        if (recipientUserIds.isEmpty()) {
+            throw new IllegalArgumentException("recipientUserIds不能为空");
+        }
+        return Result.success(userShareMessageService.forwardMessage(id, authentication.getName(), recipientUserIds));
+    }
+
+    @PostMapping("/feedback")
+    public Result<Void> submitFeedback(@RequestBody FeedbackMessageRequest request, Authentication authentication) {
+        String body = request == null ? null : request.getBody();
+        if (body == null || body.trim().isEmpty()) {
+            throw new IllegalArgumentException("body不能为空");
+        }
+        userShareMessageService.submitFeedback(
+                authentication.getName(),
+                request == null ? null : request.getCategory(),
+                request == null ? null : request.getTitle(),
+                body.trim());
+        return Result.success();
+    }
+
+    private List<Long> normalizeRecipientUserIds(List<Long> recipientUserIds) {
+        if (recipientUserIds == null) {
+            return List.of();
+        }
+        List<Long> normalized = new ArrayList<>();
+        for (Long recipientUserId : recipientUserIds) {
+            if (recipientUserId != null && !normalized.contains(recipientUserId)) {
+                normalized.add(recipientUserId);
+            }
+        }
+        return normalized;
     }
 }

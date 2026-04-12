@@ -19,6 +19,12 @@ public class UserShareMessage {
     private Long recipientUserId;
     private String senderUsername;
     private String shareCode;
+    private String messageType;
+    private String body;
+    private String originSenderUsername;
+    private String forwardedByUsername;
+    private String relatedShareCode;
+    private String conversationKey;
     private String title;
     private Boolean read;
     private LocalDateTime readTime;
@@ -55,6 +61,54 @@ public class UserShareMessage {
 
     public void setShareCode(String shareCode) {
         this.shareCode = shareCode;
+    }
+
+    public String getMessageType() {
+        return messageType;
+    }
+
+    public void setMessageType(String messageType) {
+        this.messageType = messageType;
+    }
+
+    public String getBody() {
+        return body;
+    }
+
+    public void setBody(String body) {
+        this.body = body;
+    }
+
+    public String getOriginSenderUsername() {
+        return originSenderUsername;
+    }
+
+    public void setOriginSenderUsername(String originSenderUsername) {
+        this.originSenderUsername = originSenderUsername;
+    }
+
+    public String getForwardedByUsername() {
+        return forwardedByUsername;
+    }
+
+    public void setForwardedByUsername(String forwardedByUsername) {
+        this.forwardedByUsername = forwardedByUsername;
+    }
+
+    public String getRelatedShareCode() {
+        return relatedShareCode;
+    }
+
+    public void setRelatedShareCode(String relatedShareCode) {
+        this.relatedShareCode = relatedShareCode;
+    }
+
+    public String getConversationKey() {
+        return conversationKey;
+    }
+
+    public void setConversationKey(String conversationKey) {
+        this.conversationKey = conversationKey;
     }
 
     public String getTitle() {

@@ -34,41 +34,75 @@ final class FileCommandService {
     }
 
     UploadResponse uploadFile(MultipartFile file, String folder, String bucket, String defaultBucket, String publicUrl) {
-        String resolvedBucket = support.resolveBucket(bucket, defaultBucket);
         try {
-            String originalFilename = file.getOriginalFilename();
-            String extension = support.getFileExtension(originalFilename).toLowerCase();
-
-            Set<String> allowedExtensions = support.getAllowedExtensions();
-            if (!allowedExtensions.isEmpty() && !allowedExtensions.contains(extension)) {
-                throw new RuntimeException("不允许上传此类型文件: " + extension);
-            }
-
-            Long maxSize = support.getMaxFileSize();
-            if (maxSize > 0 && file.getSize() > maxSize) {
-                throw new RuntimeException("文件大小超出限制: 最大" + support.formatSize(maxSize));
-            }
-
-            String objectName = support.generateObjectName(folder, originalFilename, resolvedBucket);
+            FileDomainSupport.PreparedUpload preparedUpload =
+                    support.prepareUpload(file.getOriginalFilename(), file.getSize(), folder, bucket, defaultBucket);
             minioClient.putObject(
                     PutObjectArgs.builder()
-                            .bucket(resolvedBucket)
-                            .object(objectName)
+                            .bucket(preparedUpload.getBucket())
+                            .object(preparedUpload.getObjectName())
                             .stream(file.getInputStream(), file.getSize(), -1)
                             .contentType(file.getContentType())
                             .build()
             );
 
             StatObjectResponse stat = minioClient.statObject(
-                    StatObjectArgs.builder().bucket(resolvedBucket).object(objectName).build());
-            log.info("File uploaded successfully: {}", objectName);
+                    StatObjectArgs.builder().bucket(preparedUpload.getBucket()).object(preparedUpload.getObjectName()).build());
+            log.info("File uploaded successfully: {}", preparedUpload.getObjectName());
             return support.buildUploadResponse(
-                    objectName, originalFilename, file.getSize(), file.getContentType(), resolvedBucket, publicUrl, stat);
+                    preparedUpload.getObjectName(),
+                    preparedUpload.getFileName(),
+                    file.getSize(),
+                    file.getContentType(),
+                    preparedUpload.getBucket(),
+                    publicUrl,
+                    stat);
         } catch (RuntimeException e) {
             throw e;
         } catch (Exception e) {
             log.error("Failed to upload file", e);
             throw new RuntimeException("文件上传失败: " + e.getMessage(), e);
+        }
+    }
+
+    FileDomainSupport.PreparedUpload prepareDirectUpload(String originalFilename,
+                                                         Long size,
+                                                         String folder,
+                                                         String bucket,
+                                                         String defaultBucket) {
+        return support.prepareUpload(originalFilename, size, folder, bucket, defaultBucket);
+    }
+
+    UploadResponse completeDirectUpload(String bucket,
+                                        String objectName,
+                                        String fileName,
+                                        String contentType,
+                                        Long expectedSize,
+                                        String publicUrl) {
+        try {
+            StatObjectResponse stat = minioClient.statObject(
+                    StatObjectArgs.builder().bucket(bucket).object(objectName).build()
+            );
+            if (expectedSize != null && expectedSize >= 0 && stat.size() != expectedSize) {
+                throw new RuntimeException("上传文件大小校验失败");
+            }
+            String resolvedContentType = stat.contentType() == null || stat.contentType().isBlank()
+                    ? contentType
+                    : stat.contentType();
+            return support.buildUploadResponse(
+                    objectName,
+                    fileName,
+                    stat.size(),
+                    resolvedContentType,
+                    bucket,
+                    publicUrl,
+                    stat
+            );
+        } catch (RuntimeException e) {
+            throw e;
+        } catch (Exception e) {
+            log.error("Failed to complete direct upload: {}/{}", bucket, objectName, e);
+            throw new RuntimeException("确认上传失败: " + e.getMessage(), e);
         }
     }
 

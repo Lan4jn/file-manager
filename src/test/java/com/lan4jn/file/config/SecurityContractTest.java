@@ -35,6 +35,9 @@ class SecurityContractTest {
 
         assertTrue(source.contains(".requestMatchers(\"/api/admin/**\").hasRole(\"ADMIN\")"));
         assertTrue(source.contains(".requestMatchers(\"/api/share/access-info\").permitAll()"));
+        assertTrue(source.contains(".requestMatchers(\"/api/transfer/download/session\").permitAll()"));
+        assertTrue(source.contains(".requestMatchers(\"/api/transfer/download/stream/**\").permitAll()"));
+        assertTrue(source.contains(".requestMatchers(\"/api/transfer/archive-tasks/**\").permitAll()"));
         assertFalse(source.contains(".requestMatchers(\"/api/file/download/**\").permitAll()"));
         assertFalse(source.contains(".requestMatchers(\"/api/file/preview/**\").permitAll()"));
     }

@@ -101,10 +101,9 @@
             <!-- Header -->
             <div class="header">
                 <div class="header-left">
-                    <p class="eyebrow">Workspace</p>
-                    <div>
+                    <div class="header-title-row">
                         <h2>{{ currentViewTitle }}</h2>
-                        <p class="header-subtitle">{{ currentViewDescription }}</p>
+                        <p class="header-context">{{ currentViewDescription }}</p>
                     </div>
                 </div>
                 <div class="header-right">
@@ -247,8 +246,8 @@
                     </div>
 
                     <!-- File Manager -->
-                    <div v-if="currentMenu === 'files' && currentMenuAccessible" class="page-content">
-                        <div class="drive-overview">
+                    <div v-if="currentMenu === 'files' && currentMenuAccessible" class="page-content page-content--files">
+                        <div class="drive-overview drive-overview--compact">
                             <article class="overview-card">
                                 <span>当前存储桶</span>
                                 <el-select v-model="currentBucket" @change="onBucketSelect" class="bucket-select-full" popper-class="bucket-select-popper">
@@ -296,15 +295,15 @@
                                             <el-icon><Top /></el-icon>
                                         </el-button>
                                     </el-tooltip>
+                                    <el-tooltip content="刷新" placement="top">
+                                        <el-button class="nav-btn" size="small" @click="refreshFiles">
+                                            <el-icon><Refresh /></el-icon>
+                                        </el-button>
+                                    </el-tooltip>
                                 </div>
                                 <div class="path-input-wrapper" @click="startPathEdit">
                                     <!-- 路径节点展示模式 -->
                                     <div class="path-display" v-if="!isPathEditing" @click="startPathEdit">
-                                        <el-tooltip content="刷新" placement="top">
-                                            <el-button class="nav-btn path-prepend-btn" @click.stop="refreshFiles">
-                                                <el-icon><Refresh /></el-icon>
-                                            </el-button>
-                                        </el-tooltip>
                                         <div class="path-nodes">
                                             <template v-for="(node, index) in breadcrumb" :key="index">
                                                 <span class="path-node" :class="{ 'is-bucket': node.isBucket, 'is-folder': node.isFolder }" @click.stop="navigateToNode(node)">
@@ -369,56 +368,89 @@
                             </div>
                         </div>
 
-                        <el-table :data="fileList" v-loading="fileLoading" @selection-change="handleSelectionChange" @sort-change="handleFileSortChange">
-                            <el-table-column type="selection" width="55"></el-table-column>
-                            <el-table-column prop="fileName" label="名称" sortable="custom">
-                                <template #default="{ row }">
-                                    <div class="file-name" @click="row.isFolder ? navigateToFolder(row.objectName) : previewFile(row)">
-                                        <el-icon v-if="row.isFolder"><Folder /></el-icon>
-                                        <el-icon v-else><Document /></el-icon>
-                                        {{ row.fileName }}
-                                    </div>
-                                </template>
-                            </el-table-column>
-                            <el-table-column prop="size" label="大小" width="120" sortable="custom">
-                                <template #default="{ row }">
-                                    <span v-if="!row.isFolder">{{ formatSize(row.size) }}</span>
-                                    <span v-else>-</span>
-                                </template>
-                            </el-table-column>
-                            <el-table-column prop="uploadTime" label="修改时间" width="180" sortable="custom"></el-table-column>
-                            <el-table-column label="操作" width="280">
-                                <template #default="{ row }">
-                                    <el-tooltip content="下载文件到本地" placement="top" effect="light">
-                                        <el-button v-if="hasApiPermission('API_FILE_OPERATE') && hasBucketPermission(currentBucket, 'DOWNLOAD')" size="small" @click="downloadFile(row)">
-                                            <el-icon><Download /></el-icon>
-                                        </el-button>
-                                    </el-tooltip>
-                                    <el-tooltip content="创建分享链接供他人下载" placement="top" effect="light">
-                                        <el-button v-if="hasApiPermission('API_SHARE_MANAGE') && hasBucketPermission(currentBucket, 'SHARE')" size="small" @click="shareFile(row)">
-                                            <el-icon><Share /></el-icon>
-                                        </el-button>
-                                    </el-tooltip>
-                                    <el-tooltip content="删除文件或文件夹" placement="top" effect="light">
-                                        <el-button v-if="hasApiPermission('API_FILE_OPERATE') && hasBucketPermission(currentBucket, 'DELETE')" size="small" type="danger" @click="deleteFile(row)">
-                                            <el-icon><Delete /></el-icon>
-                                        </el-button>
-                                    </el-tooltip>
-                                </template>
-                            </el-table-column>
-                        </el-table>
+                        <div
+                                class="file-drop-zone"
+                                :class="{ 'file-drop-zone--active': fileDropActive }"
+                                @dragenter.prevent="handleFileDragEnter"
+                                @dragover.prevent="handleFileDragOver"
+                                @dragleave.prevent="handleFileDragLeave"
+                                @drop.prevent="handleFileDrop"
+                        >
+                            <div v-if="fileDropActive" class="file-drop-zone__hint">释放鼠标即可上传到当前目录</div>
+                            <el-table :data="fileList" v-loading="fileLoading" @selection-change="handleSelectionChange" @sort-change="handleFileSortChange">
+                                <el-table-column type="selection" width="55" :selectable="canSelectFileRow"></el-table-column>
+                                <el-table-column prop="fileName" label="名称" sortable="custom">
+                                    <template #default="{ row }">
+                                        <div class="file-name" :class="{ 'file-name--disabled': row.syncing }" @click="handleFileNameClick(row)">
+                                            <el-icon v-if="row.isFolder"><Folder /></el-icon>
+                                            <el-icon v-else><Document /></el-icon>
+                                            <span class="file-name__text">{{ row.fileName }}</span>
+                                            <el-tag v-if="row.syncing" size="small" type="warning" effect="plain">信息同步中</el-tag>
+                                        </div>
+                                    </template>
+                                </el-table-column>
+                                <el-table-column prop="size" label="大小" width="120" sortable="custom">
+                                    <template #default="{ row }">
+                                        <span v-if="!row.isFolder">{{ formatSize(row.size) }}</span>
+                                        <span v-else>-</span>
+                                    </template>
+                                </el-table-column>
+                                <el-table-column prop="uploadTime" label="修改时间" width="180" sortable="custom">
+                                    <template #default="{ row }">
+                                        <span v-if="row.syncing">同步中</span>
+                                        <span v-else>{{ row.uploadTime || '-' }}</span>
+                                    </template>
+                                </el-table-column>
+                                <el-table-column label="操作" width="320">
+                                    <template #default="{ row }">
+                                        <el-tooltip content="下载文件到本地" placement="top" effect="light">
+                                            <el-button
+                                                v-if="hasApiPermission('API_FILE_OPERATE') && hasBucketPermission(currentBucket, 'DOWNLOAD')"
+                                                size="small"
+                                                :disabled="row.syncing"
+                                                @click="downloadFile(row)"
+                                            >
+                                                <el-icon><Download /></el-icon>
+                                            </el-button>
+                                        </el-tooltip>
+                                        <el-tooltip content="创建分享链接供他人下载" placement="top" effect="light">
+                                            <el-button
+                                                v-if="hasApiPermission('API_SHARE_MANAGE') && hasBucketPermission(currentBucket, 'SHARE')"
+                                                size="small"
+                                                :disabled="row.syncing"
+                                                @click="shareFile(row)"
+                                            >
+                                                <el-icon><Share /></el-icon>
+                                            </el-button>
+                                        </el-tooltip>
+                                        <el-tooltip content="删除文件或文件夹" placement="top" effect="light">
+                                            <el-button
+                                                v-if="hasApiPermission('API_FILE_OPERATE') && hasBucketPermission(currentBucket, 'DELETE')"
+                                                size="small"
+                                                type="danger"
+                                                :disabled="row.syncing"
+                                                @click="deleteFile(row)"
+                                            >
+                                                <el-icon><Delete /></el-icon>
+                                            </el-button>
+                                        </el-tooltip>
+                                        <span v-if="row.syncing" class="file-action-hint">同步完成后可操作</span>
+                                    </template>
+                                </el-table-column>
+                            </el-table>
 
-                        <!-- 分页组件 -->
-                        <div class="pagination-container">
-                            <el-pagination
-                                v-model:current-page="filePage"
-                                v-model:page-size="filePageSize"
-                                :page-sizes="[10, 20, 50, 100]"
-                                :total="fileTotal"
-                                layout="total, sizes, prev, pager, next, jumper"
-                                @size-change="handleFileSizeChange"
-                                @current-change="handleFilePageChange"
-                            />
+                            <!-- 分页组件 -->
+                            <div class="pagination-container">
+                                <el-pagination
+                                    v-model:current-page="filePage"
+                                    v-model:page-size="filePageSize"
+                                :page-sizes="[25, 50, 100, 200]"
+                                    :total="fileTotal"
+                                    layout="total, sizes, prev, pager, next, jumper"
+                                    @size-change="handleFileSizeChange"
+                                    @current-change="handleFilePageChange"
+                                />
+                            </div>
                         </div>
                     </div>
 
@@ -700,6 +732,102 @@
                                 <el-input-number v-model="fileConfig.frontendDownloadThresholdMB" :min="1" :max="102400"></el-input-number>
                                 <span style="margin-left: 10px">MB</span>
                             </el-form-item>
+                            <el-form-item label="上传窗口模式">
+                                <el-select v-model="fileConfig.uploadDialogMode" style="width: 220px">
+                                    <el-option
+                                        v-for="item in uploadDialogModeOptions"
+                                        :key="item.value"
+                                        :label="item.label"
+                                        :value="item.value"
+                                    ></el-option>
+                                </el-select>
+                            </el-form-item>
+                            <el-form-item label="文件拖拽模式">
+                                <el-select v-model="fileConfig.fileDropMode" style="width: 220px">
+                                    <el-option
+                                        v-for="item in uploadDialogModeOptions"
+                                        :key="'drop-' + item.value"
+                                        :label="item.label"
+                                        :value="item.value"
+                                    ></el-option>
+                                </el-select>
+                            </el-form-item>
+                            <el-form-item label="上传机制顺序">
+                                <div class="transport-priority-editor">
+                                    <div
+                                        v-for="item in uploadTransportOptions"
+                                        :key="item.value"
+                                        class="transport-priority-editor__row"
+                                    >
+                                        <el-checkbox
+                                            :model-value="fileConfig.uploadTransportPriority.includes(item.value)"
+                                            @change="checked => toggleTransportPriority('upload', item.value, checked)"
+                                        >
+                                            {{ item.label }}
+                                        </el-checkbox>
+                                        <div
+                                            v-if="fileConfig.uploadTransportPriority.includes(item.value)"
+                                            class="transport-priority-editor__controls"
+                                        >
+                                            <span class="transport-priority-editor__index">
+                                                #{{ fileConfig.uploadTransportPriority.indexOf(item.value) + 1 }}
+                                            </span>
+                                            <el-button
+                                                text
+                                                :disabled="fileConfig.uploadTransportPriority.indexOf(item.value) === 0"
+                                                @click="moveTransportPriority('upload', fileConfig.uploadTransportPriority.indexOf(item.value), -1)"
+                                            >
+                                                上移
+                                            </el-button>
+                                            <el-button
+                                                text
+                                                :disabled="fileConfig.uploadTransportPriority.indexOf(item.value) === fileConfig.uploadTransportPriority.length - 1"
+                                                @click="moveTransportPriority('upload', fileConfig.uploadTransportPriority.indexOf(item.value), 1)"
+                                            >
+                                                下移
+                                            </el-button>
+                                        </div>
+                                    </div>
+                                </div>
+                            </el-form-item>
+                            <el-form-item label="下载机制顺序">
+                                <div class="transport-priority-editor">
+                                    <div
+                                        v-for="item in downloadTransportOptions"
+                                        :key="item.value"
+                                        class="transport-priority-editor__row"
+                                    >
+                                        <el-checkbox
+                                            :model-value="fileConfig.downloadTransportPriority.includes(item.value)"
+                                            @change="checked => toggleTransportPriority('download', item.value, checked)"
+                                        >
+                                            {{ item.label }}
+                                        </el-checkbox>
+                                        <div
+                                            v-if="fileConfig.downloadTransportPriority.includes(item.value)"
+                                            class="transport-priority-editor__controls"
+                                        >
+                                            <span class="transport-priority-editor__index">
+                                                #{{ fileConfig.downloadTransportPriority.indexOf(item.value) + 1 }}
+                                            </span>
+                                            <el-button
+                                                text
+                                                :disabled="fileConfig.downloadTransportPriority.indexOf(item.value) === 0"
+                                                @click="moveTransportPriority('download', fileConfig.downloadTransportPriority.indexOf(item.value), -1)"
+                                            >
+                                                上移
+                                            </el-button>
+                                            <el-button
+                                                text
+                                                :disabled="fileConfig.downloadTransportPriority.indexOf(item.value) === fileConfig.downloadTransportPriority.length - 1"
+                                                @click="moveTransportPriority('download', fileConfig.downloadTransportPriority.indexOf(item.value), 1)"
+                                            >
+                                                下移
+                                            </el-button>
+                                        </div>
+                                    </div>
+                                </div>
+                            </el-form-item>
                             <el-form-item>
                                 <el-button v-if="isSuperAdmin" type="primary" @click="saveFileConfig">保存配置</el-button>
                             </el-form-item>
@@ -791,6 +919,7 @@
                     </div>
                 </div>
             </div>
+
         </div>
 
         <!-- MinIO Key Dialog -->
@@ -832,32 +961,72 @@
                     <span style="cursor: pointer; text-decoration: underline;">查看支持的文件类型</span>
                 </el-tooltip>
             </el-alert>
-            <el-upload
-                ref="uploadRef"
-                class="upload-demo"
-                :action="uploadUrl"
-                :headers="uploadHeaders"
-                :data="uploadData"
-                :on-success="handleUploadSuccess"
-                :on-error="handleUploadError"
-                :on-progress="handleUploadProgress"
-                :auto-upload="false"
-                :http-request="customUploadRequest"
-                drag
-                multiple
+            <div
+                class="upload-drop-panel"
+                :class="{ 'upload-drop-panel--active': uploadDialogDropActive }"
+                @dragover.prevent="handleUploadDialogDragOver"
+                @dragleave.prevent="handleUploadDialogDragLeave"
+                @drop.prevent="handleUploadDialogDrop"
             >
-                <el-icon class="el-icon--upload"><Upload /></el-icon>
-                <div class="el-upload__text">将文件拖到此处，或<em>点击上传</em></div>
-                <template #tip>
-                    <div class="el-upload__tip">
-                        <span v-if="fileConfig.maxFileSizeMB !== -1">单个文件最大: {{ fileConfig.maxFileSizeMB }}MB</span>
-                        <span v-else>单个文件最大: 无限制</span>
+                <div v-if="uploadDialogDropActive" class="upload-drop-panel__overlay">
+                    <strong>释放鼠标，立即上传到当前目录</strong>
+                    <span>文件会马上出现在下方任务列表，并实时显示进度</span>
+                </div>
+                <el-upload
+                    ref="uploadRef"
+                    class="upload-demo"
+                    :auto-upload="false"
+                    :show-file-list="false"
+                    :on-change="handleUploadDialogChange"
+                    drag
+                    multiple
+                >
+                    <el-icon class="el-icon--upload"><Upload /></el-icon>
+                    <div class="el-upload__text">将文件拖到此处，或<em>点击上传</em></div>
+                    <template #tip>
+                        <div class="el-upload__tip">
+                            <template v-if="fileConfig.uploadDialogMode === 'MANUAL'">选择文件后先加入待上传列表，点击下方“上传”开始执行</template>
+                            <template v-else>选择文件后会立即开始上传并显示进度</template>
+                            <span v-if="fileConfig.maxFileSizeMB !== -1">，单个文件最大: {{ fileConfig.maxFileSizeMB }}MB</span>
+                            <span v-else>，单个文件最大: 无限制</span>
+                        </div>
+                    </template>
+                </el-upload>
+            </div>
+            <div v-if="fileConfig.uploadDialogMode === 'MANUAL' && pendingUploadFiles.length" class="upload-task-panel">
+                <div class="upload-task-panel__title">待上传文件</div>
+                <div v-for="file in pendingUploadFiles" :key="file.id" class="upload-pending-list__item">
+                    <div class="upload-pending-list__meta">
+                        <span class="upload-pending-list__name">{{ file.name }}</span>
+                        <span class="upload-pending-list__size">{{ formatSize(file.size || 0) }}</span>
                     </div>
-                </template>
-            </el-upload>
+                    <el-button text @click="removePendingUploadFile(file.id)">移除</el-button>
+                </div>
+            </div>
+            <div v-if="uploadTasks.length" class="upload-task-panel">
+                <div class="upload-task-panel__title">上传任务</div>
+                <div v-for="task in uploadTasks" :key="task.id" class="download-task-center__item upload-task-panel__item">
+                    <div class="download-task-center__item-top">
+                        <div class="download-task-center__name">{{ task.name }}</div>
+                        <div class="download-task-center__meta">{{ task.step || task.status }}</div>
+                    </div>
+                    <el-progress :percentage="Math.round(task.progress || 0)" :status="task.status === 'failed' ? 'exception' : (task.status === 'completed' ? 'success' : '')"></el-progress>
+                    <div class="download-task-center__meta">
+                        {{ formatSize(task.uploadedBytes || 0) }} / {{ task.totalBytes ? formatSize(task.totalBytes) : '未知大小' }}
+                        <span v-if="task.error"> · {{ task.error }}</span>
+                    </div>
+                </div>
+            </div>
             <template #footer>
                 <el-button @click="cancelUpload">取消</el-button>
-                <el-button type="primary" @click="submitUpload" :loading="uploading">上传</el-button>
+                <el-button
+                    v-if="fileConfig.uploadDialogMode === 'MANUAL'"
+                    type="primary"
+                    @click="submitUpload"
+                    :loading="uploading"
+                >
+                    上传
+                </el-button>
             </template>
         </el-dialog>
 
@@ -1032,6 +1201,7 @@
                             <el-icon><question-filled /></el-icon>
                         </el-tooltip>
                     </div>
+                    <el-button v-if="previewKind === 'text'" @click="copyPreviewText">复制文本</el-button>
                     <el-button @click="showPreviewDialog = false">关闭</el-button>
                 </div>
             </template>
@@ -1260,6 +1430,147 @@
             </template>
         </el-dialog>
 
+        <div v-if="isLoggedIn" class="message-center-shell">
+            <transition name="el-fade-in-linear">
+                <section v-if="messageCenterVisible" class="message-center-panel">
+                    <header class="message-center-panel__header">
+                        <div>
+                            <strong>消息中心</strong>
+                            <p>接收分享提醒，快速反馈问题。</p>
+                        </div>
+                        <el-button text @click="messageCenterVisible = false">收起</el-button>
+                    </header>
+                    <el-tabs v-model="messageCenterTab" class="message-center-tabs">
+                        <el-tab-pane label="消息" name="messages">
+                            <div class="message-center-list message-chat-stream">
+                                <div v-if="!messageCenterMessages.length" class="message-center-empty">
+                                    暂无站内消息
+                                </div>
+                                <article
+                                    v-for="message in messageCenterMessages"
+                                    :key="message.id"
+                                    class="message-card message-bubble"
+                                    :class="{ 'message-card--unread': !message.read, 'message-bubble--unread': !message.read }"
+                                >
+                                    <div class="message-card__meta">
+                                        <el-tag size="small" :type="message.messageType === 'FEEDBACK' ? 'info' : 'primary'">
+                                            {{ message.messageType === 'FEEDBACK' ? '反馈消息' : '分享消息' }}
+                                        </el-tag>
+                                        <span>{{ message.createTimeText }}</span>
+                                    </div>
+                                    <strong class="message-card__title">{{ message.title || '未命名消息' }}</strong>
+                                    <p class="message-card__subtitle">{{ message.subtitle }}</p>
+                                    <p v-if="message.body" class="message-card__body">{{ message.body }}</p>
+                                    <div class="message-card__actions">
+                                        <el-button
+                                            v-if="!message.read"
+                                            size="small"
+                                            plain
+                                            @click="markInboxRead(message)"
+                                        >
+                                            标记已读
+                                        </el-button>
+                                        <el-button
+                                            v-if="!message.messageType || message.messageType === 'SHARE'"
+                                            size="small"
+                                            type="primary"
+                                            @click="openInboxShare(message)"
+                                        >
+                                            打开
+                                        </el-button>
+                                        <el-button
+                                            v-if="!message.messageType || message.messageType === 'SHARE'"
+                                            size="small"
+                                            @click="openForwardDialogForMessage(message)"
+                                        >
+                                            转发
+                                        </el-button>
+                                        <el-button
+                                            size="small"
+                                            type="danger"
+                                            plain
+                                            @click="deleteInboxMessage(message)"
+                                        >
+                                            删除
+                                        </el-button>
+                                    </div>
+                                </article>
+                            </div>
+                        </el-tab-pane>
+                        <el-tab-pane label="我要反馈" name="messages-feedback">
+                            <el-form :model="feedbackForm" label-position="top" class="message-feedback-form">
+                                <el-form-item label="反馈类型">
+                                    <el-select v-model="feedbackForm.category" style="width: 100%">
+                                        <el-option
+                                            v-for="item in feedbackCategories"
+                                            :key="item.value"
+                                            :label="item.label"
+                                            :value="item.value"
+                                        ></el-option>
+                                    </el-select>
+                                </el-form-item>
+                                <el-form-item label="反馈标题">
+                                    <el-input v-model="feedbackForm.title" placeholder="例如：分享提醒不及时"></el-input>
+                                </el-form-item>
+                                <el-form-item label="反馈内容">
+                                    <el-input
+                                        v-model="feedbackForm.body"
+                                        type="textarea"
+                                        :rows="5"
+                                        placeholder="请尽量描述复现步骤、问题现象或改进建议"
+                                    ></el-input>
+                                </el-form-item>
+                                <div class="message-feedback-form__actions">
+                                    <el-button @click="feedbackForm = { category: 'GENERAL', title: '', body: '' }">重置</el-button>
+                                    <el-button type="primary" @click="submitFeedback">提交反馈</el-button>
+                                </div>
+                            </el-form>
+                        </el-tab-pane>
+                    </el-tabs>
+                </section>
+            </transition>
+            <button class="message-center-trigger" type="button" @click="messageCenterVisible = !messageCenterVisible">
+                <el-badge :value="inboxUnreadCount" :hidden="!inboxUnreadCount">
+                    <span class="message-center-trigger__icon">信</span>
+                </el-badge>
+                <span class="message-center-trigger__text">消息中心</span>
+            </button>
+        </div>
+
+        <el-dialog v-model="showForwardDialog" title="转发分享" width="420px">
+            <el-form label-position="top">
+                <el-form-item label="当前消息">
+                    <div class="message-forward-summary">
+                        <strong>{{ forwardMessageTarget?.title || '未命名消息' }}</strong>
+                        <span>{{ forwardMessageTarget?.subtitle || '请选择接收人后完成转发' }}</span>
+                    </div>
+                </el-form-item>
+                <el-form-item label="接收用户">
+                    <el-select
+                        v-model="forwardRecipientUserIds"
+                        multiple
+                        filterable
+                        collapse-tags
+                        collapse-tags-tooltip
+                        :loading="recipientLoading"
+                        placeholder="选择接收分享的用户"
+                        style="width: 100%"
+                    >
+                        <el-option
+                            v-for="recipient in recipientList"
+                            :key="recipient.id"
+                            :label="recipient.nickname ? (recipient.nickname + '（' + recipient.username + '）') : recipient.username"
+                            :value="recipient.id"
+                        ></el-option>
+                    </el-select>
+                </el-form-item>
+            </el-form>
+            <template #footer>
+                <el-button @click="showForwardDialog = false">取消</el-button>
+                <el-button type="primary" @click="forwardInboxMessage">确认转发</el-button>
+            </template>
+        </el-dialog>
+
         <!-- Help Dialog -->
         <el-dialog v-model="showHelpDialog" width="860px" class="knowledge-dialog">
             <template #header>
@@ -1419,6 +1730,10 @@
     <script src="/js/permission-ui-helpers.js"></script>
     <script src="/js/login-error-helpers.js"></script>
     <script src="/js/download-manager.js"></script>
+    <script src="/js/transfer-ui-helpers.js"></script>
+    <script src="/js/file-list-ui-helpers.js"></script>
+    <script src="/js/url-helpers.js"></script>
+    <script src="/js/message-center-helpers.js"></script>
     <script src="/js/app.js"></script>
 </body>
 </html>

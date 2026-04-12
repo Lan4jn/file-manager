@@ -39,12 +39,15 @@ public class FileService {
     @Value("${minio.public-url:}")
     private String publicUrl;
 
+    @Value("${minio.presigned-expiry-seconds:900}")
+    private Integer presignedExpirySeconds;
+
     public FileService(MinioClient minioClient, ConfigService configService) {
         this.support = new FileDomainSupport(minioClient, configService);
         this.bucketService = new BucketService(minioClient);
         this.fileQueryService = new FileQueryService(minioClient, support);
         this.fileCommandService = new FileCommandService(minioClient, support);
-        this.archiveService = new ArchiveService(support, fileQueryService);
+        this.archiveService = new ArchiveService(support, fileQueryService, configService);
     }
 
     public List<BucketInfo> listBuckets(String sortBy, String order) {
@@ -71,12 +74,29 @@ public class FileService {
         return fileCommandService.uploadFile(file, folder, bucket, defaultBucket, publicUrl);
     }
 
+    public FileDomainSupport.PreparedUpload prepareDirectUpload(String fileName, Long size, String folder, String bucket) {
+        return fileCommandService.prepareDirectUpload(fileName, size, folder, bucket, defaultBucket);
+    }
+
+    public UploadResponse completeDirectUpload(String bucket,
+                                               String objectName,
+                                               String fileName,
+                                               String contentType,
+                                               Long expectedSize) {
+        return fileCommandService.completeDirectUpload(bucket, objectName, fileName, contentType, expectedSize, publicUrl);
+    }
+
     public List<FileInfo> listFiles(String folder, String bucket, String sortBy, String order) {
         return fileQueryService.listFiles(folder, bucket, defaultBucket, publicUrl, sortBy, order);
     }
 
     public PageResult<FileInfo> listFiles(String folder, String bucket, String sortBy, String order, int page, int size) {
         return fileQueryService.listFiles(folder, bucket, defaultBucket, publicUrl, sortBy, order, page, size);
+    }
+
+    public PageResult<FileInfo> listFiles(String folder, String bucket, String sortBy, String order,
+                                          boolean folderFirst, int page, int size) {
+        return fileQueryService.listFiles(folder, bucket, defaultBucket, publicUrl, sortBy, order, folderFirst, page, size);
     }
 
     public void deleteFile(String objectName, String bucket) {
@@ -121,6 +141,16 @@ public class FileService {
 
     public String getPreviewUrl(String objectName, String bucket) {
         return fileQueryService.getPreviewUrl(objectName, bucket, defaultBucket, publicUrl);
+    }
+
+    public String getPresignedDownloadUrl(String objectName, String bucket, String fileName) {
+        String resolvedBucket = support.resolveBucket(bucket, defaultBucket);
+        return support.getPresignedDownloadUrl(resolvedBucket, objectName, fileName, presignedExpirySeconds);
+    }
+
+    public String getPresignedUploadUrl(String objectName, String bucket) {
+        String resolvedBucket = support.resolveBucket(bucket, defaultBucket);
+        return support.getPresignedUploadUrl(resolvedBucket, objectName, presignedExpirySeconds);
     }
 
     public void assertPreviewSupported(FileInfo fileInfo) {

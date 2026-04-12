@@ -3,6 +3,7 @@ package com.lan4jn.file.common;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.web.context.request.async.AsyncRequestNotUsableException;
+import org.springframework.http.converter.HttpMessageNotReadableException;
 import org.springframework.web.bind.annotation.ExceptionHandler;
 import org.springframework.web.bind.annotation.RestControllerAdvice;
 import org.springframework.web.multipart.MaxUploadSizeExceededException;
@@ -37,6 +38,12 @@ public class GlobalExceptionHandler {
     public Result<Void> handleRuntimeException(RuntimeException e) {
         log.error("Runtime exception: {}", e.getMessage(), e);
         return Result.error(e.getMessage());
+    }
+
+    @ExceptionHandler(HttpMessageNotReadableException.class)
+    public Result<Void> handleHttpMessageNotReadableException(HttpMessageNotReadableException e) {
+        log.warn("Malformed request body: {}", e.getMessage());
+        return Result.error(400, "请求体格式错误");
     }
 
     @ExceptionHandler(MaxUploadSizeExceededException.class)

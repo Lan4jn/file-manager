@@ -4,21 +4,30 @@ import cn.hutool.core.util.StrUtil;
 import com.lan4jn.file.dto.UploadResponse;
 import com.lan4jn.file.model.FileInfo;
 import io.minio.GetObjectArgs;
+import io.minio.GetPresignedObjectUrlArgs;
 import io.minio.MinioClient;
 import io.minio.RemoveObjectArgs;
 import io.minio.PutObjectArgs;
 import io.minio.StatObjectArgs;
 import io.minio.StatObjectResponse;
+import io.minio.http.Method;
 import io.minio.messages.Item;
+import org.springframework.web.util.UriUtils;
 
 import java.io.ByteArrayInputStream;
 import java.io.InputStream;
+import java.nio.charset.StandardCharsets;
 import java.time.LocalDateTime;
 import java.time.ZoneId;
+import java.time.ZonedDateTime;
+import java.util.Arrays;
 import java.util.Collections;
+import java.util.LinkedHashMap;
+import java.util.Map;
 import java.util.Set;
+import java.util.stream.Collectors;
 
-final class FileDomainSupport {
+public final class FileDomainSupport {
 
     private final MinioClient minioClient;
     private final ConfigService configService;
@@ -45,17 +54,8 @@ final class FileDomainSupport {
         fileInfo.setFileName(getFileName(objectName));
         fileInfo.setSize(item.size());
         fileInfo.setIsFolder(isFolder);
-        try {
-            if (item.lastModified() != null) {
-                fileInfo.setUploadTime(LocalDateTime.ofInstant(
-                        item.lastModified().toInstant(), ZoneId.systemDefault()));
-            } else {
-                fileInfo.setUploadTime(LocalDateTime.now());
-            }
-        } catch (Exception e) {
-            fileInfo.setUploadTime(LocalDateTime.now());
-        }
-        fileInfo.setUrl(publicUrl + "/" + bucket + "/" + objectName);
+        fileInfo.setUploadTime(resolveUploadTime(item));
+        fileInfo.setUrl(buildPublicObjectUrl(publicUrl, bucket, objectName));
         return fileInfo;
     }
 
@@ -66,9 +66,8 @@ final class FileDomainSupport {
         fileInfo.setSize(stat.size());
         fileInfo.setContentType(stat.contentType());
         fileInfo.setEtag(stat.etag());
-        fileInfo.setUploadTime(LocalDateTime.ofInstant(
-                stat.lastModified().toInstant(), ZoneId.systemDefault()));
-        fileInfo.setUrl(publicUrl + "/" + bucket + "/" + objectName);
+        fileInfo.setUploadTime(resolveUploadTime(stat));
+        fileInfo.setUrl(buildPublicObjectUrl(publicUrl, bucket, objectName));
         fileInfo.setIsFolder(objectName.endsWith("/"));
         return fileInfo;
     }
@@ -80,9 +79,97 @@ final class FileDomainSupport {
         response.setFileName(originalFilename);
         response.setSize(size);
         response.setContentType(contentType);
-        response.setUrl(publicUrl + "/" + bucket + "/" + objectName);
+        response.setUrl(buildPublicObjectUrl(publicUrl, bucket, objectName));
         response.setEtag(stat.etag());
         return response;
+    }
+
+    LocalDateTime resolveUploadTime(Item item) {
+        if (item == null) {
+            return null;
+        }
+        try {
+            ZonedDateTime lastModified = item.lastModified();
+            if (lastModified == null) {
+                return null;
+            }
+            return LocalDateTime.ofInstant(lastModified.toInstant(), ZoneId.systemDefault());
+        } catch (Exception e) {
+            return null;
+        }
+    }
+
+    LocalDateTime resolveUploadTime(StatObjectResponse stat) {
+        if (stat == null) {
+            return null;
+        }
+        try {
+            ZonedDateTime lastModified = stat.lastModified();
+            if (lastModified == null) {
+                return null;
+            }
+            return LocalDateTime.ofInstant(lastModified.toInstant(), ZoneId.systemDefault());
+        } catch (Exception e) {
+            return null;
+        }
+    }
+
+    String buildPublicObjectUrl(String publicUrl, String bucket, String objectName) {
+        if (StrUtil.isBlank(publicUrl)) {
+            return "";
+        }
+        String normalizedBase = publicUrl.endsWith("/")
+                ? publicUrl.substring(0, publicUrl.length() - 1)
+                : publicUrl;
+        String encodedBucket = UriUtils.encodePathSegment(bucket, StandardCharsets.UTF_8);
+        String encodedObjectName = Arrays.stream((objectName == null ? "" : objectName).split("/", -1))
+                .map(segment -> UriUtils.encodePathSegment(segment, StandardCharsets.UTF_8))
+                .collect(Collectors.joining("/"));
+        return normalizedBase + "/" + encodedBucket + "/" + encodedObjectName;
+    }
+
+    String getPresignedDownloadUrl(String bucket, String objectName, String fileName, Integer expirySeconds) {
+        try {
+            Map<String, String> extraQueryParams = new LinkedHashMap<>();
+            if (StrUtil.isNotBlank(fileName)) {
+                extraQueryParams.put("response-content-disposition",
+                        "attachment; filename*=UTF-8''" + UriUtils.encode(fileName, StandardCharsets.UTF_8));
+            }
+            return minioClient.getPresignedObjectUrl(
+                    GetPresignedObjectUrlArgs.builder()
+                            .method(Method.GET)
+                            .bucket(bucket)
+                            .object(objectName)
+                            .expiry(expirySeconds)
+                            .extraQueryParams(extraQueryParams)
+                            .build()
+            );
+        } catch (Exception e) {
+            throw new RuntimeException("生成下载直链失败: " + e.getMessage(), e);
+        }
+    }
+
+    String getPresignedUploadUrl(String bucket, String objectName, Integer expirySeconds) {
+        try {
+            return minioClient.getPresignedObjectUrl(
+                    GetPresignedObjectUrlArgs.builder()
+                            .method(Method.PUT)
+                            .bucket(bucket)
+                            .object(objectName)
+                            .expiry(expirySeconds)
+                            .build()
+            );
+        } catch (Exception e) {
+            throw new RuntimeException("生成上传直传地址失败: " + e.getMessage(), e);
+        }
+    }
+
+    PreparedUpload prepareUpload(String originalFilename, Long size, String folder, String bucket, String defaultBucket) {
+        String normalizedFileName = normalizeFileName(originalFilename);
+        validateUploadRequest(normalizedFileName, size);
+        String resolvedBucket = resolveBucket(bucket, defaultBucket);
+        String objectName = generateObjectName(folder, normalizedFileName, resolvedBucket);
+        return new PreparedUpload(resolvedBucket, objectName, normalizedFileName, size == null ? 0L : Math.max(size, 0L));
     }
 
     InputStream getFileStream(String objectName, String bucket, String defaultBucket) {
@@ -213,6 +300,27 @@ final class FileDomainSupport {
         return configService.getMaxFileSize();
     }
 
+    void validateUploadRequest(String filename, Long size) {
+        String normalizedFileName = normalizeFileName(filename);
+        String extension = getFileExtension(normalizedFileName).toLowerCase();
+        Set<String> allowedExtensions = getAllowedExtensions();
+        if (!allowedExtensions.isEmpty() && !allowedExtensions.contains(extension)) {
+            throw new RuntimeException("不允许上传此类型文件: " + extension);
+        }
+        long actualSize = size == null ? 0L : Math.max(size, 0L);
+        Long maxSize = getMaxFileSize();
+        if (maxSize > 0 && actualSize > maxSize) {
+            throw new RuntimeException("文件大小超出限制: 最大" + formatSize(maxSize));
+        }
+    }
+
+    String normalizeFileName(String filename) {
+        if (filename == null || filename.trim().isEmpty()) {
+            throw new IllegalArgumentException("fileName不能为空");
+        }
+        return filename.trim();
+    }
+
     String getFileExtension(String filename) {
         if (filename == null || !filename.contains(".")) {
             return "";
@@ -252,6 +360,36 @@ final class FileDomainSupport {
             return true;
         } catch (Exception e) {
             return false;
+        }
+    }
+
+    public static class PreparedUpload {
+        private final String bucket;
+        private final String objectName;
+        private final String fileName;
+        private final long size;
+
+        public PreparedUpload(String bucket, String objectName, String fileName, long size) {
+            this.bucket = bucket;
+            this.objectName = objectName;
+            this.fileName = fileName;
+            this.size = size;
+        }
+
+        public String getBucket() {
+            return bucket;
+        }
+
+        public String getObjectName() {
+            return objectName;
+        }
+
+        public String getFileName() {
+            return fileName;
+        }
+
+        public long getSize() {
+            return size;
         }
     }
 }
