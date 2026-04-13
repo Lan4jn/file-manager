@@ -6,6 +6,7 @@ import com.lan4jn.file.dto.UserDTO;
 import com.lan4jn.file.entity.User;
 import com.lan4jn.file.repository.UserRepository;
 import com.lan4jn.file.service.AppInfoService;
+import com.lan4jn.file.service.ConfigService;
 import com.lan4jn.file.service.LoginChallengeService;
 import com.lan4jn.file.service.LoginProtectionService;
 import com.lan4jn.file.service.PermissionResolverService;
@@ -42,6 +43,7 @@ public class AuthController {
     private final UserService userService;
     private final LoginProtectionService loginProtectionService;
     private final LoginChallengeService loginChallengeService;
+    private final ConfigService configService;
 
     @org.springframework.beans.factory.annotation.Value("${app.security.http-port:-1}")
     private int httpPort;
@@ -59,7 +61,8 @@ public class AuthController {
                           PermissionResolverService permissionResolverService,
                           UserService userService,
                           LoginProtectionService loginProtectionService,
-                          LoginChallengeService loginChallengeService) {
+                          LoginChallengeService loginChallengeService,
+                          ConfigService configService) {
         this.jwtTokenUtil = jwtTokenUtil;
         this.userRepository = userRepository;
         this.passwordEncoder = passwordEncoder;
@@ -68,6 +71,7 @@ public class AuthController {
         this.userService = userService;
         this.loginProtectionService = loginProtectionService;
         this.loginChallengeService = loginChallengeService;
+        this.configService = configService;
     }
 
     @GetMapping("/login-challenge")
@@ -192,6 +196,7 @@ public class AuthController {
         data.put("httpsPort", httpsPort);
         data.put("forceHttps", forceHttps);
         data.put("appVersion", appInfoService.getCurrentVersion());
+        data.put("fileRowHiddenActions", configService.getFileRowHiddenActions());
         return Result.success(data);
     }
 

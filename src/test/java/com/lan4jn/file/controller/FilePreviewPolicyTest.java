@@ -4,6 +4,7 @@ import com.lan4jn.file.common.GlobalExceptionHandler;
 import com.lan4jn.file.model.FileInfo;
 import com.lan4jn.file.service.ConfigService;
 import com.lan4jn.file.service.FileService;
+import com.lan4jn.file.service.FileTransferService;
 import com.lan4jn.file.service.OperationLogService;
 import com.lan4jn.file.service.PermissionAssertService;
 import org.junit.jupiter.api.BeforeEach;
@@ -30,6 +31,7 @@ class FilePreviewPolicyTest {
         ConfigService configService = mock(ConfigService.class);
         PermissionAssertService permissionAssertService = mock(PermissionAssertService.class);
         OperationLogService operationLogService = mock(OperationLogService.class);
+        FileTransferService fileTransferService = mock(FileTransferService.class);
 
         FileInfo fileInfo = new FileInfo();
         fileInfo.setFileName("tool.exe");
@@ -45,7 +47,7 @@ class FilePreviewPolicyTest {
         when(fileService.getFileStream("docs/app.yml", "bucket-a"))
                 .thenReturn(new ByteArrayInputStream("server:\n  port: 8080".getBytes()));
 
-        mockMvc = MockMvcBuilders.standaloneSetup(new FileController(fileService, configService, permissionAssertService, operationLogService))
+        mockMvc = MockMvcBuilders.standaloneSetup(new FileController(fileService, configService, permissionAssertService, operationLogService, fileTransferService))
                 .setControllerAdvice(new GlobalExceptionHandler())
                 .build();
     }

@@ -40,9 +40,8 @@ class FileCommandServiceTest {
     void shouldRejectUploadWhenExtensionIsNotAllowed() {
         MultipartFile multipartFile = mock(MultipartFile.class);
         when(multipartFile.getOriginalFilename()).thenReturn("tool.exe");
-        when(support.resolveBucket("", "bucket-a")).thenReturn("bucket-a");
-        when(support.getFileExtension("tool.exe")).thenReturn("exe");
-        when(support.getAllowedExtensions()).thenReturn(Set.of("txt"));
+        when(support.prepareUpload("tool.exe", 0L, "", "", "bucket-a"))
+                .thenThrow(new RuntimeException("不允许上传此类型文件: exe"));
 
         RuntimeException exception = assertThrows(RuntimeException.class,
                 () -> fileCommandService.uploadFile(multipartFile, "", "", "bucket-a", "http://public"));

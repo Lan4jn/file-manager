@@ -358,6 +358,18 @@
                                             下载
                                         </el-button>
                                     </el-tooltip>
+                                    <el-tooltip content="批量移动" placement="top">
+                                        <el-button v-if="hasApiPermission('API_FILE_OPERATE') && hasBucketPermission(currentBucket, 'BATCH')" size="small" @click="batchMove">
+                                            <el-icon><Rank /></el-icon>
+                                            移动
+                                        </el-button>
+                                    </el-tooltip>
+                                    <el-tooltip content="批量复制" placement="top">
+                                        <el-button v-if="hasApiPermission('API_FILE_OPERATE') && hasBucketPermission(currentBucket, 'BATCH')" size="small" @click="batchCopy">
+                                            <el-icon><CopyDocument /></el-icon>
+                                            复制
+                                        </el-button>
+                                    </el-tooltip>
                                     <el-tooltip content="批量删除" placement="top">
                                         <el-button v-if="hasApiPermission('API_FILE_OPERATE') && hasBucketPermission(currentBucket, 'BATCH')" type="danger" size="small" @click="batchDelete">
                                             <el-icon><Delete /></el-icon>
@@ -401,39 +413,38 @@
                                         <span v-else>{{ row.uploadTime || '-' }}</span>
                                     </template>
                                 </el-table-column>
-                                <el-table-column label="操作" width="320">
+                                <el-table-column label="操作" width="340">
                                     <template #default="{ row }">
-                                        <el-tooltip content="下载文件到本地" placement="top" effect="light">
-                                            <el-button
-                                                v-if="hasApiPermission('API_FILE_OPERATE') && hasBucketPermission(currentBucket, 'DOWNLOAD')"
-                                                size="small"
-                                                :disabled="row.syncing"
-                                                @click="downloadFile(row)"
-                                            >
-                                                <el-icon><Download /></el-icon>
+                                        <template v-for="action in getFileRowActions(row).primary" :key="action.code">
+                                            <el-tooltip :content="action.label" placement="top" effect="light">
+                                                <el-button
+                                                    size="small"
+                                                    :type="action.type || 'default'"
+                                                    :disabled="row.syncing || action.disabled"
+                                                    @click="action.onClick"
+                                                >
+                                                    {{ action.label }}
+                                                </el-button>
+                                            </el-tooltip>
+                                        </template>
+                                        <el-dropdown v-if="getFileRowActions(row).hasMore" trigger="click">
+                                            <el-button size="small" :disabled="row.syncing">
+                                                更多
+                                                <el-icon class="el-icon--right"><ArrowDown /></el-icon>
                                             </el-button>
-                                        </el-tooltip>
-                                        <el-tooltip content="创建分享链接供他人下载" placement="top" effect="light">
-                                            <el-button
-                                                v-if="hasApiPermission('API_SHARE_MANAGE') && hasBucketPermission(currentBucket, 'SHARE')"
-                                                size="small"
-                                                :disabled="row.syncing"
-                                                @click="shareFile(row)"
-                                            >
-                                                <el-icon><Share /></el-icon>
-                                            </el-button>
-                                        </el-tooltip>
-                                        <el-tooltip content="删除文件或文件夹" placement="top" effect="light">
-                                            <el-button
-                                                v-if="hasApiPermission('API_FILE_OPERATE') && hasBucketPermission(currentBucket, 'DELETE')"
-                                                size="small"
-                                                type="danger"
-                                                :disabled="row.syncing"
-                                                @click="deleteFile(row)"
-                                            >
-                                                <el-icon><Delete /></el-icon>
-                                            </el-button>
-                                        </el-tooltip>
+                                            <template #dropdown>
+                                                <el-dropdown-menu>
+                                                    <el-dropdown-item
+                                                        v-for="action in getFileRowActions(row).more"
+                                                        :key="action.code"
+                                                        :disabled="row.syncing || action.disabled"
+                                                        @click="action.onClick"
+                                                    >
+                                                        <span :style="{ color: action.type === 'danger' ? '#f56c6c' : '' }">{{ action.label }}</span>
+                                                    </el-dropdown-item>
+                                                </el-dropdown-menu>
+                                            </template>
+                                        </el-dropdown>
                                         <span v-if="row.syncing" class="file-action-hint">同步完成后可操作</span>
                                     </template>
                                 </el-table-column>
@@ -752,6 +763,17 @@
                                     ></el-option>
                                 </el-select>
                             </el-form-item>
+                            <el-form-item label="列表收纳按钮">
+                                <el-checkbox-group v-model="fileConfig.fileRowHiddenActions">
+                                    <el-checkbox
+                                        v-for="item in fileRowActionOptions"
+                                        :key="item.value"
+                                        :label="item.value"
+                                    >
+                                        {{ item.label }}
+                                    </el-checkbox>
+                                </el-checkbox-group>
+                            </el-form-item>
                             <el-form-item label="上传机制顺序">
                                 <div class="transport-priority-editor">
                                     <div
@@ -1026,6 +1048,50 @@
                     :loading="uploading"
                 >
                     上传
+                </el-button>
+            </template>
+        </el-dialog>
+
+        <el-dialog v-model="showTransferDialog" :title="transferState.operation === 'MOVE' ? '移动文件' : '复制文件'" width="560px">
+            <el-alert type="info" :closable="false" style="margin-bottom: 15px">
+                {{ transferSummary }}
+            </el-alert>
+            <el-descriptions :column="1" border size="small" style="margin-bottom: 15px">
+                <el-descriptions-item label="当前存储桶">{{ currentBucket }}</el-descriptions-item>
+                <el-descriptions-item label="目标目录">{{ transferTargetLabel }}</el-descriptions-item>
+            </el-descriptions>
+            <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 12px;">
+                <span style="font-weight: 600;">可选目录</span>
+                <div style="display: flex; gap: 8px;">
+                    <el-button size="small" @click="backTransferFolder">返回上级</el-button>
+                    <el-button size="small" @click="loadTransferFolderOptions(transferState.targetFolder)">刷新</el-button>
+                </div>
+            </div>
+            <el-table :data="transferState.folderOptions" size="small" max-height="320">
+                <el-table-column prop="fileName" label="目录名">
+                    <template #default="{ row }">
+                        <el-button text @click="enterTransferFolder(row)">
+                            <el-icon><Folder /></el-icon>
+                            <span style="margin-left: 6px;">{{ row.fileName }}</span>
+                        </el-button>
+                    </template>
+                </el-table-column>
+                <el-table-column label="路径" min-width="220">
+                    <template #default="{ row }">
+                        <span>{{ row.objectName }}</span>
+                    </template>
+                </el-table-column>
+                <el-table-column label="操作" width="110" align="center">
+                    <template #default="{ row }">
+                        <el-button text type="primary" @click="loadTransferFolderOptions(row.objectName)">选择</el-button>
+                    </template>
+                </el-table-column>
+            </el-table>
+            <el-empty v-if="!transferState.folderOptions.length" description="当前目录下没有子目录"></el-empty>
+            <template #footer>
+                <el-button @click="showTransferDialog = false">取消</el-button>
+                <el-button type="primary" @click="confirmTransfer">
+                    选择当前目录并{{ transferState.operation === 'MOVE' ? '移动' : '复制' }}
                 </el-button>
             </template>
         </el-dialog>
@@ -1733,6 +1799,8 @@
     <script src="/js/transfer-ui-helpers.js"></script>
     <script src="/js/file-list-ui-helpers.js"></script>
     <script src="/js/upload-dialog-helpers.js"></script>
+    <script src="/js/file-action-visibility-helpers.js"></script>
+    <script src="/js/file-transfer-helpers.js"></script>
     <script src="/js/url-helpers.js"></script>
     <script src="/js/message-center-helpers.js"></script>
     <script src="/js/app.js"></script>

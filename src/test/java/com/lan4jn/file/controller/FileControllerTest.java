@@ -1,14 +1,18 @@
 package com.lan4jn.file.controller;
 
 import com.lan4jn.file.common.GlobalExceptionHandler;
+import com.lan4jn.file.dto.FileTransferExecuteResponse;
+import com.lan4jn.file.dto.FileTransferPreviewResponse;
 import com.lan4jn.file.dto.UploadResponse;
 import com.lan4jn.file.model.BucketInfo;
 import com.lan4jn.file.model.FileInfo;
 import com.lan4jn.file.service.ConfigService;
 import com.lan4jn.file.service.FileService;
+import com.lan4jn.file.service.FileTransferService;
 import com.lan4jn.file.service.OperationLogService;
 import com.lan4jn.file.service.PermissionAssertService;
 import com.lan4jn.file.service.PermissionSnapshot;
+import com.lan4jn.file.rbac.BucketAction;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.http.HttpHeaders;
@@ -33,7 +37,9 @@ import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.when;
+import static org.mockito.Mockito.doThrow;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.header;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
@@ -46,6 +52,7 @@ class FileControllerTest {
     private PermissionAssertService permissionAssertService;
     private ConfigService configService;
     private OperationLogService operationLogService;
+    private FileTransferService fileTransferService;
 
     @BeforeEach
     void setUp() {
@@ -53,7 +60,8 @@ class FileControllerTest {
         configService = mock(ConfigService.class);
         permissionAssertService = mock(PermissionAssertService.class);
         operationLogService = mock(OperationLogService.class);
-        mockMvc = MockMvcBuilders.standaloneSetup(new FileController(fileService, configService, permissionAssertService, operationLogService))
+        fileTransferService = mock(FileTransferService.class);
+        mockMvc = MockMvcBuilders.standaloneSetup(new FileController(fileService, configService, permissionAssertService, operationLogService, fileTransferService))
                 .setControllerAdvice(new GlobalExceptionHandler())
                 .build();
     }
@@ -291,5 +299,48 @@ class FileControllerTest {
                 eq("docs/new-folder"),
                 any()
         );
+    }
+
+    @Test
+    void shouldPreviewTransferThroughUnifiedService() throws Exception {
+        FileTransferPreviewResponse response = new FileTransferPreviewResponse();
+        response.setValid(true);
+        when(fileTransferService.preview(any())).thenReturn(response);
+
+        mockMvc.perform(post("/api/file/transfer/preview")
+                        .contentType("application/json")
+                        .content("{\"operation\":\"COPY\",\"bucket\":\"bucket-a\",\"sources\":[\"docs/readme.txt\"],\"targetFolder\":\"archive/\",\"conflictPolicy\":\"ASK\"}"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.valid").value(true));
+
+        verify(permissionAssertService).assertApiPermission("API_FILE_OPERATE");
+        verify(permissionAssertService).assertBucketPermission("bucket-a", BucketAction.BATCH);
+    }
+
+    @Test
+    void shouldExecuteTransferThroughUnifiedService() throws Exception {
+        FileTransferExecuteResponse response = new FileTransferExecuteResponse();
+        response.setSuccessCount(1);
+        when(fileTransferService.execute(any())).thenReturn(response);
+
+        mockMvc.perform(post("/api/file/transfer/execute")
+                        .contentType("application/json")
+                        .content("{\"operation\":\"MOVE\",\"bucket\":\"bucket-a\",\"sources\":[\"docs/readme.txt\"],\"targetFolder\":\"archive/\",\"conflictPolicy\":\"OVERWRITE\"}"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.successCount").value(1));
+
+        verify(permissionAssertService).assertApiPermission("API_FILE_OPERATE");
+        verify(permissionAssertService).assertBucketPermission("bucket-a", BucketAction.BATCH);
+    }
+
+    @Test
+    void shouldRejectTransferPreviewWhenBucketIsBlankAndSourcesMissing() throws Exception {
+        doThrow(new IllegalArgumentException("sources不能为空")).when(fileTransferService).preview(any());
+
+        mockMvc.perform(post("/api/file/transfer/preview")
+                        .contentType("application/json")
+                        .content("{\"operation\":\"COPY\",\"bucket\":\" \",\"sources\":[],\"targetFolder\":\"archive/\",\"conflictPolicy\":\"ASK\"}"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.code").value(400));
     }
 }

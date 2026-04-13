@@ -37,6 +37,7 @@ public class ConfigController {
         config.put("downloadTransportPriority", configService.getDownloadTransportPriority());
         config.put("uploadDialogMode", configService.getUploadDialogMode());
         config.put("fileDropMode", configService.getFileDropMode());
+        config.put("fileRowHiddenActions", configService.getFileRowHiddenActions());
         return Result.success(config);
     }
 }

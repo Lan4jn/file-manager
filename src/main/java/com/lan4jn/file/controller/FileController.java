@@ -2,11 +2,16 @@ package com.lan4jn.file.controller;
 
 import com.lan4jn.file.common.PageResult;
 import com.lan4jn.file.common.Result;
+import com.lan4jn.file.dto.FileTransferExecuteRequest;
+import com.lan4jn.file.dto.FileTransferExecuteResponse;
+import com.lan4jn.file.dto.FileTransferPreviewRequest;
+import com.lan4jn.file.dto.FileTransferPreviewResponse;
 import com.lan4jn.file.dto.UploadResponse;
 import com.lan4jn.file.model.BucketInfo;
 import com.lan4jn.file.model.FileInfo;
 import com.lan4jn.file.service.ConfigService;
 import com.lan4jn.file.service.FileService;
+import com.lan4jn.file.service.FileTransferService;
 import com.lan4jn.file.service.OperationLogService;
 import com.lan4jn.file.service.PermissionAssertService;
 import com.lan4jn.file.service.PermissionSnapshot;
@@ -55,16 +60,19 @@ public class FileController {
     private final ConfigService configService;
     private final PermissionAssertService permissionAssertService;
     private final OperationLogService operationLogService;
+    private final FileTransferService fileTransferService;
     private final ExecutorService executorService = Executors.newCachedThreadPool();
 
     public FileController(FileService fileService,
                           ConfigService configService,
                           PermissionAssertService permissionAssertService,
-                          OperationLogService operationLogService) {
+                          OperationLogService operationLogService,
+                          FileTransferService fileTransferService) {
         this.fileService = fileService;
         this.configService = configService;
         this.permissionAssertService = permissionAssertService;
         this.operationLogService = operationLogService;
+        this.fileTransferService = fileTransferService;
     }
 
     @GetMapping("/buckets")
@@ -193,6 +201,22 @@ public class FileController {
         log.info("Batch deleting {} files, bucket: {}", objectNames.size(), bucket);
         fileService.deleteFiles(objectNames, bucket);
         return Result.success();
+    }
+
+    @PostMapping("/transfer/preview")
+    public Result<FileTransferPreviewResponse> previewTransfer(@RequestBody FileTransferPreviewRequest request) {
+        String bucket = RequestValidationUtils.optionalText(request.getBucket(), "bucket");
+        permissionAssertService.assertApiPermission(PermissionCodes.API_FILE_OPERATE);
+        permissionAssertService.assertBucketPermission(resolveBucket(bucket), BucketAction.BATCH);
+        return Result.success(fileTransferService.preview(request));
+    }
+
+    @PostMapping("/transfer/execute")
+    public Result<FileTransferExecuteResponse> executeTransfer(@RequestBody FileTransferExecuteRequest request) {
+        String bucket = RequestValidationUtils.optionalText(request.getBucket(), "bucket");
+        permissionAssertService.assertApiPermission(PermissionCodes.API_FILE_OPERATE);
+        permissionAssertService.assertBucketPermission(resolveBucket(bucket), BucketAction.BATCH);
+        return Result.success(fileTransferService.execute(request));
     }
 
     @PostMapping("/folder")

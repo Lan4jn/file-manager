@@ -212,7 +212,7 @@ public class TransferProxyService {
                 objectName,
                 fileInfo.getFileName()
         ));
-        populateDownloadSessionResponse(response, bucket, objectName, fileInfo.getFileName());
+        populateDownloadSessionResponse(response, bucket, objectName, fileInfo);
         return response;
     }
 
@@ -236,7 +236,7 @@ public class TransferProxyService {
                 response,
                 requireText(bucket, "bucket"),
                 requireText(fileInfo.getObjectName(), "objectName"),
-                requireText(fileInfo.getFileName(), "fileName"),
+                fileInfo,
                 downloadUrl
         );
         return response;
@@ -245,7 +245,7 @@ public class TransferProxyService {
     private TransferUploadSessionResponse buildUploadSessionResponse(TransferUploadSessionRequest request,
                                                                     FileDomainSupport.PreparedUpload preparedUpload,
                                                                     String operatorUsername) {
-        List<String> priorities = configService.getUploadTransportPriority();
+        List<String> priorities = resolveUploadPriorities();
         for (String candidate : priorities) {
             if ("DIRECT".equals(candidate)) {
                 try {
@@ -288,12 +288,16 @@ public class TransferProxyService {
     private void populateDownloadSessionResponse(TransferDownloadSessionResponse response,
                                                  String bucket,
                                                  String objectName,
-                                                 String fileName) {
-        for (String candidate : configService.getDownloadTransportPriority()) {
+                                                 FileInfo fileInfo) {
+        if (shouldUseLegacyHybridDownloadMode()) {
+            applyLegacyHybridDownloadMode(response, bucket, objectName, fileInfo, buildApplicationDownloadUrl(bucket, objectName));
+            return;
+        }
+        for (String candidate : resolveDownloadPriorities()) {
             if ("DIRECT".equals(candidate)) {
                 try {
                     response.setMode(TransportMode.DIRECT);
-                    response.setDownloadUrl(fileService.getPresignedDownloadUrl(objectName, bucket, fileName));
+                    response.setDownloadUrl(fileService.getPresignedDownloadUrl(objectName, bucket, fileInfo.getFileName()));
                     return;
                 } catch (RuntimeException ignored) {
                     // continue to next available mechanism
@@ -316,13 +320,17 @@ public class TransferProxyService {
     private void populateShareDownloadSessionResponse(TransferDownloadSessionResponse response,
                                                       String bucket,
                                                       String objectName,
-                                                      String fileName,
+                                                      FileInfo fileInfo,
                                                       String shareDownloadUrl) {
-        for (String candidate : configService.getDownloadTransportPriority()) {
+        if (shouldUseLegacyHybridDownloadMode()) {
+            applyLegacyHybridDownloadMode(response, bucket, objectName, fileInfo, shareDownloadUrl);
+            return;
+        }
+        for (String candidate : resolveDownloadPriorities()) {
             if ("DIRECT".equals(candidate)) {
                 try {
                     response.setMode(TransportMode.DIRECT);
-                    response.setDownloadUrl(fileService.getPresignedDownloadUrl(objectName, bucket, fileName));
+                    response.setDownloadUrl(fileService.getPresignedDownloadUrl(objectName, bucket, fileInfo.getFileName()));
                     return;
                 } catch (RuntimeException ignored) {
                     // continue to next available mechanism
@@ -340,6 +348,57 @@ public class TransferProxyService {
             }
         }
         throw new IllegalStateException("未配置可用的下载机制");
+    }
+
+    private List<String> resolveUploadPriorities() {
+        List<String> priorities = configService.getUploadTransportPriority();
+        if (priorities != null && !priorities.isEmpty()) {
+            return priorities;
+        }
+        String legacyMode = normalizeText(configService.getUploadTransportMode(), "APPLICATION").toUpperCase(Locale.ROOT);
+        if ("DIRECT".equals(legacyMode) || "HYBRID".equals(legacyMode)) {
+            return List.of("DIRECT", "APPLICATION");
+        }
+        return List.of("APPLICATION");
+    }
+
+    private List<String> resolveDownloadPriorities() {
+        List<String> priorities = configService.getDownloadTransportPriority();
+        if (priorities != null && !priorities.isEmpty()) {
+            return priorities;
+        }
+        String legacyMode = normalizeText(configService.getDownloadTransportMode(), "APPLICATION").toUpperCase(Locale.ROOT);
+        if ("DIRECT".equals(legacyMode)) {
+            return List.of("DIRECT", "PROXY", "APPLICATION");
+        }
+        if ("PROXY".equals(legacyMode) || "HYBRID".equals(legacyMode)) {
+            return List.of("PROXY", "APPLICATION");
+        }
+        return List.of("APPLICATION", "PROXY");
+    }
+
+    private boolean shouldUseLegacyHybridDownloadMode() {
+        List<String> priorities = configService.getDownloadTransportPriority();
+        return (priorities == null || priorities.isEmpty())
+                && "HYBRID".equals(normalizeText(configService.getDownloadTransportMode(), "APPLICATION").toUpperCase(Locale.ROOT));
+    }
+
+    private void applyLegacyHybridDownloadMode(TransferDownloadSessionResponse response,
+                                               String bucket,
+                                               String objectName,
+                                               FileInfo fileInfo,
+                                               String applicationDownloadUrl) {
+        long fileSize = fileInfo.getSize() == null ? 0L : fileInfo.getSize();
+        long threshold = configService.getDownloadProxyThresholdBytes() == null
+                ? 0L
+                : configService.getDownloadProxyThresholdBytes();
+        if (threshold > 0 && fileSize >= threshold) {
+            response.setMode(TransportMode.PROXY);
+            response.setDownloadUrl(response.getFallbackUrl());
+            return;
+        }
+        response.setMode(TransportMode.APPLICATION);
+        response.setDownloadUrl(applicationDownloadUrl);
     }
 
     private String buildApplicationDownloadUrl(String bucket, String objectName) {

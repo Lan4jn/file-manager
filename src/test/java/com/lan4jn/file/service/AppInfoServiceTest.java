@@ -3,6 +3,7 @@ package com.lan4jn.file.service;
 import org.junit.jupiter.api.Test;
 
 import java.io.InputStream;
+import java.util.Comparator;
 import java.util.List;
 import java.util.Properties;
 
@@ -28,7 +29,11 @@ class AppInfoServiceTest {
         List<AppInfoService.VersionNoteInfo> versions = appInfoService.listVersionNotes();
 
         assertFalse(versions.isEmpty());
-        assertEquals("v1.6.2", versions.get(0).version());
-        assertEquals("v1.6.2.md", versions.get(0).fileName());
+        List<String> sorted = versions.stream()
+                .map(AppInfoService.VersionNoteInfo::version)
+                .sorted(Comparator.reverseOrder())
+                .toList();
+        assertEquals(sorted.get(0), versions.get(0).version());
+        assertEquals(versions.get(0).version() + ".md", versions.get(0).fileName());
     }
 }

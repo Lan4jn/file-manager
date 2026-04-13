@@ -4,6 +4,7 @@ import com.lan4jn.file.dto.CurrentPermissionInfoDTO;
 import com.lan4jn.file.entity.User;
 import com.lan4jn.file.repository.UserRepository;
 import com.lan4jn.file.service.AppInfoService;
+import com.lan4jn.file.service.ConfigService;
 import com.lan4jn.file.service.LoginChallengeService;
 import com.lan4jn.file.service.LoginProtectionService;
 import com.lan4jn.file.service.PermissionResolverService;
@@ -65,7 +66,8 @@ class AuthControllerTest {
                 permissionResolverService,
                 mock(UserService.class),
                 loginProtectionService,
-                new LoginChallengeService()
+                new LoginChallengeService(),
+                mock(ConfigService.class)
         )).build();
     }
 
@@ -196,7 +198,8 @@ class AuthControllerTest {
                 permissionResolverService,
                 mock(UserService.class),
                 realLoginProtectionService,
-                realLoginChallengeService
+                realLoginChallengeService,
+                mock(ConfigService.class)
         )).build();
 
         localMockMvc.perform(post("/api/auth/login")

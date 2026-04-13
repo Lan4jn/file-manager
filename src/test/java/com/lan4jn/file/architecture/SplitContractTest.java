@@ -55,10 +55,10 @@ class SplitContractTest {
     @Test
     void shouldKeepControllerResponseContractsStable() throws Exception {
         assertEquals(Result.class, FileController.class.getMethod("listBuckets", String.class, String.class).getReturnType());
-        assertEquals(Result.class, FileController.class.getMethod("list", String.class, String.class, String.class, String.class, int.class, int.class).getReturnType());
-        assertEquals(ResponseEntity.class, FileController.class.getMethod("download", String.class, String.class).getReturnType());
+        assertEquals(Result.class, FileController.class.getMethod("list", String.class, String.class, String.class, String.class, boolean.class, int.class, int.class).getReturnType());
+        assertEquals(ResponseEntity.class, FileController.class.getMethod("download", String.class, String.class, String.class).getReturnType());
         assertEquals(Result.class, ShareController.class.getMethod("getShareAccessInfo", String.class).getReturnType());
-        assertEquals(ResponseEntity.class, ShareController.class.getMethod("downloadByShareCode", String.class, String.class).getReturnType());
+        assertEquals(ResponseEntity.class, ShareController.class.getMethod("downloadByShareCode", String.class, String.class, String.class).getReturnType());
     }
 
     @Test
@@ -135,12 +135,13 @@ class SplitContractTest {
             assertTrue(Files.exists(Path.of(file)), "Missing expected test file: " + file);
         }
 
-        String tasks = Files.readString(Path.of("doc/architecture/tasks.md"), StandardCharsets.UTF_8);
-        assertTrue(tasks.contains("11.11"));
-        assertTrue(tasks.contains("11.12"));
-        assertTrue(tasks.contains("11.13"));
-        assertTrue(tasks.contains("11.14"));
-        assertTrue(tasks.contains("11.15"));
+        Path currentPlan = Path.of("docs/superpowers/plans/2026-04-09-v1.7-gap-fixes.md");
+        assertTrue(Files.exists(currentPlan), "Missing expected plan file: " + currentPlan);
+        String tasks = Files.readString(currentPlan, StandardCharsets.UTF_8);
+        assertTrue(tasks.contains("Task 1"));
+        assertTrue(tasks.contains("Task 2"));
+        assertTrue(tasks.contains("Task 3"));
+        assertTrue(tasks.contains("Task 4"));
     }
 
     private void assertHasRoute(Class<?> controllerClass, String methodName, Class<? extends Annotation> mappingType, String path) {

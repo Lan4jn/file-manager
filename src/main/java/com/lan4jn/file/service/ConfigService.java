@@ -30,6 +30,7 @@ public class ConfigService {
     public static final String KEY_DOWNLOAD_PROXY_THRESHOLD = "download_proxy_threshold_bytes";
     public static final String KEY_ARCHIVE_RETENTION_MINUTES = "archive_task_retention_minutes";
     public static final String KEY_ARCHIVE_MAX_CONCURRENT = "archive_task_max_concurrent";
+    public static final String KEY_FILE_ROW_HIDDEN_ACTIONS = "file_row_hidden_actions";
 
     private static final String DEFAULT_TRANSPORT_MODE = "APPLICATION";
     private static final String DEFAULT_UPLOAD_DIALOG_MODE = "INSTANT";
@@ -41,6 +42,8 @@ public class ConfigService {
     private static final List<String> ALLOWED_UPLOAD_TRANSPORT_PRIORITY = Arrays.asList("DIRECT", "APPLICATION");
     private static final List<String> ALLOWED_DOWNLOAD_TRANSPORT_PRIORITY = Arrays.asList("DIRECT", "PROXY", "APPLICATION");
     private static final Set<String> ALLOWED_UPLOAD_DIALOG_MODES = Set.of("MANUAL", "INSTANT");
+    private static final List<String> DEFAULT_FILE_ROW_HIDDEN_ACTIONS = List.of("DELETE", "MOVE", "COPY");
+    private static final Set<String> ALLOWED_FILE_ROW_ACTIONS = Set.of("DELETE", "MOVE", "COPY", "DOWNLOAD", "SHARE", "PREVIEW");
 
     private final ConfigRepository configRepository;
 
@@ -238,6 +241,33 @@ public class ConfigService {
         } catch (NumberFormatException e) {
             return DEFAULT_ARCHIVE_TASK_RETENTION_MINUTES;
         }
+    }
+
+    public List<String> getFileRowHiddenActions() {
+        String raw = getConfig(KEY_FILE_ROW_HIDDEN_ACTIONS, String.join(",", DEFAULT_FILE_ROW_HIDDEN_ACTIONS));
+        List<String> parsed = Arrays.stream(raw.split(","))
+                .map(String::trim)
+                .filter(value -> !value.isEmpty())
+                .map(String::toUpperCase)
+                .filter(ALLOWED_FILE_ROW_ACTIONS::contains)
+                .distinct()
+                .toList();
+        return parsed.isEmpty() ? DEFAULT_FILE_ROW_HIDDEN_ACTIONS : parsed;
+    }
+
+    @Transactional
+    public void setFileRowHiddenActions(List<String> actions) {
+        List<String> normalized = (actions == null ? List.<String>of() : actions).stream()
+                .map(String::valueOf)
+                .map(String::trim)
+                .filter(value -> !value.isEmpty())
+                .map(String::toUpperCase)
+                .filter(ALLOWED_FILE_ROW_ACTIONS::contains)
+                .distinct()
+                .toList();
+        setConfig(KEY_FILE_ROW_HIDDEN_ACTIONS,
+                String.join(",", normalized.isEmpty() ? DEFAULT_FILE_ROW_HIDDEN_ACTIONS : normalized),
+                "文件列表默认收纳到更多菜单的操作按钮");
     }
 
     public Integer getArchiveTaskMaxConcurrent() {

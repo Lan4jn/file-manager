@@ -44,6 +44,7 @@ public class AdminConfigController {
         config.put("downloadProxyThresholdMB", configService.getDownloadProxyThresholdBytes() / 1024 / 1024);
         config.put("archiveTaskRetentionMinutes", configService.getArchiveTaskRetentionMinutes());
         config.put("archiveTaskMaxConcurrent", configService.getArchiveTaskMaxConcurrent());
+        config.put("fileRowHiddenActions", configService.getFileRowHiddenActions());
         return Result.success(config);
     }
 
@@ -144,6 +145,12 @@ public class AdminConfigController {
                 if (maxConcurrent > 0) {
                     configService.setArchiveTaskMaxConcurrent(maxConcurrent);
                 }
+            }
+        }
+        if (configData.containsKey("fileRowHiddenActions")) {
+            Object raw = configData.get("fileRowHiddenActions");
+            if (raw instanceof List) {
+                configService.setFileRowHiddenActions((List<String>) raw);
             }
         }
         return Result.success();

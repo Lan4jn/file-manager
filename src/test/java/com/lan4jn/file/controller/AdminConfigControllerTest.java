@@ -9,6 +9,7 @@ import org.springframework.http.MediaType;
 import org.springframework.test.web.servlet.MockMvc;
 import org.springframework.test.web.servlet.setup.MockMvcBuilders;
 
+import java.util.List;
 import java.util.Set;
 
 import static org.mockito.Mockito.mock;
@@ -56,6 +57,17 @@ class AdminConfigControllerTest {
                 .andExpect(jsonPath("$.code").value(200));
 
         verify(configService).setFrontendDownloadThresholdBytes(104857600L);
+    }
+
+    @Test
+    void shouldSaveFileRowHiddenActions() throws Exception {
+        mockMvc.perform(post("/api/admin/file-config")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"fileRowHiddenActions\":[\"DELETE\",\"MOVE\",\"COPY\"]}"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.code").value(200));
+
+        verify(configService).setFileRowHiddenActions(List.of("DELETE", "MOVE", "COPY"));
     }
 
     @Test
@@ -125,6 +137,7 @@ class AdminConfigControllerTest {
         when(configService.getAllowedExtensions()).thenReturn(Set.of("txt"));
         when(configService.getMaxFileSize()).thenReturn(1024L);
         when(configService.getFrontendDownloadThresholdBytes()).thenReturn(104857600L);
+        when(configService.getFileRowHiddenActions()).thenReturn(List.of("DELETE", "MOVE", "COPY"));
         when(configService.getUploadTransportMode()).thenReturn("DIRECT");
         when(configService.getDownloadTransportMode()).thenReturn("DIRECT");
         when(configService.getUploadProxyThresholdBytes()).thenReturn(268435456L);
@@ -136,6 +149,9 @@ class AdminConfigControllerTest {
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.data.uploadTransportMode").value("DIRECT"))
                 .andExpect(jsonPath("$.data.downloadTransportMode").value("DIRECT"))
+                .andExpect(jsonPath("$.data.fileRowHiddenActions[0]").value("DELETE"))
+                .andExpect(jsonPath("$.data.fileRowHiddenActions[1]").value("MOVE"))
+                .andExpect(jsonPath("$.data.fileRowHiddenActions[2]").value("COPY"))
                 .andExpect(jsonPath("$.data.uploadProxyThresholdMB").value(256))
                 .andExpect(jsonPath("$.data.downloadProxyThresholdMB").value(128))
                 .andExpect(jsonPath("$.data.archiveTaskRetentionMinutes").value(120))

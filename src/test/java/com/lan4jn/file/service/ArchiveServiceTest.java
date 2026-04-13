@@ -25,7 +25,7 @@ class ArchiveServiceTest {
     void setUp() {
         support = mock(FileDomainSupport.class);
         fileQueryService = mock(FileQueryService.class);
-        archiveService = new ArchiveService(support, fileQueryService);
+        archiveService = new ArchiveService(support, fileQueryService, mock(ConfigService.class));
     }
 
     @Test

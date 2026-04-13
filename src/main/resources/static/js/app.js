@@ -144,6 +144,33 @@ const uploadDialogHelpers = window.UploadDialogHelpers || {
     },
     clearClosedUploadTasks: (tasks) => (tasks || []).filter((task) => task && task.status === 'running')
 };
+const fileActionVisibilityHelpers = window.FileActionVisibilityHelpers || {
+    splitRowActions: (actions) => ({ primary: actions || [], more: [], hasMore: false })
+};
+const fileTransferHelpers = window.FileTransferHelpers || {
+    buildTransferSummary: (state) => {
+        const sources = state?.sources || [];
+        return sources.length === 1
+            ? ((state?.operation === 'MOVE' ? '移动 ' : '复制 ') + (sources[0]?.fileName || sources[0]?.objectName || '当前项目'))
+            : ((state?.operation === 'MOVE' ? '移动已选择的 ' : '复制已选择的 ') + sources.length + ' 个项目');
+    },
+    normalizeTransferTargetFolder: (targetFolder) => {
+        const value = String(targetFolder || '').trim();
+        if (!value) {
+            return '';
+        }
+        return value.endsWith('/') ? value : value + '/';
+    },
+    resolveConflictPolicy: (choice) => {
+        if (choice === 'overwrite') {
+            return 'OVERWRITE';
+        }
+        if (choice === 'rename') {
+            return 'RENAME';
+        }
+        return '';
+    }
+};
 const urlHelpers = window.UrlHelpers || {
     buildApiUrl: (origin, basePath, params) => {
         const url = new URL(basePath, origin);
@@ -257,7 +284,7 @@ const filePageSize = ref(25);
         const isPathEditing = ref(false);
         const editPathValue = ref('');
         const pathEditInputRef = ref(null);
-        const runtimeConfig = ref({ httpPort: null, httpsPort: null, forceHttps: false, appVersion: '' });
+        const runtimeConfig = ref({ httpPort: null, httpsPort: null, forceHttps: false, appVersion: '', fileRowHiddenActions: ['DELETE', 'MOVE', 'COPY'] });
         const showHttpsNotice = computed(() => window.location.protocol === 'http:' && runtimeConfig.value.forceHttps);
         const fileDropActive = ref(false);
         let fileDropDragDepth = 0;
@@ -453,8 +480,28 @@ const filePageSize = ref(25);
             uploadTransportPriority: ['DIRECT', 'APPLICATION'],
             downloadTransportPriority: ['DIRECT', 'PROXY', 'APPLICATION'],
             uploadProxyThresholdMB: 256,
-            downloadProxyThresholdMB: 128
+            downloadProxyThresholdMB: 128,
+            fileRowHiddenActions: ['DELETE', 'MOVE', 'COPY']
         });
+        const fileRowActionOptions = [
+            { label: '下载', value: 'DOWNLOAD' },
+            { label: '分享', value: 'SHARE' },
+            { label: '预览', value: 'PREVIEW' },
+            { label: '删除', value: 'DELETE' },
+            { label: '移动', value: 'MOVE' },
+            { label: '复制', value: 'COPY' }
+        ];
+        const showTransferDialog = ref(false);
+        const transferState = ref({
+            operation: 'COPY',
+            sources: [],
+            targetFolder: '',
+            folderStack: [''],
+            currentFolder: '',
+            folderOptions: []
+        });
+        const transferSummary = computed(() => fileTransferHelpers.buildTransferSummary(transferState.value));
+        const transferTargetLabel = computed(() => transferState.value.targetFolder || '根目录');
         const uploadDialogModeOptions = [
             { label: '手动上传', value: 'MANUAL' },
             { label: '立即上传', value: 'INSTANT' }
@@ -2823,6 +2870,54 @@ const filePageSize = ref(25);
             }
         };
 
+        const getFileRowActions = (file) => {
+            return fileActionVisibilityHelpers.splitRowActions([
+                {
+                    code: 'DOWNLOAD',
+                    label: '下载',
+                    visible: hasApiPermission('API_FILE_OPERATE') && hasBucketPermission(currentBucket.value, 'DOWNLOAD'),
+                    disabled: !!file.syncing,
+                    onClick: () => downloadFile(file)
+                },
+                {
+                    code: 'SHARE',
+                    label: '分享',
+                    visible: hasApiPermission('API_SHARE_MANAGE') && hasBucketPermission(currentBucket.value, 'SHARE'),
+                    disabled: !!file.syncing,
+                    onClick: () => shareFile(file)
+                },
+                {
+                    code: 'PREVIEW',
+                    label: '预览',
+                    visible: !file.isFolder && hasApiPermission('API_FILE_OPERATE') && hasBucketPermission(currentBucket.value, 'DOWNLOAD'),
+                    disabled: !!file.syncing,
+                    onClick: () => previewFile(file)
+                },
+                {
+                    code: 'DELETE',
+                    label: '删除',
+                    type: 'danger',
+                    visible: hasApiPermission('API_FILE_OPERATE') && hasBucketPermission(currentBucket.value, 'DELETE'),
+                    disabled: !!file.syncing,
+                    onClick: () => deleteFile(file)
+                },
+                {
+                    code: 'MOVE',
+                    label: '移动',
+                    visible: hasApiPermission('API_FILE_OPERATE') && hasBucketPermission(currentBucket.value, 'BATCH'),
+                    disabled: !!file.syncing,
+                    onClick: () => openTransferDialog('MOVE', [file])
+                },
+                {
+                    code: 'COPY',
+                    label: '复制',
+                    visible: hasApiPermission('API_FILE_OPERATE') && hasBucketPermission(currentBucket.value, 'BATCH'),
+                    disabled: !!file.syncing,
+                    onClick: () => openTransferDialog('COPY', [file])
+                }
+            ], runtimeConfig.value.fileRowHiddenActions || fileConfig.value.fileRowHiddenActions || ['DELETE', 'MOVE', 'COPY']);
+        };
+
         // Batch share
         const batchShare = async () => {
             if (selectedFiles.value.length === 0) {
@@ -2927,6 +3022,125 @@ const filePageSize = ref(25);
             } catch (error) {
                 if (error !== 'cancel') {
                     ElementPlus.ElMessage.error('删除失败: ' + (error.response?.data?.message || error.message));
+                }
+            }
+        };
+
+        const batchMove = async () => {
+            if (selectedFiles.value.length === 0) {
+                ElementPlus.ElMessage.warning('请先选择要移动的文件');
+                return;
+            }
+            openTransferDialog('MOVE', selectedFiles.value);
+        };
+
+        const batchCopy = async () => {
+            if (selectedFiles.value.length === 0) {
+                ElementPlus.ElMessage.warning('请先选择要复制的文件');
+                return;
+            }
+            openTransferDialog('COPY', selectedFiles.value);
+        };
+
+        const loadTransferFolderOptions = async (folder) => {
+            const normalizedFolder = fileTransferHelpers.normalizeTransferTargetFolder(folder);
+            const res = await api.get('/file/list', {
+                params: {
+                    folder: normalizedFolder,
+                    bucket: currentBucket.value,
+                    sortBy: 'name',
+                    order: 'asc'
+                }
+            });
+            if (res.code !== 200) {
+                throw new Error(res.message || '加载目录失败');
+            }
+            const rows = Array.isArray(res.data) ? res.data : (res.data?.items || []);
+            transferState.value.folderOptions = rows.filter(item => item && item.isFolder);
+            transferState.value.currentFolder = normalizedFolder;
+            transferState.value.targetFolder = normalizedFolder;
+        };
+
+        const openTransferDialog = async (operation, sources) => {
+            if (!currentBucket.value) {
+                ElementPlus.ElMessage.warning('请先选择存储桶');
+                return;
+            }
+            const initialFolder = currentFolder.value || '';
+            transferState.value = {
+                operation,
+                sources: (sources || []).map(item => ({
+                    fileName: item.fileName,
+                    objectName: item.objectName,
+                    isFolder: !!item.isFolder
+                })),
+                targetFolder: initialFolder,
+                folderStack: [initialFolder],
+                currentFolder: initialFolder,
+                folderOptions: []
+            };
+            showTransferDialog.value = true;
+            await loadTransferFolderOptions(initialFolder);
+        };
+
+        const enterTransferFolder = async (folder) => {
+            const nextFolder = fileTransferHelpers.normalizeTransferTargetFolder(folder?.objectName || '');
+            if (transferState.value.folderStack[transferState.value.folderStack.length - 1] !== nextFolder) {
+                transferState.value.folderStack.push(nextFolder);
+            }
+            await loadTransferFolderOptions(nextFolder);
+        };
+
+        const backTransferFolder = async () => {
+            if (transferState.value.folderStack.length <= 1) {
+                await loadTransferFolderOptions(transferState.value.folderStack[0] || '');
+                return;
+            }
+            transferState.value.folderStack.pop();
+            await loadTransferFolderOptions(transferState.value.folderStack[transferState.value.folderStack.length - 1] || '');
+        };
+
+        const confirmTransfer = async () => {
+            try {
+                const previewRes = await api.post('/file/transfer/preview', {
+                    operation: transferState.value.operation,
+                    bucket: currentBucket.value,
+                    sources: transferState.value.sources.map(item => item.objectName),
+                    targetFolder: transferState.value.targetFolder,
+                    conflictPolicy: 'ASK'
+                });
+                const preview = previewRes.data || {};
+                if (preview.valid === false) {
+                    ElementPlus.ElMessage.warning(preview.message || '目标目录不可用');
+                    return;
+                }
+                let conflictPolicy = 'OVERWRITE';
+                if (preview.hasConflicts) {
+                    const action = await ElementPlus.ElMessageBox.confirm(
+                        '目标目录存在同名文件或目录。选择“确定”为覆盖，选择“取消”为继续选择是否共存。',
+                        '检测到同名冲突',
+                        { confirmButtonText: '覆盖', cancelButtonText: '共存', distinguishCancelAndClose: true, type: 'warning' }
+                    ).then(() => 'overwrite').catch((action) => action === 'cancel' ? 'rename' : 'close');
+                    if (action === 'close') {
+                        return;
+                    }
+                    conflictPolicy = fileTransferHelpers.resolveConflictPolicy(action);
+                }
+                const executeRes = await api.post('/file/transfer/execute', {
+                    operation: transferState.value.operation,
+                    bucket: currentBucket.value,
+                    sources: transferState.value.sources.map(item => item.objectName),
+                    targetFolder: transferState.value.targetFolder,
+                    conflictPolicy: conflictPolicy || 'OVERWRITE'
+                });
+                if (executeRes.code === 200) {
+                    ElementPlus.ElMessage.success((transferState.value.operation === 'MOVE' ? '移动' : '复制') + '完成');
+                    showTransferDialog.value = false;
+                    await loadFiles();
+                }
+            } catch (error) {
+                if (error !== 'close') {
+                    ElementPlus.ElMessage.error((transferState.value.operation === 'MOVE' ? '移动' : '复制') + '失败: ' + (error.response?.data?.message || error.message || '未知错误'));
                 }
             }
         };
@@ -3790,6 +4004,7 @@ const filePageSize = ref(25);
                     fileConfig.value.downloadTransportPriority = res.data.downloadTransportPriority || [fileConfig.value.downloadTransportMode];
                     fileConfig.value.uploadProxyThresholdMB = res.data.uploadProxyThresholdMB || 256;
                     fileConfig.value.downloadProxyThresholdMB = res.data.downloadProxyThresholdMB || 128;
+                    fileConfig.value.fileRowHiddenActions = res.data.fileRowHiddenActions || ['DELETE', 'MOVE', 'COPY'];
                     ensureTransportPriorityDefaults();
                 }
             } catch (error) {
@@ -3815,7 +4030,8 @@ const filePageSize = ref(25);
                     uploadTransportPriority: fileConfig.value.uploadTransportPriority,
                     downloadTransportPriority: fileConfig.value.downloadTransportPriority,
                     uploadProxyThresholdMB: fileConfig.value.uploadProxyThresholdMB,
-                    downloadProxyThresholdMB: fileConfig.value.downloadProxyThresholdMB
+                    downloadProxyThresholdMB: fileConfig.value.downloadProxyThresholdMB,
+                    fileRowHiddenActions: fileConfig.value.fileRowHiddenActions
                 });
                 if (res.code === 200) {
                     ElementPlus.ElMessage.success('保存成功');
@@ -3996,7 +4212,14 @@ const filePageSize = ref(25);
             try {
                 const res = await api.get('/auth/runtime-config');
                 if (res.code === 200) {
-                    runtimeConfig.value = res.data || { httpPort: null, httpsPort: null, forceHttps: false, appVersion: '' };
+                    runtimeConfig.value = {
+                        httpPort: null,
+                        httpsPort: null,
+                        forceHttps: false,
+                        appVersion: '',
+                        fileRowHiddenActions: ['DELETE', 'MOVE', 'COPY'],
+                        ...(res.data || {})
+                    };
                 }
             } catch (error) {
                 // Ignore and fallback to current URL scheme replacement.
@@ -4055,6 +4278,7 @@ const filePageSize = ref(25);
             breadcrumb,
             selectedFiles,
             showUploadDialog,
+            showTransferDialog,
             uploadRef,
             uploadTasks,
             showFolderDialog,
@@ -4087,6 +4311,9 @@ const filePageSize = ref(25);
             previewSupportHint,
             copyPreviewText,
             closePreviewDialog,
+            transferState,
+            transferSummary,
+            transferTargetLabel,
             minioKeyForm,
             minioKeyList,
             minioKeyLoading,
@@ -4124,6 +4351,7 @@ const filePageSize = ref(25);
             userLoading,
             roleLoading,
             fileConfig,
+            fileRowActionOptions,
             pendingUploadFiles,
             uploadDialogModeOptions,
             uploadTransportOptions,
@@ -4201,11 +4429,14 @@ const filePageSize = ref(25);
             downloadFile,
             previewFile,
             deleteFile,
+            getFileRowActions,
             batchShare,
             createBatchShare,
             batchDownload,
             batchDownloadFromDialog,
             batchDelete,
+            batchMove,
+            batchCopy,
             createFolder,
             shareFile,
             handleShareTargetTypeChange,
@@ -4216,6 +4447,11 @@ const filePageSize = ref(25);
             handleUploadDialogChange,
             removePendingUploadFile,
             cancelUpload,
+            openTransferDialog,
+            loadTransferFolderOptions,
+            enterTransferFolder,
+            backTransferFolder,
+            confirmTransfer,
             uploading,
             copyShareLink,
             deleteShare,
