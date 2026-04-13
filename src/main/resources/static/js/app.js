@@ -99,6 +99,51 @@ const fileListUiHelpers = window.FileListUiHelpers || {
     applySyncingState: (items) => Array.isArray(items) ? items.slice() : [],
     resolveFileSortState: () => ({ sortBy: 'name', order: 'asc', folderFirst: true, explicitSort: false })
 };
+const uploadDialogHelpers = window.UploadDialogHelpers || {
+    normalizePendingUploadFiles: (files) => (files || []).map((item, index) => {
+        if (!item) {
+            return null;
+        }
+        const raw = item.raw || item;
+        if (!raw) {
+            return null;
+        }
+        return {
+            id: item.uid || ('pending-' + (raw.name || 'file') + '-' + (raw.size || 0) + '-' + (raw.lastModified || 0) + '-' + index),
+            name: raw.name || item.name || '待上传文件',
+            size: raw.size || item.size || 0,
+            raw
+        };
+    }).filter(Boolean),
+    mergePendingUploadFiles: (existingFiles, incomingFiles) => {
+        const merged = [];
+        const seen = new Set();
+        const buildDedupKey = (item) => {
+            if (!item) {
+                return '';
+            }
+            const raw = item.raw || {};
+            const rawName = raw.name || item.name || '';
+            const rawSize = raw.size || item.size || 0;
+            const rawLastModified = raw.lastModified || 0;
+            if (rawName) {
+                return rawName + '::' + rawSize + '::' + rawLastModified;
+            }
+            return String(item.id || '');
+        };
+        (uploadDialogHelpers.normalizePendingUploadFiles(existingFiles).concat(uploadDialogHelpers.normalizePendingUploadFiles(incomingFiles)))
+            .forEach((item) => {
+                const dedupKey = buildDedupKey(item);
+                if (!item || !dedupKey || seen.has(dedupKey)) {
+                    return;
+                }
+                seen.add(dedupKey);
+                merged.push(item);
+            });
+        return merged;
+    },
+    clearClosedUploadTasks: (tasks) => (tasks || []).filter((task) => task && task.status === 'running')
+};
 const urlHelpers = window.UrlHelpers || {
     buildApiUrl: (origin, basePath, params) => {
         const url = new URL(basePath, origin);
@@ -2569,23 +2614,7 @@ const filePageSize = ref(25);
             await runUploadBatch(rawFiles, { closeDialog: false });
         };
 
-        const normalizePendingUploadFiles = (files) => {
-            return (files || []).map((item, index) => {
-                if (!item) {
-                    return null;
-                }
-                const raw = item.raw || item;
-                if (!raw) {
-                    return null;
-                }
-                return {
-                    id: item.uid || ('pending-' + raw.name + '-' + raw.size + '-' + raw.lastModified + '-' + index),
-                    name: raw.name || item.name || '待上传文件',
-                    size: raw.size || item.size || 0,
-                    raw
-                };
-            }).filter(Boolean);
-        };
+        const normalizePendingUploadFiles = (files) => uploadDialogHelpers.normalizePendingUploadFiles(files);
 
         const syncPendingUploadFilesFromUploadRef = () => {
             pendingUploadFiles.value = normalizePendingUploadFiles(uploadRef.value?.uploadFiles || []);
@@ -2996,9 +3025,12 @@ const filePageSize = ref(25);
             selectedFiles.value = (selection || []).filter(item => canSelectFileRow(item));
         };
 
-        const handleUploadDialogChange = () => {
+        const handleUploadDialogChange = (file, fileList) => {
             if (fileConfig.value.uploadDialogMode === 'MANUAL') {
-                syncPendingUploadFilesFromUploadRef();
+                pendingUploadFiles.value = uploadDialogHelpers.mergePendingUploadFiles(
+                    pendingUploadFiles.value,
+                    Array.isArray(fileList) && fileList.length ? fileList : [file]
+                );
                 return;
             }
             if (uploadDialogSelectionTimer) {
@@ -3006,7 +3038,10 @@ const filePageSize = ref(25);
             }
             uploadDialogSelectionTimer = setTimeout(async () => {
                 uploadDialogSelectionTimer = null;
-                const rawFiles = (uploadRef.value?.uploadFiles || [])
+                const uploadFiles = Array.isArray(fileList) && fileList.length
+                    ? fileList
+                    : (uploadRef.value?.uploadFiles || []);
+                const rawFiles = uploadFiles
                     .map(item => item.raw)
                     .filter(Boolean);
                 if (uploadRef.value) {
@@ -3067,6 +3102,7 @@ const filePageSize = ref(25);
             } else {
                 showUploadDialog.value = false;
                 pendingUploadFiles.value = [];
+                uploadTasks.value = uploadDialogHelpers.clearClosedUploadTasks(uploadTasks.value);
                 if (uploadRef.value) {
                     uploadRef.value.clearFiles();
                 }
