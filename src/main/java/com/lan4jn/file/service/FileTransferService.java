@@ -6,6 +6,7 @@ import com.lan4jn.file.dto.FileTransferPreviewRequest;
 import com.lan4jn.file.dto.FileTransferPreviewResponse;
 import com.lan4jn.file.model.FileInfo;
 import io.minio.MinioClient;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Service;
 
@@ -24,6 +25,7 @@ public class FileTransferService {
     @Value("${minio.default-bucket:file-manager}")
     private String defaultBucket;
 
+    @Autowired
     public FileTransferService(MinioClient minioClient, ConfigService configService) {
         this.support = new FileDomainSupport(minioClient, configService);
         this.commandService = new FileCommandService(minioClient, support);

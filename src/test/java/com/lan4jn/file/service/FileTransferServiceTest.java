@@ -7,7 +7,9 @@ import com.lan4jn.file.dto.FileTransferPreviewResponse;
 import com.lan4jn.file.model.FileInfo;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
+import org.springframework.beans.factory.annotation.Autowired;
 
+import java.lang.reflect.Constructor;
 import java.util.List;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
@@ -48,6 +50,14 @@ class FileTransferServiceTest {
         when(support.objectExists("bucket-a", "docs/readme.txt")).thenReturn(true);
         when(queryService.listFilesRecursive("archive/docs/", "bucket-a", "file-manager")).thenReturn(List.of());
         when(queryService.listFilesRecursive("archive/readme.txt", "bucket-a", "file-manager")).thenReturn(List.of());
+    }
+
+    @Test
+    void shouldMarkProductionConstructorWithAutowired() throws NoSuchMethodException {
+        Constructor<FileTransferService> constructor =
+                FileTransferService.class.getConstructor(io.minio.MinioClient.class, ConfigService.class);
+
+        assertTrue(constructor.isAnnotationPresent(Autowired.class));
     }
 
     @Test
