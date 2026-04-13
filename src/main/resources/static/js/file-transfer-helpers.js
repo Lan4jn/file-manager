@@ -26,9 +26,45 @@
         return '';
     }
 
+    function resolveParentTransferFolder(targetFolder) {
+        var normalized = normalizeTransferTargetFolder(targetFolder);
+        if (!normalized) {
+            return '';
+        }
+        var parts = normalized.split('/').filter(function (item) {
+            return !!item;
+        });
+        if (parts.length <= 1) {
+            return '';
+        }
+        return parts.slice(0, parts.length - 1).join('/') + '/';
+    }
+
+    function buildTransferFolderOptions(rows, currentFolder) {
+        var options = [];
+        var parentFolder = resolveParentTransferFolder(currentFolder);
+        if (normalizeTransferTargetFolder(currentFolder)) {
+            options.push({
+                fileName: '..',
+                objectName: parentFolder,
+                isFolder: true,
+                isParent: true
+            });
+        }
+        (rows || []).forEach(function (item) {
+            if (!item || !item.isFolder) {
+                return;
+            }
+            options.push(item);
+        });
+        return options;
+    }
+
     var exported = {
         buildTransferSummary: buildTransferSummary,
+        buildTransferFolderOptions: buildTransferFolderOptions,
         normalizeTransferTargetFolder: normalizeTransferTargetFolder,
+        resolveParentTransferFolder: resolveParentTransferFolder,
         resolveConflictPolicy: resolveConflictPolicy
     };
 

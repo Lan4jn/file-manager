@@ -35,3 +35,27 @@ test('should map conflict choice into backend conflict policy', () => {
     assert.equal(helpers.resolveConflictPolicy('rename'), 'RENAME');
     assert.equal(helpers.resolveConflictPolicy('cancel'), '');
 });
+
+test('should resolve parent transfer folder correctly', () => {
+    assert.equal(helpers.resolveParentTransferFolder('docs/sub/'), 'docs/');
+    assert.equal(helpers.resolveParentTransferFolder('docs/'), '');
+    assert.equal(helpers.resolveParentTransferFolder(''), '');
+});
+
+test('should build transfer folder options with parent directory and directories only', () => {
+    const options = helpers.buildTransferFolderOptions([
+        { fileName: 'file.txt', objectName: 'docs/file.txt', isFolder: false },
+        { fileName: 'images', objectName: 'docs/images/', isFolder: true },
+        { fileName: 'archive', objectName: 'docs/archive/', isFolder: true }
+    ], 'docs/sub/');
+
+    assert.deepEqual(options.map(item => ({
+        fileName: item.fileName,
+        objectName: item.objectName,
+        isParent: !!item.isParent
+    })), [
+        { fileName: '..', objectName: 'docs/', isParent: true },
+        { fileName: 'images', objectName: 'docs/images/', isParent: false },
+        { fileName: 'archive', objectName: 'docs/archive/', isParent: false }
+    ]);
+});

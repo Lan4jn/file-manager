@@ -162,6 +162,8 @@ const fileTransferHelpers = window.FileTransferHelpers || {
         }
         return value.endsWith('/') ? value : value + '/';
     },
+    resolveParentTransferFolder: () => '',
+    buildTransferFolderOptions: (rows) => rows || [],
     resolveConflictPolicy: (choice) => {
         if (choice === 'overwrite') {
             return 'OVERWRITE';
@@ -3047,7 +3049,7 @@ const filePageSize = ref(25);
                 throw new Error(res.message || '加载目录失败');
             }
             const rows = Array.isArray(res.data) ? res.data : (res.data?.items || []);
-            transferState.value.folderOptions = rows.filter(item => item && item.isFolder);
+            transferState.value.folderOptions = fileTransferHelpers.buildTransferFolderOptions(rows, normalizedFolder);
             transferState.value.currentFolder = normalizedFolder;
             transferState.value.targetFolder = normalizedFolder;
         };
@@ -3076,19 +3078,14 @@ const filePageSize = ref(25);
 
         const enterTransferFolder = async (folder) => {
             const nextFolder = fileTransferHelpers.normalizeTransferTargetFolder(folder?.objectName || '');
-            if (transferState.value.folderStack[transferState.value.folderStack.length - 1] !== nextFolder) {
-                transferState.value.folderStack.push(nextFolder);
-            }
+            transferState.value.folderStack = [nextFolder];
             await loadTransferFolderOptions(nextFolder);
         };
 
         const backTransferFolder = async () => {
-            if (transferState.value.folderStack.length <= 1) {
-                await loadTransferFolderOptions(transferState.value.folderStack[0] || '');
-                return;
-            }
-            transferState.value.folderStack.pop();
-            await loadTransferFolderOptions(transferState.value.folderStack[transferState.value.folderStack.length - 1] || '');
+            const parentFolder = fileTransferHelpers.resolveParentTransferFolder(transferState.value.currentFolder);
+            transferState.value.folderStack = [parentFolder];
+            await loadTransferFolderOptions(parentFolder);
         };
 
         const confirmTransfer = async () => {
