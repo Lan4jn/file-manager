@@ -1114,6 +1114,35 @@ body {
     white-space: nowrap;
 }
 
+.file-row-actions {
+    display: inline-flex;
+    align-items: center;
+    gap: 2px;
+}
+
+.file-row-action-button.el-button.is-link {
+    padding: 4px 6px;
+    font-weight: 500;
+}
+
+.file-row-more-button.el-button.is-link {
+    margin-left: 2px;
+    padding: 4px 2px;
+    min-width: 24px;
+}
+
+.file-row-more-icon {
+    display: inline-block;
+    font-size: 18px;
+    line-height: 1;
+    color: #606266;
+}
+
+.file-row-more-button:hover .file-row-more-icon,
+.file-row-more-button:focus-visible .file-row-more-icon {
+    color: var(--el-color-primary);
+}
+
 .pagination-container {
     display: flex;
     justify-content: flex-end;
