@@ -420,7 +420,6 @@
                                                 <el-tooltip :content="action.label" placement="top" effect="light">
                                                     <el-button
                                                         size="small"
-                                                        circle
                                                         :type="action.type || 'default'"
                                                         class="file-row-action-button"
                                                         :disabled="row.syncing || action.disabled"
@@ -433,16 +432,14 @@
                                                 </el-tooltip>
                                             </template>
                                         </div>
-                                        <el-dropdown v-if="getFileRowActions(row).hasMore" trigger="click">
-                                            <el-button
-                                                size="small"
-                                                circle
-                                                class="file-row-more-button"
-                                                :disabled="row.syncing"
+                                        <el-dropdown v-if="getFileRowActions(row).hasMore" trigger="click" :disabled="row.syncing">
+                                            <span
+                                                class="file-row-more-trigger"
+                                                :class="{ 'is-disabled': row.syncing }"
                                                 aria-label="更多操作"
                                             >
                                                 <span class="file-row-more-icon">⋮</span>
-                                            </el-button>
+                                            </span>
                                             <template #dropdown>
                                                 <el-dropdown-menu>
                                                     <el-dropdown-item
