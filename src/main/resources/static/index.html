@@ -419,22 +419,24 @@
                                             <template v-for="action in getFileRowActions(row).primary" :key="action.code">
                                                 <el-tooltip :content="action.label" placement="top" effect="light">
                                                     <el-button
-                                                        link
                                                         size="small"
-                                                        :type="action.type === 'danger' ? 'danger' : 'primary'"
+                                                        circle
+                                                        :type="action.type || 'default'"
                                                         class="file-row-action-button"
                                                         :disabled="row.syncing || action.disabled"
                                                         @click="action.onClick"
                                                     >
-                                                        {{ action.label }}
+                                                        <el-icon v-if="action.iconComponent">
+                                                            <component :is="action.iconComponent" />
+                                                        </el-icon>
                                                     </el-button>
                                                 </el-tooltip>
                                             </template>
                                         </div>
                                         <el-dropdown v-if="getFileRowActions(row).hasMore" trigger="click">
                                             <el-button
-                                                link
                                                 size="small"
+                                                circle
                                                 class="file-row-more-button"
                                                 :disabled="row.syncing"
                                                 aria-label="更多操作"
@@ -449,7 +451,12 @@
                                                         :disabled="row.syncing || action.disabled"
                                                         @click="action.onClick"
                                                     >
-                                                        <span :style="{ color: action.type === 'danger' ? '#f56c6c' : '' }">{{ action.label }}</span>
+                                                        <span class="file-row-menu-item" :class="{ 'is-danger': action.type === 'danger' }">
+                                                            <el-icon v-if="action.iconComponent" class="file-row-menu-item__icon">
+                                                                <component :is="action.iconComponent" />
+                                                            </el-icon>
+                                                            <span>{{ action.label }}</span>
+                                                        </span>
                                                     </el-dropdown-item>
                                                 </el-dropdown-menu>
                                             </template>

@@ -145,6 +145,7 @@ const uploadDialogHelpers = window.UploadDialogHelpers || {
     clearClosedUploadTasks: (tasks) => (tasks || []).filter((task) => task && task.status === 'running')
 };
 const fileActionVisibilityHelpers = window.FileActionVisibilityHelpers || {
+    getRowActionMeta: (code) => ({ code, label: code, icon: '' }),
     splitRowActions: (actions) => ({ primary: actions || [], more: [], hasMore: false })
 };
 const fileTransferHelpers = window.FileTransferHelpers || {
@@ -483,14 +484,16 @@ const filePageSize = ref(25);
             downloadProxyThresholdMB: 128,
             fileRowHiddenActions: ['DELETE', 'MOVE', 'COPY']
         });
-        const fileRowActionOptions = [
-            { label: '下载', value: 'DOWNLOAD' },
-            { label: '分享', value: 'SHARE' },
-            { label: '预览', value: 'PREVIEW' },
-            { label: '删除', value: 'DELETE' },
-            { label: '移动', value: 'MOVE' },
-            { label: '复制', value: 'COPY' }
-        ];
+        const buildRowActionDefinition = (code, extra = {}) => {
+            const meta = fileActionVisibilityHelpers.getRowActionMeta(code);
+            return {
+                ...meta,
+                iconComponent: meta.icon ? ElementPlusIconsVue[meta.icon] : null,
+                ...extra
+            };
+        };
+        const fileRowActionOptions = ['DOWNLOAD', 'SHARE', 'PREVIEW', 'DELETE', 'MOVE', 'COPY']
+            .map(code => buildRowActionDefinition(code, { value: code }));
         const showTransferDialog = ref(false);
         const transferState = ref({
             operation: 'COPY',
@@ -2872,49 +2875,37 @@ const filePageSize = ref(25);
 
         const getFileRowActions = (file) => {
             return fileActionVisibilityHelpers.splitRowActions([
-                {
-                    code: 'DOWNLOAD',
-                    label: '下载',
+                buildRowActionDefinition('DOWNLOAD', {
                     visible: hasApiPermission('API_FILE_OPERATE') && hasBucketPermission(currentBucket.value, 'DOWNLOAD'),
                     disabled: !!file.syncing,
                     onClick: () => downloadFile(file)
-                },
-                {
-                    code: 'SHARE',
-                    label: '分享',
+                }),
+                buildRowActionDefinition('SHARE', {
                     visible: hasApiPermission('API_SHARE_MANAGE') && hasBucketPermission(currentBucket.value, 'SHARE'),
                     disabled: !!file.syncing,
                     onClick: () => shareFile(file)
-                },
-                {
-                    code: 'PREVIEW',
-                    label: '预览',
+                }),
+                buildRowActionDefinition('PREVIEW', {
                     visible: !file.isFolder && hasApiPermission('API_FILE_OPERATE') && hasBucketPermission(currentBucket.value, 'DOWNLOAD'),
                     disabled: !!file.syncing,
                     onClick: () => previewFile(file)
-                },
-                {
-                    code: 'DELETE',
-                    label: '删除',
+                }),
+                buildRowActionDefinition('DELETE', {
                     type: 'danger',
                     visible: hasApiPermission('API_FILE_OPERATE') && hasBucketPermission(currentBucket.value, 'DELETE'),
                     disabled: !!file.syncing,
                     onClick: () => deleteFile(file)
-                },
-                {
-                    code: 'MOVE',
-                    label: '移动',
+                }),
+                buildRowActionDefinition('MOVE', {
                     visible: hasApiPermission('API_FILE_OPERATE') && hasBucketPermission(currentBucket.value, 'BATCH'),
                     disabled: !!file.syncing,
                     onClick: () => openTransferDialog('MOVE', [file])
-                },
-                {
-                    code: 'COPY',
-                    label: '复制',
+                }),
+                buildRowActionDefinition('COPY', {
                     visible: hasApiPermission('API_FILE_OPERATE') && hasBucketPermission(currentBucket.value, 'BATCH'),
                     disabled: !!file.syncing,
                     onClick: () => openTransferDialog('COPY', [file])
-                }
+                })
             ], runtimeConfig.value.fileRowHiddenActions || fileConfig.value.fileRowHiddenActions || ['DELETE', 'MOVE', 'COPY']);
         };
 

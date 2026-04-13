@@ -36,3 +36,22 @@ test('should not show more menu when no collapsed actions remain', () => {
 
     assert.equal(result.hasMore, false);
 });
+
+test('should expose icon and label metadata for every configurable row action', () => {
+    const expected = {
+        DOWNLOAD: { label: '下载', icon: 'Download' },
+        SHARE: { label: '分享', icon: 'Share' },
+        PREVIEW: { label: '预览', icon: 'View' },
+        DELETE: { label: '删除', icon: 'Delete' },
+        MOVE: { label: '移动', icon: 'Rank' },
+        COPY: { label: '复制', icon: 'DocumentCopy' }
+    };
+
+    Object.entries(expected).forEach(([code, meta]) => {
+        assert.deepEqual(helpers.getRowActionMeta(code), {
+            code,
+            label: meta.label,
+            icon: meta.icon
+        });
+    });
+});
