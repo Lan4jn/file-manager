@@ -21,7 +21,9 @@
         document.body.appendChild(link);
         link.click();
         link.remove();
-        window.URL.revokeObjectURL(url);
+        setTimeout(function () {
+            window.URL.revokeObjectURL(url);
+        }, 1000);
     }
 
     function createNativeDownload(url) {

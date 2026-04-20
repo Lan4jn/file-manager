@@ -347,6 +347,23 @@ class TransferControllerTest {
     }
 
     @Test
+    void shouldRejectArchiveTaskCreationWhenCurrentUsernameIsBlank() throws Exception {
+        when(permissionAssertService.currentSnapshot()).thenReturn(snapshot(""));
+
+        mockMvc.perform(post("/api/transfer/archive-tasks")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("""
+                                {"scene":"FILE","taskType":"BATCH","bucket":"bucket-a","objectNames":["docs/readme.txt"]}
+                                """))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.code").value(400))
+                .andExpect(jsonPath("$.message").value("未获取到当前用户"));
+
+        verify(transferArchiveTaskService, never())
+                .createBatchArchiveTask(eq(""), eq("bucket-a"), eq(List.of("docs/readme.txt")));
+    }
+
+    @Test
     void shouldCreateShareArchiveTaskWithoutApiPermission() throws Exception {
         when(transferArchiveTaskService.createShareArchiveTask("SHARE001", null))
                 .thenReturn(2L);

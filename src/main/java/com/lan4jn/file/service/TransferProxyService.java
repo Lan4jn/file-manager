@@ -96,7 +96,7 @@ public class TransferProxyService {
         permissionAssertService.assertApiPermission(PermissionCodes.API_FILE_OPERATE);
         String bucket = resolveBucket(request.getBucket());
         permissionAssertService.assertBucketPermission(bucket, BucketAction.UPLOAD);
-        String operatorUsername = permissionAssertService.currentSnapshot().username();
+        String operatorUsername = requireCurrentUsername();
         FileDomainSupport.PreparedUpload preparedUpload = fileService.prepareDirectUpload(
                 requireText(request.getFileName(), "fileName"),
                 request.getSize(),
@@ -109,7 +109,7 @@ public class TransferProxyService {
 
     public UploadResponse completeUpload(String uploadToken) {
         permissionAssertService.assertApiPermission(PermissionCodes.API_FILE_OPERATE);
-        String operatorUsername = permissionAssertService.currentSnapshot().username();
+        String operatorUsername = requireCurrentUsername();
         TransferSessionService.UploadTicket ticket = transferSessionService.requireUploadTicket(uploadToken, operatorUsername);
         permissionAssertService.assertBucketPermission(resolveBucket(ticket.getBucket()), BucketAction.UPLOAD);
         return fileService.completeDirectUpload(
@@ -149,7 +149,7 @@ public class TransferProxyService {
         permissionAssertService.assertApiPermission(PermissionCodes.API_FILE_OPERATE);
         String bucket = resolveBucket(request.getBucket());
         permissionAssertService.assertBucketPermission(bucket, BucketAction.DOWNLOAD);
-        String operatorUsername = permissionAssertService.currentSnapshot().username();
+        String operatorUsername = requireCurrentUsername();
         Long taskId;
         if ("BATCH".equals(normalizeText(request.getTaskType(), "").toUpperCase(Locale.ROOT))) {
             taskId = transferArchiveTaskService.createBatchArchiveTask(operatorUsername, bucket, request.getObjectNames());
@@ -168,7 +168,7 @@ public class TransferProxyService {
             task = transferArchiveTaskService.getShareTask(taskId, shareCode, nullableText(password));
         } else {
             permissionAssertService.assertApiPermission(PermissionCodes.API_FILE_OPERATE);
-            String operatorUsername = permissionAssertService.currentSnapshot().username();
+            String operatorUsername = requireCurrentUsername();
             task = transferArchiveTaskService.getTask(taskId, operatorUsername);
         }
         decorateArchiveDownloadUrl(task, shareCode, password);
@@ -179,7 +179,7 @@ public class TransferProxyService {
         String operatorUsername = null;
         if (shareCode == null || shareCode.trim().isEmpty()) {
             permissionAssertService.assertApiPermission(PermissionCodes.API_FILE_OPERATE);
-            operatorUsername = permissionAssertService.currentSnapshot().username();
+            operatorUsername = requireCurrentUsername();
         }
         TransferArchiveTaskService.ArchiveDownload archiveDownload =
                 transferArchiveTaskService.openArchiveDownload(taskId, operatorUsername, nullableText(shareCode), nullableText(password));
@@ -207,7 +207,7 @@ public class TransferProxyService {
         response.setTaskId(null);
         response.setFallbackUrl(buildProxyDownloadUrl(
                 scene,
-                permissionAssertService.currentSnapshot().username(),
+                requireCurrentUsername(),
                 bucket,
                 objectName,
                 fileInfo.getFileName()
@@ -490,6 +490,14 @@ public class TransferProxyService {
             throw new IllegalArgumentException(fieldName + "不能为空");
         }
         return value.trim();
+    }
+
+    private String requireCurrentUsername() {
+        PermissionSnapshot snapshot = permissionAssertService.currentSnapshot();
+        if (snapshot == null || snapshot.username() == null || snapshot.username().trim().isEmpty()) {
+            throw new IllegalArgumentException("未获取到当前用户");
+        }
+        return snapshot.username().trim();
     }
 
     private String normalizeText(String value, String defaultValue) {
