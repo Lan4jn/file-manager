@@ -6,6 +6,10 @@ server:
   port: 19080
   connection-timeout: 300s
   forward-headers-strategy: framework
+  servlet:
+    # 应用上下文路径，默认根路径 /
+    # 示例: /fm
+    context-path: /
   ssl:
     enabled: true
     key-store: file:./config/ssl/keystore.p12

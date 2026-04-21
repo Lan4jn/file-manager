@@ -20,6 +20,8 @@ import org.springframework.http.HttpStatus;
 import org.springframework.http.MediaType;
 import org.springframework.http.ResponseEntity;
 import org.springframework.stereotype.Service;
+import org.springframework.web.context.request.RequestContextHolder;
+import org.springframework.web.context.request.ServletRequestAttributes;
 
 import java.io.InputStream;
 import java.net.URLEncoder;
@@ -277,7 +279,7 @@ public class TransferProxyService {
                 response.setObjectName(preparedUpload.getObjectName());
                 response.setFileName(preparedUpload.getFileName());
                 response.setContentType(nullableText(request.getContentType()));
-                response.setUploadUrl("/api/file/upload");
+                response.setUploadUrl(buildAppUrl("/api/file/upload"));
                 response.setHeaders(Map.of());
                 return response;
             }
@@ -404,18 +406,18 @@ public class TransferProxyService {
     private String buildApplicationDownloadUrl(String bucket, String objectName) {
         String encodedObject = URLEncoder.encode(objectName, StandardCharsets.UTF_8);
         String encodedBucket = URLEncoder.encode(bucket, StandardCharsets.UTF_8);
-        return "/api/file/download?objectName=" + encodedObject + "&bucket=" + encodedBucket;
+        return buildAppUrl("/api/file/download?objectName=" + encodedObject + "&bucket=" + encodedBucket);
     }
 
     private String buildShareFileDownloadUrl(String shareCode, String password) {
-        StringBuilder builder = new StringBuilder("/api/share/download?shareCode=")
+        StringBuilder builder = new StringBuilder(buildAppUrl("/api/share/download?shareCode="))
                 .append(URLEncoder.encode(shareCode, StandardCharsets.UTF_8));
         appendOptionalQuery(builder, "password", password);
         return builder.toString();
     }
 
     private String buildShareItemDownloadUrl(String shareCode, String password, String objectName) {
-        StringBuilder builder = new StringBuilder("/api/share/download-item?shareCode=")
+        StringBuilder builder = new StringBuilder(buildAppUrl("/api/share/download-item?shareCode="))
                 .append(URLEncoder.encode(shareCode, StandardCharsets.UTF_8))
                 .append("&objectName=")
                 .append(URLEncoder.encode(objectName, StandardCharsets.UTF_8));
@@ -435,7 +437,7 @@ public class TransferProxyService {
                 requireText(objectName, "objectName"),
                 requireText(fileName, "fileName")
         );
-        return "/api/transfer/download/stream/" + token;
+        return buildAppUrl("/api/transfer/download/stream/" + token);
     }
 
     private ResponseEntity<InputStreamResource> buildFileDownloadResponse(
@@ -543,7 +545,7 @@ public class TransferProxyService {
         if (task == null || !"COMPLETED".equals(task.getStatus()) || !"READY".equals(task.getStage())) {
             return;
         }
-        StringBuilder builder = new StringBuilder("/api/transfer/archive-tasks/")
+        StringBuilder builder = new StringBuilder(buildAppUrl("/api/transfer/archive-tasks/"))
                 .append(task.getId())
                 .append("/download");
         String resolvedShareCode = shareCode;
@@ -557,5 +559,18 @@ public class TransferProxyService {
             }
         }
         task.setDownloadUrl(builder.toString());
+    }
+
+    private String buildAppUrl(String path) {
+        ServletRequestAttributes attributes =
+                (ServletRequestAttributes) RequestContextHolder.getRequestAttributes();
+        String contextPath = "";
+        if (attributes != null && attributes.getRequest() != null) {
+            contextPath = attributes.getRequest().getContextPath();
+        }
+        if (contextPath == null || contextPath.isBlank() || "/".equals(contextPath)) {
+            contextPath = "";
+        }
+        return contextPath + path;
     }
 }

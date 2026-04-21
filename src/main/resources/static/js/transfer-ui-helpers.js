@@ -1,4 +1,37 @@
 (function (globalScope) {
+    var contextPathHelpers = (function () {
+        if (globalScope && globalScope.ContextPathHelpers) {
+            return globalScope.ContextPathHelpers;
+        }
+        if (typeof module !== 'undefined' && module.exports) {
+            try {
+                return require('./context-path-helpers.js');
+            } catch (error) {
+                return null;
+            }
+        }
+        return null;
+    })();
+
+    function getCurrentContextPath() {
+        return globalScope && typeof globalScope.__APP_CONTEXT_PATH__ === 'string'
+            ? globalScope.__APP_CONTEXT_PATH__
+            : '';
+    }
+
+    function createAppDownloadMatcher(contextPath) {
+        return function (targetUrl) {
+            if (!targetUrl) {
+                return false;
+            }
+            var resolved = new URL(targetUrl, 'http://localhost');
+            if (!contextPathHelpers || typeof contextPathHelpers.isContextPathUrlMatch !== 'function') {
+                return resolved.pathname.indexOf('/api/file/download') === 0;
+            }
+            return contextPathHelpers.isContextPathUrlMatch(contextPath, resolved.pathname, '/api/file/download');
+        };
+    }
+
     function resolveDownloadSessionUrl() {
         return '/transfer/download/session';
     }
@@ -47,8 +80,9 @@
             return false;
         }
         var resolved = new URL(url, window.location.origin);
+        var matcher = createAppDownloadMatcher(getCurrentContextPath());
         return resolved.origin === window.location.origin
-            && resolved.pathname.indexOf('/api/file/download') === 0;
+            && matcher(resolved.toString());
     }
 
     async function fetchProtectedDownload(url, fileName) {
@@ -140,6 +174,7 @@
         resolveDownloadSessionUrl: resolveDownloadSessionUrl,
         resolveUploadSessionUrl: resolveUploadSessionUrl,
         resolveUploadCompleteUrl: resolveUploadCompleteUrl,
+        createAppDownloadMatcher: createAppDownloadMatcher,
         createNativeDownload: createNativeDownload,
         runSingleFileDownload: runSingleFileDownload,
         uploadWithXhr: uploadWithXhr

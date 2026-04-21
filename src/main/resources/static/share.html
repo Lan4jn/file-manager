@@ -322,11 +322,18 @@
 
 <button id="shareDownloadToggle" class="secondary hidden share-download-toggle" type="button">下载任务</button>
 
-<script src="/js/axios.min.js"></script>
-<script src="/js/download-manager.js"></script>
-<script src="/js/transfer-ui-helpers.js"></script>
+<script src="./js/axios.min.js"></script>
+<script src="./js/context-path-helpers.js"></script>
+<script src="./js/download-manager.js"></script>
+<script src="./js/transfer-ui-helpers.js"></script>
 <script>
     (function () {
+        var contextPathHelpers = window.ContextPathHelpers || {};
+        var contextPath = (window.__APP_CONTEXT_PATH__
+            || contextPathHelpers.inferContextPath(window.location.pathname, ['/share.html']));
+        window.__APP_CONTEXT_PATH__ = contextPath;
+        var joinContextPath = contextPathHelpers.joinContextPath || function (_, path) { return path; };
+        var apiPath = function (path) { return joinContextPath(contextPath, path); };
         var params = new URLSearchParams(window.location.search);
         var shareCode = params.get('shareCode') || params.get('code');
         var password = params.get('password') || '';
@@ -398,7 +405,7 @@
         }
 
         function loadAccessInfo() {
-            axios.get('/api/share/access-info', { params: { shareCode: shareCode } })
+            axios.get(apiPath('/api/share/access-info'), { params: { shareCode: shareCode } })
                 .then(function (response) {
                     if (response.data.code !== 200) {
                         throw new Error(response.data.message || '加载分享失败');
@@ -429,7 +436,7 @@
                 requestParams.password = passwordInput.value;
             }
 
-            axios.get('/api/share/info', { params: requestParams })
+            axios.get(apiPath('/api/share/info'), { params: requestParams })
                 .then(function (response) {
                     if (response.data.code !== 200) {
                         throw new Error(response.data.message || '验证失败');
@@ -463,7 +470,7 @@
 
         function loadItems(path) {
             clearError();
-            axios.get('/api/share/items', {
+            axios.get(apiPath('/api/share/items'), {
                 params: {
                     shareCode: shareCode,
                     password: passwordInput.value,
@@ -776,7 +783,7 @@
         }
 
         function startSingleShareDownload(existingTaskId) {
-            axios.get('/api/share/file', {
+            axios.get(apiPath('/api/share/file'), {
                 params: {
                     shareCode: shareCode,
                     password: passwordInput.value
@@ -786,7 +793,7 @@
                     throw new Error(response.data.message || '读取分享文件信息失败');
                 }
                 var file = response.data.data || {};
-                return axios.post('/api/transfer/download/session', {
+                return axios.post(apiPath('/api/transfer/download/session'), {
                     scene: 'SHARE_FILE',
                     shareCode: shareCode,
                     password: passwordInput.value
@@ -801,7 +808,7 @@
         }
 
         function startSharedItemDownload(item, existingTaskId) {
-            axios.post('/api/transfer/download/session', {
+            axios.post(apiPath('/api/transfer/download/session'), {
                 scene: 'SHARE_ITEM',
                 shareCode: shareCode,
                 password: passwordInput.value,
@@ -845,10 +852,10 @@
                     password: passwordInput.value
                 },
                 createTaskRequest: function (payload) {
-                    return axios.post('/api/transfer/archive-tasks', payload);
+                    return axios.post(apiPath('/api/transfer/archive-tasks'), payload);
                 },
                 getTaskRequest: function (taskId) {
-                    return axios.get('/api/transfer/archive-tasks/' + taskId, {
+                    return axios.get(apiPath('/api/transfer/archive-tasks/' + taskId), {
                         params: {
                             shareCode: shareCode,
                             password: passwordInput.value

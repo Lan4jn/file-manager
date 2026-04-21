@@ -5,6 +5,14 @@
     }
     window.FileManagerDownloads = globalFactory();
 })(function () {
+    const contextPathHelpers = (typeof window !== 'undefined' && window.ContextPathHelpers)
+        ? window.ContextPathHelpers
+        : {
+            joinContextPath: (contextPath, path) => String(contextPath || '') + (String(path || '').startsWith('/') ? String(path || '') : ('/' + String(path || '')))
+        };
+    const appContextPath = typeof window !== 'undefined' && typeof window.__APP_CONTEXT_PATH__ === 'string'
+        ? window.__APP_CONTEXT_PATH__
+        : '';
     const DEFAULT_CHUNK_SIZE = 8 * 1024 * 1024;
     const BATCH_DOWNLOAD_STEPS = [
         '创建归档任务',
@@ -330,9 +338,9 @@
             return payload.downloadUrl;
         }
         if (payload.id !== undefined && payload.id !== null) {
-            return '/api/transfer/archive-tasks/' + payload.id + '/download';
+            return contextPathHelpers.joinContextPath(appContextPath, '/api/transfer/archive-tasks/' + payload.id + '/download');
         }
-        return '/api/transfer/archive-tasks/' + taskId + '/download';
+        return contextPathHelpers.joinContextPath(appContextPath, '/api/transfer/archive-tasks/' + taskId + '/download');
     };
 
     const pollArchiveTask = async ({

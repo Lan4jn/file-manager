@@ -4,10 +4,10 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>文件管理器</title>
-    <link rel="icon" type="image/svg+xml" href="/favicon.svg?v=20260324">
-    <link rel="alternate icon" type="image/x-icon" href="/favicon.ico?v=20260324">
-    <link rel="stylesheet" href="/css/element-plus.css">
-    <link rel="stylesheet" href="/css/app.css">
+    <link rel="icon" type="image/svg+xml" href="./favicon.svg?v=20260324">
+    <link rel="alternate icon" type="image/x-icon" href="./favicon.ico?v=20260324">
+    <link rel="stylesheet" href="./css/element-plus.css">
+    <link rel="stylesheet" href="./css/app.css">
 </head>
 <body>
     <div id="app">
@@ -53,7 +53,7 @@
                         </div>
                         <div class="login-card-actions">
                             <span class="version-chip">{{ displayVersionLabel }}</span>
-                            <button type="button" class="mode-switch-button" onclick="window.location.href='/lite'">切换到轻量版</button>
+                            <button type="button" class="mode-switch-button" @click="openLiteMode">切换到轻量版</button>
                         </div>
                     </div>
                     <el-form :model="loginForm" @submit.prevent="handleLogin">
@@ -107,7 +107,7 @@
                     </div>
                 </div>
                 <div class="header-right">
-                    <button class="mode-switch-button" type="button" onclick="window.location.href='/lite'">切换到轻量版</button>
+                    <button class="mode-switch-button" type="button" @click="openLiteMode">切换到轻量版</button>
                     <button class="ghost-action" @click="showVersionDialog = true">{{ displayVersionLabel }}</button>
                     <el-button class="help-text-button" @click="showHelpDialog = true">系统帮助</el-button>
                     <el-dropdown @command="handleCommand">
@@ -214,13 +214,19 @@
                     <div v-if="currentMenu === 'buckets' && currentMenuAccessible" class="page-content">
                         <div class="page-header">
                             <h3>存储桶管理</h3>
-                            <el-button v-if="hasApiPermission('API_BUCKET_MANAGE')" type="primary" @click="showBucketDialog = true">
-                                <el-icon><Plus /></el-icon>
-                                创建存储桶
-                                <el-tooltip content="在MinIO中创建一个新的存储桶用于存放文件" placement="top" effect="light">
-                                    <el-icon class="inline-help"><question-filled /></el-icon>
-                                </el-tooltip>
-                            </el-button>
+                            <div style="display: flex; gap: 8px;">
+                                <el-button v-if="hasApiPermission('API_BUCKET_MANAGE')" :loading="bucketStatsRefreshing" @click="refreshBucketStats">
+                                    <el-icon><Refresh /></el-icon>
+                                    刷新桶统计
+                                </el-button>
+                                <el-button v-if="hasApiPermission('API_BUCKET_MANAGE')" type="primary" @click="showBucketDialog = true">
+                                    <el-icon><Plus /></el-icon>
+                                    创建存储桶
+                                    <el-tooltip content="在MinIO中创建一个新的存储桶用于存放文件" placement="top" effect="light">
+                                        <el-icon class="inline-help"><question-filled /></el-icon>
+                                    </el-tooltip>
+                                </el-button>
+                            </div>
                         </div>
                         <el-table :data="bucketList" v-loading="bucketLoading" @sort-change="handleBucketSortChange">
                             <el-table-column prop="name" label="存储桶名称" sortable>
@@ -230,10 +236,29 @@
                                 </template>
                             </el-table-column>
                             <el-table-column prop="creationDate" label="创建时间" width="180" sortable="custom"></el-table-column>
-                            <el-table-column prop="objectCount" label="文件数量" width="100" sortable="custom"></el-table-column>
+                            <el-table-column prop="objectCount" label="文件数量" width="120" sortable="custom">
+                                <template #default="{ row }">
+                                    <span v-if="row.statsStatus === 'NOT_CALCULATED'">未统计</span>
+                                    <span v-else-if="row.statsStatus === 'PENDING' || row.statsStatus === 'RUNNING'">统计中</span>
+                                    <el-tooltip v-else-if="row.statsStatus === 'FAILED'" :content="row.statsErrorMessage || '统计失败'" placement="top" effect="light">
+                                        <span>统计失败</span>
+                                    </el-tooltip>
+                                    <span v-else>{{ row.objectCount ?? 0 }}</span>
+                                </template>
+                            </el-table-column>
                             <el-table-column prop="totalSize" label="总大小" width="120" sortable="custom">
                                 <template #default="{ row }">
-                                    {{ formatSize(row.totalSize) }}
+                                    <span v-if="row.statsStatus === 'NOT_CALCULATED'">未统计</span>
+                                    <span v-else-if="row.statsStatus === 'PENDING' || row.statsStatus === 'RUNNING'">统计中</span>
+                                    <el-tooltip v-else-if="row.statsStatus === 'FAILED'" :content="row.statsErrorMessage || '统计失败'" placement="top" effect="light">
+                                        <span>统计失败</span>
+                                    </el-tooltip>
+                                    <span v-else>{{ formatSize(row.totalSize) }}</span>
+                                </template>
+                            </el-table-column>
+                            <el-table-column prop="statsUpdatedAt" label="统计时间" width="180">
+                                <template #default="{ row }">
+                                    {{ formatDateTime(row.statsUpdatedAt) }}
                                 </template>
                             </el-table-column>
                             <el-table-column label="操作" width="150">
@@ -1790,35 +1815,36 @@
         </button>
     </div>
 
-    <script src="/js/vue.global.js"></script>
+    <script src="./js/vue.global.js"></script>
     <script>
         console.log('Vue loaded:', typeof Vue);
     </script>
-    <script src="/js/element-plus.full.js"></script>
+    <script src="./js/element-plus.full.js"></script>
     <script>
         console.log('ElementPlus loaded:', typeof ElementPlus);
     </script>
-    <script src="/js/element-icons.js"></script>
+    <script src="./js/element-icons.js"></script>
     <script>
         console.log('ElementPlusIconsVue loaded:', typeof ElementPlusIconsVue);
     </script>
-    <script src="/js/axios.min.js"></script>
-    <script src="/vendor/sha512.min.js"></script>
-    <script src="/vendor/bcryptjs.min.js"></script>
+    <script src="./js/axios.min.js"></script>
+    <script src="./vendor/sha512.min.js"></script>
+    <script src="./vendor/bcryptjs.min.js"></script>
     <script>
         console.log('Axios loaded:', typeof axios);
     </script>
-    <script src="/js/role-bucket-permission-helpers.js"></script>
-    <script src="/js/permission-ui-helpers.js"></script>
-    <script src="/js/login-error-helpers.js"></script>
-    <script src="/js/download-manager.js"></script>
-    <script src="/js/transfer-ui-helpers.js"></script>
-    <script src="/js/file-list-ui-helpers.js"></script>
-    <script src="/js/upload-dialog-helpers.js"></script>
-    <script src="/js/file-action-visibility-helpers.js"></script>
-    <script src="/js/file-transfer-helpers.js"></script>
-    <script src="/js/url-helpers.js"></script>
-    <script src="/js/message-center-helpers.js"></script>
-    <script src="/js/app.js"></script>
+    <script src="./js/context-path-helpers.js"></script>
+    <script src="./js/role-bucket-permission-helpers.js"></script>
+    <script src="./js/permission-ui-helpers.js"></script>
+    <script src="./js/login-error-helpers.js"></script>
+    <script src="./js/download-manager.js"></script>
+    <script src="./js/transfer-ui-helpers.js"></script>
+    <script src="./js/file-list-ui-helpers.js"></script>
+    <script src="./js/upload-dialog-helpers.js"></script>
+    <script src="./js/file-action-visibility-helpers.js"></script>
+    <script src="./js/file-transfer-helpers.js"></script>
+    <script src="./js/url-helpers.js"></script>
+    <script src="./js/message-center-helpers.js"></script>
+    <script src="./js/app.js"></script>
 </body>
 </html>

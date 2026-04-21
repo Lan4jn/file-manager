@@ -8,6 +8,7 @@ import com.lan4jn.file.dto.FileTransferPreviewRequest;
 import com.lan4jn.file.dto.FileTransferPreviewResponse;
 import com.lan4jn.file.dto.UploadResponse;
 import com.lan4jn.file.model.BucketInfo;
+import com.lan4jn.file.model.BucketStatsRefreshStatus;
 import com.lan4jn.file.model.FileInfo;
 import com.lan4jn.file.service.ConfigService;
 import com.lan4jn.file.service.FileService;
@@ -80,6 +81,7 @@ public class FileController {
             @RequestParam(value = "sortBy", required = false, defaultValue = "name") String sortBy,
             @RequestParam(value = "order", required = false, defaultValue = "asc") String order) {
         permissionAssertService.assertApiPermission(PermissionCodes.API_FILE_BROWSE);
+        log.info("Listing buckets, sortBy: {}, order: {}", sortBy, order);
         PermissionSnapshot snapshot = permissionAssertService.currentSnapshot();
         if (snapshot.superAdmin() || hasGlobalBucketAccess(snapshot)) {
             return Result.success(fileService.listBuckets(sortBy, order));
@@ -94,6 +96,23 @@ public class FileController {
             return Result.success(Collections.emptyList());
         }
         return Result.success(fileService.listBuckets(accessibleBuckets, sortBy, order));
+    }
+
+    @PostMapping("/buckets/stats/refresh")
+    public Result<Map<String, Object>> refreshBucketStats() {
+        permissionAssertService.assertApiPermission(PermissionCodes.API_BUCKET_MANAGE);
+        boolean started = fileService.triggerBucketStatsRefresh();
+        log.info("Trigger bucket stats refresh, started: {}", started);
+        return Result.success(Map.of(
+                "started", started,
+                "message", started ? "桶统计刷新任务已启动" : "桶统计刷新任务已在执行中"
+        ));
+    }
+
+    @GetMapping("/buckets/stats/status")
+    public Result<BucketStatsRefreshStatus> getBucketStatsRefreshStatus() {
+        permissionAssertService.assertApiPermission(PermissionCodes.API_FILE_BROWSE);
+        return Result.success(fileService.getBucketStatsRefreshStatus());
     }
 
     @PostMapping("/buckets")

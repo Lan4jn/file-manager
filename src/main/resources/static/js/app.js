@@ -192,6 +192,15 @@ const urlHelpers = window.UrlHelpers || {
         return url.toString();
     }
 };
+const contextPathHelpers = window.ContextPathHelpers || {
+    normalizeContextPath: (value) => String(value || '').trim() === '/' ? '' : String(value || '').trim(),
+    joinContextPath: (contextPath, path) => String(contextPath || '') + (String(path || '').startsWith('/') ? String(path || '') : ('/' + String(path || ''))),
+    inferContextPath: () => '',
+    isContextPathUrlMatch: (contextPath, pathname, appPath) => String(pathname || '') === (String(contextPath || '') + String(appPath || ''))
+};
+const appContextPath = window.__APP_CONTEXT_PATH__
+    || contextPathHelpers.inferContextPath(window.location.pathname, ['/index.html', '/full', '/']);
+window.__APP_CONTEXT_PATH__ = appContextPath;
 const messageCenterHelpers = window.MessageCenterHelpers || {
     countUnreadShareSources: (messages) => {
         if (!Array.isArray(messages)) {
@@ -263,6 +272,9 @@ const app = createApp({
         const newBucketName = ref('');
         const bucketSortBy = ref('name');
         const bucketOrder = ref('asc');
+        const bucketStatsRefreshing = ref(false);
+        const bucketStatsRefreshStatus = ref({ status: 'IDLE' });
+        let bucketStatsPollTimer = null;
 
         // File management
         const fileList = ref([]);
@@ -532,7 +544,7 @@ const filePageSize = ref(25);
 
         // API
         const api = axios.create({
-            baseURL: '/api',
+            baseURL: contextPathHelpers.joinContextPath(appContextPath, '/api'),
             timeout: 30000
         });
 
@@ -966,7 +978,7 @@ const filePageSize = ref(25);
             try {
                 const resolved = new URL(url, window.location.origin);
                 if (resolved.origin === window.location.origin
-                    && resolved.pathname.indexOf('/api/file/download') === 0) {
+                    && contextPathHelpers.isContextPathUrlMatch(appContextPath, resolved.pathname, '/api/file/download')) {
                     return buildAuthorizedHeaders();
                 }
             } catch (error) {
@@ -1023,7 +1035,7 @@ const filePageSize = ref(25);
             try {
                 const resolved = new URL(url, window.location.origin);
                 return resolved.origin !== window.location.origin
-                    || resolved.pathname.indexOf('/api/transfer/download/stream/') === 0;
+                    || resolved.pathname.indexOf(contextPathHelpers.joinContextPath(appContextPath, '/api/transfer/download/stream/')) === 0;
             } catch (error) {
                 return false;
             }
@@ -1269,7 +1281,7 @@ const filePageSize = ref(25);
         };
 
         const toQueryUrl = (basePath, params) => {
-            return urlHelpers.buildApiUrl(window.location.origin, '/api' + basePath, params);
+            return urlHelpers.buildApiUrl(window.location.origin, appContextPath, '/api' + basePath, params);
         };
 
         const openNativeDownload = (url) => transferUiHelpers.createNativeDownload(url);
@@ -1855,7 +1867,7 @@ const filePageSize = ref(25);
             return getRoleBucketActionDisplayText(actions) || '未选择';
         };
 
-        const uploadUrl = computed(() => '/api/file/upload');
+        const uploadUrl = computed(() => contextPathHelpers.joinContextPath(appContextPath, '/api/file/upload'));
         const uploadHeaders = computed(() => ({
             Authorization: 'Bearer ' + token.value
         }));
@@ -1978,6 +1990,10 @@ const filePageSize = ref(25);
                 };
                 showProfileDialog.value = true;
             }
+        };
+
+        const openLiteMode = () => {
+            window.location.href = contextPathHelpers.joinContextPath(appContextPath, '/lite');
         };
 
         const saveProfile = async () => {
@@ -2176,6 +2192,54 @@ const filePageSize = ref(25);
         };
 
         // Bucket management
+        const clearBucketStatsPollTimer = () => {
+            if (bucketStatsPollTimer) {
+                clearTimeout(bucketStatsPollTimer);
+                bucketStatsPollTimer = null;
+            }
+        };
+
+        const getBucketStatsStatus = async () => {
+            const res = await api.get('/file/buckets/stats/status');
+            return res.data || res;
+        };
+
+        const applyBucketStatsRefreshStatus = (payload) => {
+            bucketStatsRefreshStatus.value = payload || { status: 'IDLE' };
+            bucketStatsRefreshing.value = bucketStatsRefreshStatus.value.status === 'RUNNING';
+        };
+
+        const resolveBucketStatsStatus = (bucket) => (bucket && bucket.statsStatus) ? bucket.statsStatus : 'NOT_CALCULATED';
+
+        const syncBucketStatsRefreshStatus = async () => {
+            try {
+                const payload = await getBucketStatsStatus();
+                applyBucketStatsRefreshStatus(payload);
+                if (payload && payload.status === 'RUNNING') {
+                    clearBucketStatsPollTimer();
+                    bucketStatsPollTimer = setTimeout(pollBucketStatsStatus, 1000);
+                }
+            } catch (error) {
+                bucketStatsRefreshing.value = false;
+            }
+        };
+
+        const pollBucketStatsStatus = async () => {
+            clearBucketStatsPollTimer();
+            try {
+                const payload = await getBucketStatsStatus();
+                applyBucketStatsRefreshStatus(payload);
+                if (payload && payload.status === 'RUNNING') {
+                    bucketStatsPollTimer = setTimeout(pollBucketStatsStatus, 1000);
+                    return;
+                }
+                await loadBuckets();
+            } catch (error) {
+                bucketStatsRefreshing.value = false;
+                ElementPlus.ElMessage.error('获取桶统计状态失败');
+            }
+        };
+
         const loadBuckets = async () => {
             bucketLoading.value = true;
             try {
@@ -2185,6 +2249,7 @@ const filePageSize = ref(25);
                 if (res.code === 200) {
                     bucketList.value = res.data || [];
                 }
+                await syncBucketStatsRefreshStatus();
             } catch (error) {
                 ElementPlus.ElMessage.error('加载存储桶列表失败');
             } finally {
@@ -2285,6 +2350,19 @@ const filePageSize = ref(25);
                 if (error !== 'cancel') {
                     ElementPlus.ElMessage.error('删除失败: ' + (error.response?.data?.message || error.message));
                 }
+            }
+        };
+
+        const refreshBucketStats = async () => {
+            bucketStatsRefreshing.value = true;
+            try {
+                const res = await api.post('/file/buckets/stats/refresh');
+                const payload = res.data || res;
+                ElementPlus.ElMessage.success(payload?.message || '桶统计刷新任务已启动');
+                await pollBucketStatsStatus();
+            } catch (error) {
+                bucketStatsRefreshing.value = false;
+                ElementPlus.ElMessage.error('刷新桶统计失败');
             }
         };
 
@@ -2833,7 +2911,7 @@ const filePageSize = ref(25);
         };
 
         const buildShareUrl = (share, includePassword = false) => {
-            return urlHelpers.buildShareUrl(window.location.origin, share, includePassword);
+            return urlHelpers.buildShareUrl(window.location.origin, appContextPath, share, includePassword);
         };
 
         const buildShareCopyText = (share, mode = 'notice') => {
@@ -4236,6 +4314,7 @@ const filePageSize = ref(25);
             document.removeEventListener('keydown', handleDocumentKeydown);
             stopSyncingRetry();
             disconnectMessageSocket();
+            clearBucketStatsPollTimer();
         });
 
         return {
@@ -4252,6 +4331,8 @@ const filePageSize = ref(25);
             newBucketName,
             bucketSortBy,
             bucketOrder,
+            bucketStatsRefreshing,
+            bucketStatsRefreshStatus,
             fileList,
             fileLoading,
             fileDropActive,
@@ -4391,9 +4472,11 @@ const filePageSize = ref(25);
             handleLogin,
             logout,
             handleCommand,
+            openLiteMode,
             saveProfile,
             handleMenuSelect,
             loadBuckets,
+            refreshBucketStats,
             selectBucket,
             onBucketSelect,
             createBucket,

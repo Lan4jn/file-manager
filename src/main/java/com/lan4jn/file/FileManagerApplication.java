@@ -2,7 +2,9 @@ package com.lan4jn.file;
 
 import org.springframework.boot.SpringApplication;
 import org.springframework.boot.autoconfigure.SpringBootApplication;
+import org.springframework.scheduling.annotation.EnableScheduling;
 
+@EnableScheduling
 @SpringBootApplication
 public class FileManagerApplication {
 
@@ -17,4 +19,3 @@ public class FileManagerApplication {
         app.run(args);
     }
 }
-

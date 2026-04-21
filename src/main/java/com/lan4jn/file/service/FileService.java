@@ -3,8 +3,10 @@ package com.lan4jn.file.service;
 import com.lan4jn.file.common.PageResult;
 import com.lan4jn.file.dto.UploadResponse;
 import com.lan4jn.file.model.BucketInfo;
+import com.lan4jn.file.model.BucketStatsRefreshStatus;
 import com.lan4jn.file.model.FileInfo;
 import io.minio.MinioClient;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Service;
 import org.springframework.web.multipart.MultipartFile;
@@ -28,10 +30,11 @@ public class FileService {
     );
 
     private final FileDomainSupport support;
-    private final BucketService bucketService;
     private final FileQueryService fileQueryService;
     private final FileCommandService fileCommandService;
     private final ArchiveService archiveService;
+    private BucketService bucketService;
+    private BucketStatsRefreshService bucketStatsRefreshService;
 
     @Value("${minio.default-bucket:file-manager}")
     private String defaultBucket;
@@ -50,12 +53,34 @@ public class FileService {
         this.archiveService = new ArchiveService(support, fileQueryService, configService);
     }
 
+    @Autowired
+    void setBucketService(BucketService bucketService) {
+        this.bucketService = bucketService;
+    }
+
+    @Autowired(required = false)
+    void setBucketStatsRefreshService(BucketStatsRefreshService bucketStatsRefreshService) {
+        this.bucketStatsRefreshService = bucketStatsRefreshService;
+    }
+
     public List<BucketInfo> listBuckets(String sortBy, String order) {
         return bucketService.listBuckets(sortBy, order);
     }
 
     public List<BucketInfo> listBuckets(List<String> bucketNames, String sortBy, String order) {
         return bucketService.listBuckets(bucketNames, sortBy, order);
+    }
+
+    public boolean triggerBucketStatsRefresh() {
+        return bucketStatsRefreshService != null
+                && bucketStatsRefreshService.triggerRefresh(bucketService.listAllBucketNames());
+    }
+
+    public BucketStatsRefreshStatus getBucketStatsRefreshStatus() {
+        if (bucketStatsRefreshService == null) {
+            return new BucketStatsRefreshStatus();
+        }
+        return bucketStatsRefreshService.getStatus();
     }
 
     public BucketInfo createBucket(String bucketName) {

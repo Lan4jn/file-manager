@@ -13,9 +13,17 @@ const loginErrorHelpers = window.LoginErrorHelpers || {
         return '登录失败';
     }
 };
+const contextPathHelpers = window.ContextPathHelpers || {
+    normalizeContextPath: (value) => String(value || '').trim() === '/' ? '' : String(value || '').trim(),
+    joinContextPath: (contextPath, path) => String(contextPath || '') + (String(path || '').startsWith('/') ? String(path || '') : ('/' + String(path || ''))),
+    inferContextPath: () => ''
+};
+const appContextPath = window.__APP_CONTEXT_PATH__
+    || contextPathHelpers.inferContextPath(window.location.pathname, ['/lite.html', '/lite']);
+window.__APP_CONTEXT_PATH__ = appContextPath;
 
 const api = axios.create({
-    baseURL: '/api',
+    baseURL: contextPathHelpers.joinContextPath(appContextPath, '/api'),
     timeout: 30000
 });
 
@@ -159,7 +167,7 @@ createApp({
         };
 
         const openFullMode = () => {
-            window.location.href = '/full';
+            window.location.href = contextPathHelpers.joinContextPath(appContextPath, '/full');
         };
 
         const handleLogin = async () => {
@@ -482,7 +490,11 @@ createApp({
         };
 
         const downloadFile = (file) => {
-            window.open(`/api/file/download?objectName=${encodeURIComponent(file.objectName)}&bucket=${encodeURIComponent(currentBucket.value)}`, '_blank');
+            window.open(
+                contextPathHelpers.joinContextPath(appContextPath, '/api/file/download')
+                + `?objectName=${encodeURIComponent(file.objectName)}&bucket=${encodeURIComponent(currentBucket.value)}`,
+                '_blank'
+            );
         };
 
         const batchDownload = () => {

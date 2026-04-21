@@ -5,6 +5,7 @@ import com.lan4jn.file.dto.FileTransferExecuteResponse;
 import com.lan4jn.file.dto.FileTransferPreviewResponse;
 import com.lan4jn.file.dto.UploadResponse;
 import com.lan4jn.file.model.BucketInfo;
+import com.lan4jn.file.model.BucketStatsRefreshStatus;
 import com.lan4jn.file.model.FileInfo;
 import com.lan4jn.file.service.ConfigService;
 import com.lan4jn.file.service.FileService;
@@ -111,6 +112,30 @@ class FileControllerTest {
                 .andExpect(jsonPath("$.data[0].objectCount").value(12))
                 .andExpect(jsonPath("$.data[0].totalSize").value(345))
                 .andExpect(jsonPath("$.data[0].statsUpdatedAt").exists());
+    }
+
+    @Test
+    void shouldTriggerBucketStatsRefresh() throws Exception {
+        when(fileService.triggerBucketStatsRefresh()).thenReturn(true);
+
+        mockMvc.perform(post("/api/file/buckets/stats/refresh"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.started").value(true));
+    }
+
+    @Test
+    void shouldReturnBucketStatsRefreshStatus() throws Exception {
+        BucketStatsRefreshStatus refreshStatus = new BucketStatsRefreshStatus();
+        refreshStatus.setStatus("RUNNING");
+        refreshStatus.setProcessedBuckets(1);
+        refreshStatus.setTotalBuckets(3);
+        when(fileService.getBucketStatsRefreshStatus()).thenReturn(refreshStatus);
+
+        mockMvc.perform(get("/api/file/buckets/stats/status"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.status").value("RUNNING"))
+                .andExpect(jsonPath("$.data.processedBuckets").value(1))
+                .andExpect(jsonPath("$.data.totalBuckets").value(3));
     }
 
     @Test
