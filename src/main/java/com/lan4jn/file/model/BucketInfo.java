@@ -8,6 +8,9 @@ public class BucketInfo {
     private Long objectCount;
     private Long totalSize;
     private Boolean compatible;
+    private String statsStatus;
+    private String statsErrorMessage;
+    private LocalDateTime statsUpdatedAt;
 
     public String getName() {
         return name;
@@ -47,5 +50,29 @@ public class BucketInfo {
 
     public void setCompatible(Boolean compatible) {
         this.compatible = compatible;
+    }
+
+    public String getStatsStatus() {
+        return statsStatus;
+    }
+
+    public void setStatsStatus(String statsStatus) {
+        this.statsStatus = statsStatus;
+    }
+
+    public String getStatsErrorMessage() {
+        return statsErrorMessage;
+    }
+
+    public void setStatsErrorMessage(String statsErrorMessage) {
+        this.statsErrorMessage = statsErrorMessage;
+    }
+
+    public LocalDateTime getStatsUpdatedAt() {
+        return statsUpdatedAt;
+    }
+
+    public void setStatsUpdatedAt(LocalDateTime statsUpdatedAt) {
+        this.statsUpdatedAt = statsUpdatedAt;
     }
 }

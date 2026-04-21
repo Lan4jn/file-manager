@@ -92,6 +92,28 @@ class FileControllerTest {
     }
 
     @Test
+    void shouldReturnBucketStatsSnapshotFields() throws Exception {
+        BucketInfo bucketInfo = new BucketInfo();
+        bucketInfo.setName("bucket-a");
+        bucketInfo.setObjectCount(12L);
+        bucketInfo.setTotalSize(345L);
+        bucketInfo.setStatsStatus("SUCCESS");
+        bucketInfo.setStatsUpdatedAt(LocalDateTime.of(2026, 4, 21, 10, 30));
+
+        when(fileService.listBuckets("name", "asc")).thenReturn(List.of(bucketInfo));
+        when(permissionAssertService.currentSnapshot()).thenReturn(new PermissionSnapshot(
+                1L, "admin", true, Set.of("ADMIN"), Set.of(), Set.of(), Map.of()
+        ));
+
+        mockMvc.perform(get("/api/file/buckets"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data[0].statsStatus").value("SUCCESS"))
+                .andExpect(jsonPath("$.data[0].objectCount").value(12))
+                .andExpect(jsonPath("$.data[0].totalSize").value(345))
+                .andExpect(jsonPath("$.data[0].statsUpdatedAt").exists());
+    }
+
+    @Test
     void shouldLoadOnlyAuthorizedBuckets() throws Exception {
         BucketInfo allowedA = new BucketInfo();
         allowedA.setName("bucket-a");
