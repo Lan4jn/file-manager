@@ -1,6 +1,10 @@
 const test = require('node:test');
 const assert = require('node:assert/strict');
 
+globalThis.ContextPathHelpers = {
+    joinContextPath: (contextPath, path) => String(contextPath || '') + String(path || '')
+};
+
 const {
     buildApiUrl,
     buildShareUrl
@@ -31,4 +35,15 @@ test('should build share url without password by default', () => {
     const url = buildShareUrl('http://localhost:9080', { shareCode: 'ABCD1234', hasPassword: true, password: '2468' }, false);
 
     assert.equal(url, 'http://localhost:9080/share/ABCD1234');
+});
+
+test('should prepend context path when building share url', () => {
+    const url = buildShareUrl(
+        'http://localhost:9080',
+        '/fm',
+        { shareCode: 'ABCD1234', hasPassword: false },
+        false
+    );
+
+    assert.equal(url, 'http://localhost:9080/fm/share/ABCD1234');
 });

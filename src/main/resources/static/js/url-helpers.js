@@ -37,7 +37,7 @@
     }
 
     function buildShareUrl(origin, contextPathOrShare, shareOrIncludePassword, maybeIncludePassword) {
-        var args = resolveArguments(contextPathOrShare, shareOrIncludePassword, maybeIncludePassword);
+        var args = resolveArguments(contextPathOrShare, shareOrIncludePassword, null, maybeIncludePassword);
         var contextPath = args.contextPath;
         var share = args.value;
         var includePassword = args.extra;
