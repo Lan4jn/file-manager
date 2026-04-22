@@ -40,7 +40,7 @@
         var args = resolveArguments(contextPathOrShare, shareOrIncludePassword, null, maybeIncludePassword);
         var contextPath = args.contextPath;
         var share = args.value;
-        var includePassword = args.extra;
+        var includePassword = typeof args.flag === 'boolean' ? args.flag : args.extra;
         var sharePath = '/share/' + ((share && share.shareCode) || '');
         var fullPath = contextPathHelpers && typeof contextPathHelpers.joinContextPath === 'function'
             ? contextPathHelpers.joinContextPath(contextPath, sharePath)

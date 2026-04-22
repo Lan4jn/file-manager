@@ -47,3 +47,14 @@ test('should prepend context path when building share url', () => {
 
     assert.equal(url, 'http://localhost:9080/fm/share/ABCD1234');
 });
+
+test('should append password when building share url with context path', () => {
+    const url = buildShareUrl(
+        'http://localhost:9080',
+        '/fm',
+        { shareCode: 'ABCD1234', hasPassword: true, password: '12 3#' },
+        true
+    );
+
+    assert.equal(url, 'http://localhost:9080/fm/share/ABCD1234?password=12+3%23');
+});
