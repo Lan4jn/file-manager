@@ -154,6 +154,10 @@
                                 <span>存储桶管理</span>
                             </el-menu-item>
                         </el-tooltip>
+                        <el-menu-item index="workbench">
+                            <el-icon><Monitor /></el-icon>
+                            <span>工作台</span>
+                        </el-menu-item>
                         <el-tooltip v-if="canAccessMenu('files')" content="浏览、上传、下载、删除文件，支持文件夹操作" placement="right" effect="light" :show-after="700">
                             <el-menu-item index="files">
                                 <el-icon><Folder /></el-icon>
@@ -208,6 +212,90 @@
                 <div class="main-content">
                     <div v-if="!currentMenuAccessible" class="page-content">
                         <el-empty description="当前账号无权访问该功能"></el-empty>
+                    </div>
+
+                    <div v-if="currentMenu === 'workbench' && currentMenuAccessible" class="page-content page-content--workbench">
+                        <div class="page-header">
+                            <h3>工作台</h3>
+                        </div>
+                        <div class="workbench-grid">
+                            <section class="workbench-panel workbench-panel--hero">
+                                <div class="workbench-panel__header">
+                                    <div>
+                                        <h4>{{ (userInfo.nickname || userInfo.username || '用户') + '，欢迎回来' }}</h4>
+                                        <p>从这里继续最近目录操作，或快速进入收藏目录。</p>
+                                    </div>
+                                    <el-checkbox
+                                        :model-value="workbenchOverview.defaultWorkbench"
+                                        :disabled="workbenchPreferenceSaving"
+                                        @change="updateWorkbenchPreference"
+                                    >
+                                        下次登录默认显示工作台
+                                    </el-checkbox>
+                                </div>
+                            </section>
+                            <section class="workbench-panel">
+                                <div class="workbench-panel__header">
+                                    <div>
+                                        <h4>最近访问目录</h4>
+                                        <p>最近成功打开过的目录</p>
+                                    </div>
+                                </div>
+                                <div v-if="workbenchLoading" class="workbench-empty">加载中...</div>
+                                <div v-else-if="!workbenchOverview.recentDirectories.length" class="workbench-empty">还没有目录访问记录</div>
+                                <button
+                                    v-for="item in workbenchOverview.recentDirectories"
+                                    :key="'recent-' + item.bucketName + '-' + item.directoryPath"
+                                    type="button"
+                                    class="workbench-directory"
+                                    @click="openWorkbenchDirectory(item)"
+                                >
+                                    <strong>{{ item.directoryName || item.directoryPath || '目录' }}</strong>
+                                    <span>{{ item.bucketName }} / {{ item.directoryPath }}</span>
+                                </button>
+                            </section>
+                            <section class="workbench-panel">
+                                <div class="workbench-panel__header">
+                                    <div>
+                                        <h4>收藏目录</h4>
+                                        <p>常用目录快捷入口</p>
+                                    </div>
+                                </div>
+                                <div v-if="workbenchLoading" class="workbench-empty">加载中...</div>
+                                <div v-else-if="!workbenchOverview.favoriteDirectories.length" class="workbench-empty">还没有收藏目录</div>
+                                <button
+                                    v-for="item in workbenchOverview.favoriteDirectories"
+                                    :key="'favorite-' + item.bucketName + '-' + item.directoryPath"
+                                    type="button"
+                                    class="workbench-directory"
+                                    @click="openWorkbenchDirectory(item)"
+                                >
+                                    <div class="workbench-directory__content">
+                                        <strong>{{ item.directoryName || item.directoryPath || '目录' }}</strong>
+                                        <span>{{ item.bucketName }} / {{ item.directoryPath }}</span>
+                                    </div>
+                                    <span class="workbench-directory__remove" @click.stop="removeFavoriteDirectory(item)">取消收藏</span>
+                                </button>
+                            </section>
+                            <section class="workbench-panel">
+                                <div class="workbench-panel__header">
+                                    <div>
+                                        <h4>提醒摘要</h4>
+                                        <p>最近收到的分享提醒</p>
+                                    </div>
+                                </div>
+                                <div v-if="workbenchLoading" class="workbench-empty">加载中...</div>
+                                <div v-else-if="!workbenchOverview.shareReminders.length" class="workbench-empty">最近没有新的分享提醒</div>
+                                <div
+                                    v-for="(item, index) in workbenchOverview.shareReminders"
+                                    :key="'reminder-' + index"
+                                    class="workbench-reminder"
+                                >
+                                    <strong>{{ item.title }}</strong>
+                                    <span>{{ item.content }}</span>
+                                </div>
+                            </section>
+                        </div>
                     </div>
 
                     <!-- Bucket Management -->
@@ -369,6 +457,17 @@
                                         <el-button v-if="hasApiPermission('API_FILE_OPERATE') && hasBucketPermission(currentBucket, 'CREATE_FOLDER')" size="small" @click="showFolderDialog = true">
                                             <el-icon><folder-add /></el-icon>
                                             新建
+                                        </el-button>
+                                    </el-tooltip>
+                                    <el-tooltip :content="isCurrentDirectoryFavorite ? '取消收藏当前目录' : '收藏当前目录'" placement="top">
+                                        <el-button
+                                            v-if="currentFolder"
+                                            size="small"
+                                            :type="isCurrentDirectoryFavorite ? 'warning' : 'default'"
+                                            @click="toggleCurrentDirectoryFavorite"
+                                        >
+                                            <el-icon><Star /></el-icon>
+                                            {{ isCurrentDirectoryFavorite ? '已收藏' : '收藏目录' }}
                                         </el-button>
                                     </el-tooltip>
                                     <el-tooltip content="批量分享" placement="top">
@@ -1055,11 +1154,19 @@
             </div>
             <div v-if="fileConfig.uploadDialogMode === 'MANUAL' && pendingUploadFiles.length" class="upload-task-panel">
                 <div class="upload-task-panel__title">待上传文件</div>
+                <div class="upload-rename-toolbar">
+                    <el-input v-model="uploadBatchRenameRule.prefix" size="small" placeholder="统一前缀"></el-input>
+                    <el-input v-model="uploadBatchRenameRule.suffix" size="small" placeholder="统一后缀"></el-input>
+                    <el-input v-model="uploadBatchRenameRule.findText" size="small" placeholder="查找"></el-input>
+                    <el-input v-model="uploadBatchRenameRule.replaceText" size="small" placeholder="替换为"></el-input>
+                    <el-button size="small" @click="applyUploadBatchRenameRule">批量改名</el-button>
+                </div>
                 <div v-for="file in pendingUploadFiles" :key="file.id" class="upload-pending-list__item">
                     <div class="upload-pending-list__meta">
                         <span class="upload-pending-list__name">{{ file.name }}</span>
                         <span class="upload-pending-list__size">{{ formatSize(file.size || 0) }}</span>
                     </div>
+                    <el-input v-model="file.targetName" size="small" placeholder="上传后的文件名"></el-input>
                     <el-button text @click="removePendingUploadFile(file.id)">移除</el-button>
                 </div>
             </div>
@@ -1147,6 +1254,14 @@
             <template #footer>
                 <el-button @click="showFolderDialog = false">取消</el-button>
                 <el-button type="primary" @click="createFolder">创建</el-button>
+            </template>
+        </el-dialog>
+
+        <el-dialog v-model="showRenameDialog" :title="renameState.isFolder ? '重命名目录' : '重命名文件'" width="420px">
+            <el-input v-model="renameState.targetName" placeholder="请输入新的名称"></el-input>
+            <template #footer>
+                <el-button @click="showRenameDialog = false">取消</el-button>
+                <el-button type="primary" @click="submitRename">确定</el-button>
             </template>
         </el-dialog>
 
@@ -1843,6 +1958,9 @@
     <script src="./js/upload-dialog-helpers.js"></script>
     <script src="./js/file-action-visibility-helpers.js"></script>
     <script src="./js/file-transfer-helpers.js"></script>
+    <script src="./js/workbench-helpers.js"></script>
+    <script src="./js/share-banner-helpers.js"></script>
+    <script src="./js/rename-helpers.js"></script>
     <script src="./js/url-helpers.js"></script>
     <script src="./js/message-center-helpers.js"></script>
     <script src="./js/app.js"></script>

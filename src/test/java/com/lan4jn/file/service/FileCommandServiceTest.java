@@ -13,6 +13,7 @@ import java.util.Set;
 
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
+import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.mockito.ArgumentMatchers.argThat;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.doNothing;
@@ -109,6 +110,51 @@ class FileCommandServiceTest {
         ArgumentCaptor<io.minio.CopyObjectArgs> copyCaptor = ArgumentCaptor.forClass(io.minio.CopyObjectArgs.class);
         verify(minioClient, atLeastOnce()).copyObject(copyCaptor.capture());
         assertTrue(copyCaptor.getAllValues().stream().anyMatch(args -> "a.txt".equals(args.object())));
+    }
+
+    @Test
+    void shouldRenameFileWithinSameFolder() throws Exception {
+        when(support.resolveBucket("", "bucket-a")).thenReturn("bucket-a");
+        when(support.objectExists("bucket-a", "docs/renamed.txt")).thenReturn(false);
+
+        String target = fileCommandService.rename("docs/source.txt", "renamed.txt", "", "bucket-a", "OVERWRITE");
+
+        assertEquals("docs/renamed.txt", target);
+        verify(minioClient).copyObject(argThat(args -> "docs/renamed.txt".equals(args.object())));
+    }
+
+    @Test
+    void shouldAutoRenameWhenRenameConflictPolicyRequested() throws Exception {
+        when(support.resolveBucket("", "bucket-a")).thenReturn("bucket-a");
+        when(support.objectExists("bucket-a", "docs/renamed.txt")).thenReturn(true);
+        when(support.objectExists("bucket-a", "docs/renamed_2.txt")).thenReturn(false);
+
+        String target = fileCommandService.rename("docs/source.txt", "renamed.txt", "", "bucket-a", "RENAME");
+
+        assertEquals("docs/renamed_2.txt", target);
+        verify(minioClient).copyObject(argThat(args -> "docs/renamed_2.txt".equals(args.object())));
+    }
+
+    @Test
+    void shouldRejectRenameWhenTargetNameContainsPathSeparator() {
+        RuntimeException exception = assertThrows(RuntimeException.class,
+                () -> fileCommandService.rename("docs/source.txt", "bad/name.txt", "", "bucket-a", "OVERWRITE"));
+
+        assertTrue(exception.getMessage().contains("名称不合法"));
+    }
+
+    @Test
+    void shouldRenameFolderWithinSameParent() throws Exception {
+        Result<Item> nestedFileResult = result(item("docs/source/readme.txt", false));
+        when(support.resolveBucket("", "bucket-a")).thenReturn("bucket-a");
+        when(minioClient.listObjects(any())).thenReturn(List.of(nestedFileResult));
+        when(support.objectExists("bucket-a", "docs/source/")).thenReturn(true);
+        when(support.objectExists("bucket-a", "docs/renamed/")).thenReturn(false);
+
+        String target = fileCommandService.rename("docs/source/", "renamed", "", "bucket-a", "OVERWRITE");
+
+        assertEquals("docs/renamed/", target);
+        verify(minioClient).copyObject(argThat(args -> "docs/renamed/readme.txt".equals(args.object())));
     }
 
     @SuppressWarnings("unchecked")

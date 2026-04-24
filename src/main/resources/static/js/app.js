@@ -174,6 +174,21 @@ const fileTransferHelpers = window.FileTransferHelpers || {
         return '';
     }
 };
+const workbenchHelpers = window.WorkbenchHelpers || {
+    normalizeOverview: () => ({ defaultWorkbench: false, recentDirectories: [], favoriteDirectories: [], shareReminders: [] }),
+    resolveInitialMenu: (currentMenu) => currentMenu || 'buckets',
+    hasWorkbenchContent: () => false
+};
+const shareBannerHelpers = window.ShareBannerHelpers || {
+    isShareMessage: () => false,
+    buildShareSentBanner: () => ({ title: '', content: '' }),
+    buildShareReceivedBanner: () => ({ title: '', content: '' }),
+    deriveShareRemindersFromInbox: () => []
+};
+const renameHelpers = window.RenameHelpers || {
+    validateRenameTargetName: () => '',
+    buildRenamePayload: () => ({})
+};
 const urlHelpers = window.UrlHelpers || {
     buildApiUrl: (origin, basePath, params) => {
         const url = new URL(basePath, origin);
@@ -263,6 +278,9 @@ const app = createApp({
         const currentMenu = ref('buckets');
         const loginForm = ref({ username: '', password: '' });
         const loginLoading = ref(false);
+        const workbenchOverview = ref(workbenchHelpers.normalizeOverview());
+        const workbenchLoading = ref(false);
+        const workbenchPreferenceSaving = ref(false);
 
         // Bucket management
         const bucketList = ref([]);
@@ -306,6 +324,12 @@ const filePageSize = ref(25);
         const uploadDialogDropActive = ref(false);
         const uploadTasks = ref([]);
         const pendingUploadFiles = ref([]);
+        const uploadBatchRenameRule = ref({
+            prefix: '',
+            suffix: '',
+            findText: '',
+            replaceText: ''
+        });
         const syncingFileKeys = ref(new Set());
         const syncingFileMeta = ref({});
         const uploadCancelRequested = ref(false);
@@ -317,6 +341,7 @@ const filePageSize = ref(25);
         const uploadRef = ref(null);
         const uploading = ref(false);
         const showFolderDialog = ref(false);
+        const showRenameDialog = ref(false);
         const showShareDialog = ref(false);
         const showBatchShareDialog = ref(false);
         const showUserDialog = ref(false);
@@ -440,6 +465,12 @@ const filePageSize = ref(25);
 
         // Lists
         const shareList = ref([]);
+        const renameState = ref({
+            sourcePath: '',
+            targetName: '',
+            isFolder: false,
+            conflictPolicy: 'OVERWRITE'
+        });
         const shareTab = ref('my-shares');
         const inboxList = ref([]);
         const inboxLoading = ref(false);
@@ -506,7 +537,7 @@ const filePageSize = ref(25);
                 ...extra
             };
         };
-        const fileRowActionOptions = ['DOWNLOAD', 'SHARE', 'PREVIEW', 'DELETE', 'MOVE', 'COPY']
+        const fileRowActionOptions = ['DOWNLOAD', 'SHARE', 'PREVIEW', 'RENAME', 'DELETE', 'MOVE', 'COPY']
             .map(code => buildRowActionDefinition(code, { value: code }));
         const showTransferDialog = ref(false);
         const transferState = ref({
@@ -621,6 +652,7 @@ const filePageSize = ref(25);
         const currentViewTitle = computed(() => {
             const titles = {
                 buckets: '存储空间',
+                workbench: '工作台',
                 files: '我的文件',
                 shares: '共享中心',
                 'audit-logs': '审计日志',
@@ -635,6 +667,7 @@ const filePageSize = ref(25);
         const currentViewDescription = computed(() => {
             const descriptions = {
                 buckets: '统一管理对象存储桶与容量分布。',
+                workbench: '继续最近的目录操作，集中查看常用目录入口。',
                 files: '按目录组织文件，上传、分享、下载一体化处理。',
                 shares: '集中查看我的分享、站内收件箱与提取码信息。',
                 'audit-logs': '审计文件操作、分享行为与关键系统动作。',
@@ -697,6 +730,14 @@ const filePageSize = ref(25);
                 return currentBucket.value + ' / 根目录';
             }
             return currentBucket.value + ' / ' + currentFolder.value;
+        });
+        const isCurrentDirectoryFavorite = computed(() => {
+            if (!currentBucket.value || !currentFolder.value) {
+                return false;
+            }
+            return (workbenchOverview.value.favoriteDirectories || []).some(item => item
+                && item.bucketName === currentBucket.value
+                && item.directoryPath === currentFolder.value);
         });
 
         const copyText = async (text) => {
@@ -1041,9 +1082,11 @@ const filePageSize = ref(25);
             }
         };
 
-        const uploadFileRequest = async ({ file, onProgress, onXhr }) => {
+        const uploadFileRequest = async ({ file, onProgress, onXhr, targetFileName }) => {
             const sessionRes = await api.post(transferUiHelpers.resolveUploadSessionUrl(), {
-                fileName: file.name,
+                fileName: targetFileName || file.name,
+                originalFileName: file.name,
+                targetFileName: targetFileName || file.name,
                 size: file.size,
                 contentType: file.type || 'application/octet-stream',
                 folder: currentFolder.value,
@@ -1202,8 +1245,22 @@ const filePageSize = ref(25);
         };
 
         const runUploadBatch = async (files, options = {}) => {
-            const rawFiles = (files || []).filter(Boolean);
-            if (!rawFiles.length) {
+            const uploadItems = (files || []).map((item) => {
+                if (!item) {
+                    return null;
+                }
+                if (item.raw) {
+                    return {
+                        raw: item.raw,
+                        targetName: String(item.targetName || item.name || item.raw.name || '').trim() || item.raw.name
+                    };
+                }
+                return {
+                    raw: item,
+                    targetName: item.name
+                };
+            }).filter(Boolean);
+            if (!uploadItems.length) {
                 ElementPlus.ElMessage.warning('请先选择要上传的文件');
                 return;
             }
@@ -1217,16 +1274,19 @@ const filePageSize = ref(25);
             const uploadedItems = [];
             const uploadBucket = currentBucket.value;
             try {
-                for (const file of rawFiles) {
+                for (const uploadItem of uploadItems) {
+                    const file = uploadItem.raw;
                     if (uploadCancelRequested.value) {
                         break;
                     }
                     const task = createUploadTask(file);
+                    task.name = uploadItem.targetName || task.name;
                     uploadTasks.value = [task, ...uploadTasks.value];
                     updateUploadTask(task.id, { step: '正在上传', progress: 0 });
                     try {
                         const result = await uploadFileRequest({
                             file,
+                            targetFileName: uploadItem.targetName,
                             onXhr: (xhr) => {
                                 updateUploadTask(task.id, { xhr });
                             },
@@ -1488,7 +1548,7 @@ const filePageSize = ref(25);
                         });
                     },
                     wait: createAbortablePollWait(abortController),
-                    openDownload: (url) => openNativeDownload(url)
+                    openDownload: (url) => transferUiHelpers.runArchiveDownload(url, fileName, openNativeDownload)
                 });
                 completeDownloadTask(currentTaskId, {
                     step: '保存完成',
@@ -1554,7 +1614,7 @@ const filePageSize = ref(25);
                         });
                     },
                     wait: createAbortablePollWait(abortController),
-                    openDownload: (url) => openNativeDownload(url)
+                    openDownload: (url) => transferUiHelpers.runArchiveDownload(url, archiveName, openNativeDownload)
                 });
                 completeDownloadTask(currentTaskId, {
                     step: '保存完成',
@@ -1691,7 +1751,7 @@ const filePageSize = ref(25);
         };
 
         const syncCurrentMenu = () => {
-            const menuOrder = ['buckets', 'files', 'shares', 'audit-logs', 'users', 'roles', 'minio-keys', 'config'];
+            const menuOrder = ['workbench', 'buckets', 'files', 'shares', 'audit-logs', 'users', 'roles', 'minio-keys', 'config'];
             if (canAccessMenu(currentMenu.value)) {
                 return;
             }
@@ -1934,7 +1994,9 @@ const filePageSize = ref(25);
                     await loadCurrentPermissions();
                     await loadPermissions();
                     await loadInbox();
+                    await loadWorkbenchOverview();
                     connectMessageSocket();
+                    currentMenu.value = workbenchHelpers.resolveInitialMenu(currentMenu.value, workbenchOverview.value, canAccessMenu);
                     handleMenuSelect(currentMenu.value);
                 } else {
                     ElementPlus.ElMessage.error(res.message || '登录失败');
@@ -1972,6 +2034,7 @@ const filePageSize = ref(25);
             feedbackForm.value = { category: 'GENERAL', title: '', body: '' };
             isLoggedIn.value = false;
             currentMenu.value = 'buckets';
+            workbenchOverview.value = workbenchHelpers.normalizeOverview();
             shareTab.value = 'my-shares';
             loginForm.value = { username: '', password: '' };
         };
@@ -2036,6 +2099,185 @@ const filePageSize = ref(25);
             }
         };
 
+        const loadWorkbenchOverview = async () => {
+            workbenchLoading.value = true;
+            try {
+                const res = await api.get('/workbench/overview');
+                workbenchOverview.value = workbenchHelpers.normalizeOverview(res.data || res);
+                syncWorkbenchShareReminders();
+            } catch (error) {
+                workbenchOverview.value = workbenchHelpers.normalizeOverview();
+                ElementPlus.ElMessage.error('加载工作台失败: ' + (error.response?.data?.message || error.message || '未知错误'));
+            } finally {
+                workbenchLoading.value = false;
+            }
+        };
+
+        const updateWorkbenchPreference = async (value) => {
+            const nextValue = !!value;
+            const previousValue = !!workbenchOverview.value.defaultWorkbench;
+            workbenchOverview.value = {
+                ...workbenchOverview.value,
+                defaultWorkbench: nextValue
+            };
+            workbenchPreferenceSaving.value = true;
+            try {
+                await api.put('/workbench/preference', { defaultWorkbench: nextValue });
+                ElementPlus.ElMessage.success('工作台偏好已保存');
+            } catch (error) {
+                workbenchOverview.value = {
+                    ...workbenchOverview.value,
+                    defaultWorkbench: previousValue
+                };
+                ElementPlus.ElMessage.error('保存失败: ' + (error.response?.data?.message || error.message || '未知错误'));
+            } finally {
+                workbenchPreferenceSaving.value = false;
+            }
+        };
+
+        const syncWorkbenchShareReminders = () => {
+            workbenchOverview.value = {
+                ...workbenchOverview.value,
+                shareReminders: shareBannerHelpers.deriveShareRemindersFromInbox(inboxList.value, 5)
+            };
+        };
+
+        const showShareBanner = (banner, type = 'info') => {
+            if (!banner || (!banner.title && !banner.content)) {
+                return;
+            }
+            ElementPlus.ElNotification({
+                title: banner.title || '分享提醒',
+                message: banner.content || '',
+                type,
+                duration: 5000,
+                position: 'top-right'
+            });
+        };
+
+        const openWorkbenchDirectory = async (item) => {
+            if (!item || !item.bucketName) {
+                return;
+            }
+            currentBucket.value = item.bucketName;
+            lastCompatibleBucket.value = item.bucketName;
+            currentFolder.value = item.directoryPath || '';
+            currentMenu.value = 'files';
+            folderHistory.value = [];
+            historyIndex.value = -1;
+            updateBreadcrumb();
+            await loadFiles();
+        };
+
+        const openRenameDialog = (file) => {
+            if (!guardFileOperation(file, '重命名')) {
+                return;
+            }
+            renameState.value = {
+                sourcePath: file.objectName,
+                targetName: file.fileName || '',
+                isFolder: !!file.isFolder,
+                conflictPolicy: 'OVERWRITE'
+            };
+            showRenameDialog.value = true;
+        };
+
+        const submitRename = async () => {
+            const validationMessage = renameHelpers.validateRenameTargetName(renameState.value.targetName);
+            if (validationMessage) {
+                ElementPlus.ElMessage.warning(validationMessage);
+                return;
+            }
+            try {
+                let conflictPolicy = 'OVERWRITE';
+                try {
+                    await api.post('/file/rename', renameHelpers.buildRenamePayload({
+                        ...renameState.value,
+                        conflictPolicy: 'ASK'
+                    }, currentBucket.value));
+                    conflictPolicy = '';
+                } catch (error) {
+                    const message = error.response?.data?.message || error.message || '';
+                    if (String(message).includes('已存在')) {
+                        const action = await ElementPlus.ElMessageBox.confirm(
+                            '同目录下已存在同名项目。选择“确定”为覆盖，选择“取消”为自动重命名。',
+                            '检测到同名冲突',
+                            { confirmButtonText: '覆盖', cancelButtonText: '自动重命名', distinguishCancelAndClose: true, type: 'warning' }
+                        ).then(() => 'overwrite').catch((action) => action === 'cancel' ? 'rename' : 'close');
+                        if (action === 'close') {
+                            return;
+                        }
+                        conflictPolicy = action === 'rename' ? 'RENAME' : 'OVERWRITE';
+                    } else {
+                        throw error;
+                    }
+                }
+                if (conflictPolicy) {
+                    await api.post('/file/rename', renameHelpers.buildRenamePayload({
+                        ...renameState.value,
+                        conflictPolicy
+                    }, currentBucket.value));
+                }
+                ElementPlus.ElMessage.success('重命名成功');
+                showRenameDialog.value = false;
+                await loadFiles();
+            } catch (error) {
+                ElementPlus.ElMessage.error('重命名失败: ' + (error.response?.data?.message || error.message || '未知错误'));
+            }
+        };
+
+        const toggleCurrentDirectoryFavorite = async () => {
+            if (!currentBucket.value || !currentFolder.value) {
+                ElementPlus.ElMessage.warning('根目录暂不支持收藏，请先进入具体目录');
+                return;
+            }
+            try {
+                if (isCurrentDirectoryFavorite.value) {
+                    await api.delete('/workbench/favorites', {
+                        params: {
+                            bucketName: currentBucket.value,
+                            directoryPath: currentFolder.value
+                        }
+                    });
+                    ElementPlus.ElMessage.success('已取消收藏目录');
+                } else {
+                    const normalizedFolder = String(currentFolder.value || '').replace(/\/$/, '');
+                    const lastSlashIndex = normalizedFolder.lastIndexOf('/');
+                    const directoryName = lastSlashIndex >= 0
+                        ? normalizedFolder.slice(lastSlashIndex + 1)
+                        : normalizedFolder;
+                    await api.post('/workbench/favorites', {
+                        bucketName: currentBucket.value,
+                        directoryPath: currentFolder.value,
+                        directoryName: directoryName || currentFolder.value
+                    });
+                    ElementPlus.ElMessage.success('已收藏当前目录');
+                }
+                await loadWorkbenchOverview();
+            } catch (error) {
+                ElementPlus.ElMessage.error((isCurrentDirectoryFavorite.value ? '取消收藏失败: ' : '收藏目录失败: ')
+                    + (error.response?.data?.message || error.message || '未知错误'));
+            }
+        };
+
+        const removeFavoriteDirectory = async (item) => {
+            if (!item || !item.bucketName || !item.directoryPath) {
+                return;
+            }
+            try {
+                await api.delete('/workbench/favorites', {
+                    params: {
+                        bucketName: item.bucketName,
+                        directoryPath: item.directoryPath
+                    }
+                });
+                ElementPlus.ElMessage.success('已取消收藏目录');
+                await loadWorkbenchOverview();
+            } catch (error) {
+                ElementPlus.ElMessage.error('取消收藏失败: ' + (error.response?.data?.message || error.message || '未知错误'));
+            }
+        };
+
         const checkAuth = async () => {
             if (!token.value) return;
             try {
@@ -2046,7 +2288,9 @@ const filePageSize = ref(25);
                     await loadCurrentPermissions();
                     await loadPermissions();
                     await loadInbox();
+                    await loadWorkbenchOverview();
                     connectMessageSocket();
+                    currentMenu.value = workbenchHelpers.resolveInitialMenu(currentMenu.value, workbenchOverview.value, canAccessMenu);
                     handleMenuSelect(currentMenu.value);
                 } else {
                     logout();
@@ -2148,7 +2392,9 @@ const filePageSize = ref(25);
                 return;
             }
             currentMenu.value = index;
-            if (index === 'buckets') {
+            if (index === 'workbench') {
+                loadWorkbenchOverview();
+            } else if (index === 'buckets') {
                 loadBuckets();
             } else if (index === 'files') {
                 if (!currentBucket.value && bucketList.value.length > 0) {
@@ -2746,6 +2992,13 @@ const filePageSize = ref(25);
 
         const normalizePendingUploadFiles = (files) => uploadDialogHelpers.normalizePendingUploadFiles(files);
 
+        const applyUploadBatchRenameRule = () => {
+            pendingUploadFiles.value = uploadDialogHelpers.applyBatchRename(
+                pendingUploadFiles.value,
+                uploadBatchRenameRule.value
+            );
+        };
+
         const syncPendingUploadFilesFromUploadRef = () => {
             pendingUploadFiles.value = normalizePendingUploadFiles(uploadRef.value?.uploadFiles || []);
         };
@@ -2969,6 +3222,11 @@ const filePageSize = ref(25);
                     visible: !file.isFolder && hasApiPermission('API_FILE_OPERATE') && hasBucketPermission(currentBucket.value, 'DOWNLOAD'),
                     disabled: !!file.syncing,
                     onClick: () => previewFile(file)
+                }),
+                buildRowActionDefinition('RENAME', {
+                    visible: hasApiPermission('API_FILE_OPERATE') && hasBucketPermission(currentBucket.value, 'BATCH'),
+                    disabled: !!file.syncing,
+                    onClick: () => openRenameDialog(file)
                 }),
                 buildRowActionDefinition('DELETE', {
                     type: 'danger',
@@ -3277,6 +3535,17 @@ const filePageSize = ref(25);
                     recipientUserIds: shareForm.value.targetType === 'USER' ? shareForm.value.recipientUserIds : []
                 });
                 if (res.code === 200) {
+                    const recipientNames = shareForm.value.targetType === 'USER'
+                        ? (recipientList.value || [])
+                            .filter(item => (shareForm.value.recipientUserIds || []).includes(item.id))
+                            .map(item => item.nickname || item.username)
+                        : [];
+                    showShareBanner(shareBannerHelpers.buildShareSentBanner({
+                        targetType: shareForm.value.targetType,
+                        fileName: res.data?.fileName || shareForm.value.objectName.split('/').filter(Boolean).pop() || '当前项目',
+                        hasPassword: !!res.data?.hasPassword,
+                        recipientNames
+                    }), 'success');
                     if (shareForm.value.targetType === 'USER') {
                         ElementPlus.ElMessage.success('站内分享已发送给指定用户');
                     } else {
@@ -3342,18 +3611,26 @@ const filePageSize = ref(25);
         };
 
         const submitUpload = async () => {
-            const rawFiles = pendingUploadFiles.value
-                .map(item => item.raw)
-                .filter(Boolean);
-            if (!rawFiles.length) {
+            const uploadItems = pendingUploadFiles.value
+                .map(item => ({
+                    ...item,
+                    targetName: String(item.targetName || '').trim()
+                }))
+                .filter(item => item.raw);
+            if (!uploadItems.length) {
                 ElementPlus.ElMessage.warning('请选择需要上传的文件');
+                return;
+            }
+            const invalidItem = uploadItems.find(item => !item.targetName);
+            if (invalidItem) {
+                ElementPlus.ElMessage.warning('存在未填写目标文件名的上传项');
                 return;
             }
             pendingUploadFiles.value = [];
             if (uploadRef.value) {
                 uploadRef.value.clearFiles();
             }
-            await queueDialogUploadFiles(rawFiles);
+            await queueDialogUploadFiles(uploadItems);
         };
 
         const cancelUpload = async () => {
@@ -3468,6 +3745,10 @@ const filePageSize = ref(25);
                 inboxList.value,
                 formatInboxMessage(mergedMessage)
             );
+            syncWorkbenchShareReminders();
+            if (!currentMessage && shareBannerHelpers.isShareMessage(mergedMessage) && !mergedMessage.read) {
+                showShareBanner(shareBannerHelpers.buildShareReceivedBanner(mergedMessage), 'info');
+            }
         };
 
         const loadInbox = async () => {
@@ -3478,6 +3759,7 @@ const filePageSize = ref(25);
                 });
                 if (res.code === 200) {
                     inboxList.value = (res.data.items || []).map(item => formatInboxMessage(item));
+                    syncWorkbenchShareReminders();
                 }
             } catch (error) {
                 ElementPlus.ElMessage.error('加载收件箱失败');
@@ -4348,6 +4630,7 @@ const filePageSize = ref(25);
             selectedFiles,
             showUploadDialog,
             showTransferDialog,
+            showRenameDialog,
             uploadRef,
             uploadTasks,
             showFolderDialog,
@@ -4381,6 +4664,7 @@ const filePageSize = ref(25);
             copyPreviewText,
             closePreviewDialog,
             transferState,
+            renameState,
             transferSummary,
             transferTargetLabel,
             minioKeyForm,
@@ -4422,6 +4706,7 @@ const filePageSize = ref(25);
             fileConfig,
             fileRowActionOptions,
             pendingUploadFiles,
+            uploadBatchRenameRule,
             uploadDialogModeOptions,
             uploadTransportOptions,
             downloadTransportOptions,
@@ -4440,6 +4725,10 @@ const filePageSize = ref(25);
             shouldShowRoleBucketPermissionEditor,
             currentViewTitle,
             currentViewDescription,
+            workbenchOverview,
+            workbenchLoading,
+            workbenchPreferenceSaving,
+            isCurrentDirectoryFavorite,
             bucketCount,
             folderCount,
             currentFileCount,
@@ -4487,6 +4776,12 @@ const filePageSize = ref(25);
             refreshFiles,
             openUploadDialog,
             navigateToFolder,
+            openWorkbenchDirectory,
+            removeFavoriteDirectory,
+            toggleCurrentDirectoryFavorite,
+            updateWorkbenchPreference,
+            openRenameDialog,
+            submitRename,
             handleFileNameClick,
             canSelectFileRow,
             handleFileDragEnter,
@@ -4515,6 +4810,7 @@ const filePageSize = ref(25);
             createShare,
             handleSelectionChange,
             submitUpload,
+            applyUploadBatchRenameRule,
             handleUploadDialogChange,
             removePendingUploadFile,
             cancelUpload,

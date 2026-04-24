@@ -3,6 +3,7 @@ package com.lan4jn.file.controller;
 import com.lan4jn.file.common.GlobalExceptionHandler;
 import com.lan4jn.file.dto.FileTransferExecuteResponse;
 import com.lan4jn.file.dto.FileTransferPreviewResponse;
+import com.lan4jn.file.dto.FileRenameResponse;
 import com.lan4jn.file.dto.UploadResponse;
 import com.lan4jn.file.model.BucketInfo;
 import com.lan4jn.file.model.BucketStatsRefreshStatus;
@@ -389,5 +390,19 @@ class FileControllerTest {
                         .content("{\"operation\":\"COPY\",\"bucket\":\" \",\"sources\":[],\"targetFolder\":\"archive/\",\"conflictPolicy\":\"ASK\"}"))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.code").value(400));
+    }
+
+    @Test
+    void shouldRenamePathThroughFileService() throws Exception {
+        FileRenameResponse response = new FileRenameResponse();
+        response.setSourcePath("docs/source.txt");
+        response.setTargetPath("docs/renamed.txt");
+        when(fileService.rename("docs/source.txt", "renamed.txt", "bucket-a", "OVERWRITE")).thenReturn(response);
+
+        mockMvc.perform(post("/api/file/rename")
+                        .contentType("application/json")
+                        .content("{\"bucket\":\"bucket-a\",\"sourcePath\":\"docs/source.txt\",\"targetName\":\"renamed.txt\",\"conflictPolicy\":\"OVERWRITE\"}"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.targetPath").value("docs/renamed.txt"));
     }
 }

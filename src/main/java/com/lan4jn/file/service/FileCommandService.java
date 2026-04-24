@@ -206,6 +206,135 @@ final class FileCommandService {
         }
     }
 
+    String rename(String sourceObjectName,
+                  String targetName,
+                  String bucket,
+                  String defaultBucket,
+                  String conflictPolicy) {
+        String resolvedBucket = support.resolveBucket(bucket, defaultBucket);
+        String normalizedSource = normalizeRequiredText(sourceObjectName, "sourcePath不能为空");
+        String normalizedTargetName = normalizeTargetName(targetName);
+        boolean isFolder = normalizedSource.endsWith("/");
+        String targetPath = buildRenameTargetPath(normalizedSource, normalizedTargetName, isFolder, resolvedBucket, conflictPolicy);
+        if (isFolder) {
+            renameFolder(normalizedSource, targetPath, resolvedBucket);
+        } else {
+            renameFile(normalizedSource, targetPath, resolvedBucket);
+        }
+        return targetPath;
+    }
+
+    private void renameFile(String sourceObjectName, String targetPath, String bucket) {
+        try {
+            minioClient.copyObject(
+                    CopyObjectArgs.builder()
+                            .bucket(bucket)
+                            .object(targetPath)
+                            .source(CopySource.builder().bucket(bucket).object(sourceObjectName).build())
+                            .build()
+            );
+            minioClient.removeObject(
+                    RemoveObjectArgs.builder()
+                            .bucket(bucket)
+                            .object(sourceObjectName)
+                            .build()
+            );
+        } catch (Exception e) {
+            throw new RuntimeException("重命名失败: " + e.getMessage(), e);
+        }
+    }
+
+    private String normalizeRequiredText(String value, String message) {
+        if (value == null || value.trim().isEmpty()) {
+            throw new IllegalArgumentException(message);
+        }
+        return value.trim();
+    }
+
+    private String normalizeTargetName(String targetName) {
+        String normalized = normalizeRequiredText(targetName, "targetName不能为空");
+        if (normalized.contains("/") || normalized.contains("\\")) {
+            throw new IllegalArgumentException("名称不合法，不能包含路径分隔符");
+        }
+        return normalized;
+    }
+
+    private void renameFolder(String sourcePrefix, String targetPrefix, String bucket) {
+        try {
+            List<String> sources = resolveDeleteTargets(List.of(sourcePrefix), bucket);
+            if (sources.isEmpty()) {
+                throw new IllegalArgumentException("源目录不存在");
+            }
+            for (String source : sources) {
+                String suffix = source.substring(sourcePrefix.length());
+                String target = targetPrefix + suffix;
+                minioClient.copyObject(
+                        CopyObjectArgs.builder()
+                                .bucket(bucket)
+                                .object(target)
+                                .source(CopySource.builder().bucket(bucket).object(source).build())
+                                .build()
+                );
+            }
+            for (String source : sources) {
+                minioClient.removeObject(RemoveObjectArgs.builder().bucket(bucket).object(source).build());
+            }
+        } catch (RuntimeException e) {
+            throw e;
+        } catch (Exception e) {
+            throw new RuntimeException("重命名失败: " + e.getMessage(), e);
+        }
+    }
+
+    private String buildRenameTargetPath(String sourceObjectName,
+                                         String targetName,
+                                         boolean isFolder,
+                                         String bucket,
+                                         String conflictPolicy) {
+        int lastSlash = sourceObjectName.endsWith("/")
+                ? sourceObjectName.substring(0, sourceObjectName.length() - 1).lastIndexOf('/')
+                : sourceObjectName.lastIndexOf('/');
+        String parent = lastSlash >= 0 ? sourceObjectName.substring(0, lastSlash + 1) : "";
+        String targetPath = parent + targetName + (isFolder ? "/" : "");
+        if (sourceObjectName.equals(targetPath)) {
+            return targetPath;
+        }
+        if (!support.objectExists(bucket, targetPath)) {
+            return targetPath;
+        }
+        if ("ASK".equalsIgnoreCase(String.valueOf(conflictPolicy))) {
+            throw new IllegalStateException("目标名称已存在");
+        }
+        if ("RENAME".equalsIgnoreCase(String.valueOf(conflictPolicy))) {
+            int counter = 2;
+            String extension = isFolder ? "" : resolveExtension(targetName);
+            String baseName = targetName;
+            if (!isFolder && !extension.isEmpty()) {
+                baseName = targetName.substring(0, targetName.length() - extension.length() - 1);
+            }
+            while (counter < 1000) {
+                String candidateName = !isFolder && !extension.isEmpty()
+                        ? baseName + "_" + counter + "." + extension
+                        : baseName + "_" + counter;
+                String candidatePath = parent + candidateName + (isFolder ? "/" : "");
+                if (!support.objectExists(bucket, candidatePath)) {
+                    return candidatePath;
+                }
+                counter++;
+            }
+        }
+        deleteFile(targetPath, bucket, bucket);
+        return targetPath;
+    }
+
+    private String resolveExtension(String targetName) {
+        int dotIndex = targetName.lastIndexOf('.');
+        if (dotIndex <= 0 || dotIndex >= targetName.length() - 1) {
+            return "";
+        }
+        return targetName.substring(dotIndex + 1);
+    }
+
     private List<String> resolveDeleteTargets(List<String> objectNames, String bucket) throws Exception {
         LinkedHashSet<String> targets = new LinkedHashSet<>();
         for (String objectName : objectNames) {

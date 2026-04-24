@@ -13,7 +13,7 @@
 
     <groupId>com.lan4jn</groupId>
     <artifactId>file-manager</artifactId>
-    <version>1.7.3-build120</version>
+    <version>1.8-build122</version>
     <packaging>jar</packaging>
 
     <name>file-manager</name>

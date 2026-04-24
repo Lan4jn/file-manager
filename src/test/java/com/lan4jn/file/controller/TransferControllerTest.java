@@ -265,6 +265,24 @@ class TransferControllerTest {
     }
 
     @Test
+    void shouldUseTargetFileNameWhenCreatingUploadSession() throws Exception {
+        when(configService.getUploadTransportMode()).thenReturn("DIRECT");
+        when(fileService.prepareDirectUpload("renamed-report.pdf", 128L, "docs", "bucket-a"))
+                .thenReturn(new FileDomainSupport.PreparedUpload("bucket-a", "docs/renamed-report.pdf", "renamed-report.pdf", 128L));
+        when(fileService.getPresignedUploadUrl("docs/renamed-report.pdf", "bucket-a"))
+                .thenReturn("http://minio/upload-url");
+
+        mockMvc.perform(post("/api/transfer/upload/session")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("""
+                                {"fileName":"report.pdf","originalFileName":"report.pdf","targetFileName":"renamed-report.pdf","size":128,"contentType":"application/pdf","folder":"docs","bucket":"bucket-a"}
+                                """))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.fileName").value("renamed-report.pdf"))
+                .andExpect(jsonPath("$.data.objectName").value("docs/renamed-report.pdf"));
+    }
+
+    @Test
     void shouldCompleteDirectUpload() throws Exception {
         when(permissionAssertService.currentSnapshot()).thenReturn(snapshot("alice"));
         UploadResponse uploadResponse = new UploadResponse();

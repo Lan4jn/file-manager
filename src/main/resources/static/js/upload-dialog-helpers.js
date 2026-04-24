@@ -10,6 +10,7 @@
         return {
             id: item.uid || ('pending-' + (raw.name || 'file') + '-' + (raw.size || 0) + '-' + (raw.lastModified || 0) + '-' + index),
             name: raw.name || item.name || '待上传文件',
+            targetName: item.targetName || raw.name || item.name || '待上传文件',
             size: raw.size || item.size || 0,
             raw: raw
         };
@@ -54,10 +55,40 @@
         });
     }
 
+    function applyBatchRename(items, rule) {
+        var prefix = String(rule && rule.prefix || '');
+        var suffix = String(rule && rule.suffix || '');
+        var findText = String(rule && rule.findText || '');
+        var replaceText = String(rule && rule.replaceText || '');
+        return (items || []).map(function (item) {
+            if (!item) {
+                return item;
+            }
+            var baseName = String(item.targetName || item.name || '').trim();
+            var nextName = baseName;
+            if (findText) {
+                nextName = nextName.split(findText).join(replaceText);
+            }
+            var extIndex = nextName.lastIndexOf('.');
+            if (extIndex > 0) {
+                var fileBase = nextName.slice(0, extIndex);
+                var extension = nextName.slice(extIndex);
+                nextName = prefix + fileBase + suffix + extension;
+            } else {
+                nextName = prefix + nextName + suffix;
+            }
+            return {
+                ...item,
+                targetName: nextName
+            };
+        });
+    }
+
     var exported = {
         normalizePendingUploadFiles: normalizePendingUploadFiles,
         mergePendingUploadFiles: mergePendingUploadFiles,
-        clearClosedUploadTasks: clearClosedUploadTasks
+        clearClosedUploadTasks: clearClosedUploadTasks,
+        applyBatchRename: applyBatchRename
     };
 
     if (typeof module !== 'undefined' && module.exports) {

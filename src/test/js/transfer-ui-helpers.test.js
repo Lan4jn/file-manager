@@ -82,3 +82,73 @@ test('should defer object url revoke until after blob download is handed off', a
         global.setTimeout = originalSetTimeout;
     }
 });
+
+test('should fetch archive download with auth for authenticated batch archive url', async () => {
+    const originalWindow = global.window;
+    const originalDocument = global.document;
+    const originalFetch = global.fetch;
+    const originalSetTimeout = global.setTimeout;
+
+    const fetchCalls = [];
+    const clicked = [];
+
+    global.window = {
+        location: { origin: 'http://localhost:9080' },
+        __APP_CONTEXT_PATH__: '',
+        localStorage: {
+            getItem: (key) => key === 'token' ? 'jwt-token' : null
+        },
+        URL: {
+            createObjectURL: () => 'blob:archive',
+            revokeObjectURL: () => {}
+        }
+    };
+    global.document = {
+        body: {
+            appendChild: () => {},
+            removeChild: () => {}
+        },
+        createElement: () => ({
+            setAttribute: () => {},
+            click: () => clicked.push('clicked'),
+            remove: () => {}
+        })
+    };
+    global.fetch = async (url, options) => {
+        fetchCalls.push({ url, options });
+        return {
+            ok: true,
+            blob: async () => new Blob(['zip'])
+        };
+    };
+    global.setTimeout = (fn) => {
+        fn();
+        return 1;
+    };
+
+    try {
+        await transferUiHelpers.runArchiveDownload('/api/transfer/archive-tasks/88/download', 'batch.zip');
+
+        assert.equal(fetchCalls.length, 1);
+        assert.equal(fetchCalls[0].url, '/api/transfer/archive-tasks/88/download');
+        assert.equal(fetchCalls[0].options.headers.Authorization, 'Bearer jwt-token');
+        assert.deepEqual(clicked, ['clicked']);
+    } finally {
+        global.window = originalWindow;
+        global.document = originalDocument;
+        global.fetch = originalFetch;
+        global.setTimeout = originalSetTimeout;
+    }
+});
+
+test('should keep native navigation for share archive download url', async () => {
+    const calls = [];
+
+    await transferUiHelpers.runArchiveDownload(
+        '/api/transfer/archive-tasks/88/download?shareCode=SHARE001&password=1234',
+        'share.zip',
+        (url) => calls.push(url)
+    );
+
+    assert.deepEqual(calls, ['/api/transfer/archive-tasks/88/download?shareCode=SHARE001&password=1234']);
+});

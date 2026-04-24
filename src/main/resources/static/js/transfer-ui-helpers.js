@@ -32,6 +32,21 @@
         };
     }
 
+    function createProtectedArchiveDownloadMatcher(contextPath) {
+        return function (targetUrl) {
+            if (!targetUrl) {
+                return false;
+            }
+            var resolved = new URL(targetUrl, 'http://localhost');
+            var appPrefix = contextPathHelpers && typeof contextPathHelpers.joinContextPath === 'function'
+                ? contextPathHelpers.joinContextPath(contextPath, '/api/transfer/archive-tasks/')
+                : '/api/transfer/archive-tasks/';
+            return resolved.pathname.indexOf(appPrefix) === 0
+                && resolved.pathname.endsWith('/download')
+                && !resolved.searchParams.has('shareCode');
+        };
+    }
+
     function resolveDownloadSessionUrl() {
         return '/transfer/download/session';
     }
@@ -80,9 +95,11 @@
             return false;
         }
         var resolved = new URL(url, window.location.origin);
-        var matcher = createAppDownloadMatcher(getCurrentContextPath());
+        var contextPath = getCurrentContextPath();
+        var matcher = createAppDownloadMatcher(contextPath);
+        var archiveMatcher = createProtectedArchiveDownloadMatcher(contextPath);
         return resolved.origin === window.location.origin
-            && matcher(resolved.toString());
+            && (matcher(resolved.toString()) || archiveMatcher(resolved.toString()));
     }
 
     async function fetchProtectedDownload(url, fileName) {
@@ -133,6 +150,18 @@
         return resolvedSession.downloadUrl;
     }
 
+    async function runArchiveDownload(url, fileName, navigate) {
+        if (!url) {
+            throw new Error('当前会话未返回可用下载地址');
+        }
+        if (shouldFetchWithAuth(url)) {
+            return fetchProtectedDownload(url, fileName);
+        }
+        var effectiveNavigate = typeof navigate === 'function' ? navigate : createNativeDownload;
+        effectiveNavigate(url);
+        return url;
+    }
+
     function uploadWithXhr(options) {
         return new Promise(function (resolve, reject) {
             var xhr = new XMLHttpRequest();
@@ -175,8 +204,10 @@
         resolveUploadSessionUrl: resolveUploadSessionUrl,
         resolveUploadCompleteUrl: resolveUploadCompleteUrl,
         createAppDownloadMatcher: createAppDownloadMatcher,
+        createProtectedArchiveDownloadMatcher: createProtectedArchiveDownloadMatcher,
         createNativeDownload: createNativeDownload,
         runSingleFileDownload: runSingleFileDownload,
+        runArchiveDownload: runArchiveDownload,
         uploadWithXhr: uploadWithXhr
     };
 

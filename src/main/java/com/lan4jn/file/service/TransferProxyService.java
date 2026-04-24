@@ -99,8 +99,9 @@ public class TransferProxyService {
         String bucket = resolveBucket(request.getBucket());
         permissionAssertService.assertBucketPermission(bucket, BucketAction.UPLOAD);
         String operatorUsername = requireCurrentUsername();
+        String targetFileName = nullableText(request.getTargetFileName());
         FileDomainSupport.PreparedUpload preparedUpload = fileService.prepareDirectUpload(
-                requireText(request.getFileName(), "fileName"),
+                requireText(targetFileName != null ? targetFileName : request.getFileName(), "fileName"),
                 request.getSize(),
                 nullableText(request.getFolder()),
                 bucket

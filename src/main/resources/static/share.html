@@ -872,7 +872,11 @@
                 },
                 wait: createAbortablePollWait(abortController),
                 openDownload: function (url) {
-                    window.TransferUiHelpers.createNativeDownload(url);
+                    return window.TransferUiHelpers.runArchiveDownload(
+                        url,
+                        (shareInfo.fileName || '分享内容') + '.zip',
+                        window.TransferUiHelpers.createNativeDownload
+                    );
                 }
             }).then(function (result) {
                 updateDownloadTask(taskId, {
