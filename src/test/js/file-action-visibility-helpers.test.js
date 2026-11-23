@@ -42,6 +42,7 @@ test('should expose icon and label metadata for every configurable row action', 
         DOWNLOAD: { label: '下载', icon: 'Download' },
         SHARE: { label: '分享', icon: 'Share' },
         PREVIEW: { label: '预览', icon: 'View' },
+        RENAME: { label: '重命名', icon: 'Edit' },
         DELETE: { label: '删除', icon: 'Delete' },
         MOVE: { label: '移动', icon: 'Rank' },
         COPY: { label: '复制', icon: 'DocumentCopy' }

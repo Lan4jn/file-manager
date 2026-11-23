@@ -1,5 +1,6 @@
 package com.lan4jn.file.service;
 
+import com.lan4jn.file.common.PageResult;
 import com.lan4jn.file.dto.CreateShareRequest;
 import com.lan4jn.file.model.FileInfo;
 import com.lan4jn.file.model.ShareAccessInfo;
@@ -130,8 +131,16 @@ public class ShareService {
         shareLinkService.deleteShareLink(shareCode, createBy);
     }
 
+    public void cancelShareLink(String shareCode, String createBy) {
+        shareLinkService.cancelShareLink(shareCode, createBy);
+    }
+
     public List<ShareLink> getShareLinksByUser(String createBy) {
         return shareLinkService.getShareLinksByUser(createBy);
+    }
+
+    public PageResult<ShareLink> getShareLinksByUser(String createBy, int page, int size, boolean validOnly) {
+        return shareLinkService.getShareLinksByUser(createBy, page, size, validOnly);
     }
 
     public void cleanupExpiredShares() {

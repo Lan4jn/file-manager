@@ -1,8 +1,11 @@
 package com.lan4jn.file.service;
 
+import com.lan4jn.file.config.MessageWebSocketAuthService;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
+import org.springframework.web.socket.CloseStatus;
 import org.springframework.web.socket.TextMessage;
 import org.springframework.web.socket.WebSocketSession;
 
@@ -16,9 +19,20 @@ import java.util.concurrent.CopyOnWriteArrayList;
 public class MessageSocketSessionService {
 
     private static final Logger log = LoggerFactory.getLogger(MessageSocketSessionService.class);
+    private static final String ATTR_CERT_MANAGED_TOKEN = "CERT_MANAGED_TOKEN";
 
     private final Map<String, CopyOnWriteArrayList<WebSocketSession>> sessionsByUsername = new ConcurrentHashMap<>();
     private final Map<String, String> sessionIdToUsername = new ConcurrentHashMap<>();
+    private final MessageWebSocketAuthService authService;
+
+    @Autowired
+    public MessageSocketSessionService(MessageWebSocketAuthService authService) {
+        this.authService = authService;
+    }
+
+    public MessageSocketSessionService() {
+        this(null);
+    }
 
     public void register(String username, WebSocketSession session) {
         if (username == null || username.trim().isEmpty() || session == null) {
@@ -60,6 +74,22 @@ public class MessageSocketSessionService {
                 unregister(session);
                 continue;
             }
+            if (session.getAttributes().containsKey(ATTR_CERT_MANAGED_TOKEN)) {
+                Object tokenObj = session.getAttributes().get(ATTR_CERT_MANAGED_TOKEN);
+                if (!(tokenObj instanceof String token) || token.isBlank()) {
+                    closeSession(session);
+                    unregister(session);
+                    continue;
+                }
+                if (authService != null) {
+                    String currentUsername = authService.resolveUsername(token);
+                    if (currentUsername == null || !currentUsername.equals(username)) {
+                        closeSession(session);
+                        unregister(session);
+                        continue;
+                    }
+                }
+            }
             try {
                 session.sendMessage(textMessage);
             } catch (IOException ex) {
@@ -67,5 +97,11 @@ public class MessageSocketSessionService {
                 unregister(session);
             }
         }
+    }
+
+    private void closeSession(WebSocketSession session) {
+        try {
+            session.close(CloseStatus.POLICY_VIOLATION);
+        } catch (IOException ignored) {}
     }
 }

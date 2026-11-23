@@ -13,6 +13,8 @@ import com.lan4jn.file.model.TransportMode;
 import com.lan4jn.file.rbac.BucketAction;
 import com.lan4jn.file.rbac.PermissionCodes;
 import com.lan4jn.file.utils.HttpRangeUtils;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.core.io.InputStreamResource;
 import org.springframework.http.ContentDisposition;
 import org.springframework.http.HttpHeaders;
@@ -32,6 +34,7 @@ import java.util.Map;
 
 @Service
 public class TransferProxyService {
+    private static final Logger log = LoggerFactory.getLogger(TransferProxyService.class);
     private static final String SHARE_DOWNLOAD_OWNER = "__share__";
 
     private final ConfigService configService;
@@ -99,28 +102,45 @@ public class TransferProxyService {
         String bucket = resolveBucket(request.getBucket());
         permissionAssertService.assertBucketPermission(bucket, BucketAction.UPLOAD);
         String operatorUsername = requireCurrentUsername();
+        String uploadTraceId = nullableText(request.getUploadTraceId());
+        String targetFileName = nullableText(request.getTargetFileName());
+        log.info("Upload session request, traceId: {}, operator: {}, originalFileName: {}, targetFileName: {}, size: {}, contentType: {}, folder: {}, bucket: {}",
+                uploadTraceId, operatorUsername, request.getOriginalFileName(), targetFileName, request.getSize(), request.getContentType(), request.getFolder(), bucket);
         FileDomainSupport.PreparedUpload preparedUpload = fileService.prepareDirectUpload(
-                requireText(request.getFileName(), "fileName"),
+                requireText(targetFileName != null ? targetFileName : request.getFileName(), "fileName"),
                 request.getSize(),
                 nullableText(request.getFolder()),
                 bucket
         );
+        log.info("Upload session prepared, traceId: {}, operator: {}, resolvedBucket: {}, objectName: {}, fileName: {}",
+                uploadTraceId, operatorUsername, preparedUpload.getBucket(), preparedUpload.getObjectName(), preparedUpload.getFileName());
 
         return buildUploadSessionResponse(request, preparedUpload, operatorUsername);
     }
 
     public UploadResponse completeUpload(String uploadToken) {
+        return completeUpload(uploadToken, null);
+    }
+
+    public UploadResponse completeUpload(String uploadToken, String requestTraceId) {
         permissionAssertService.assertApiPermission(PermissionCodes.API_FILE_OPERATE);
         String operatorUsername = requireCurrentUsername();
         TransferSessionService.UploadTicket ticket = transferSessionService.requireUploadTicket(uploadToken, operatorUsername);
+        String uploadTraceId = nullableText(requestTraceId) != null ? nullableText(requestTraceId) : ticket.getUploadTraceId();
+        log.info("Upload completion request, traceId: {}, operator: {}, bucket: {}, objectName: {}, fileName: {}, expectedSize: {}, contentType: {}",
+                uploadTraceId, operatorUsername, ticket.getBucket(), ticket.getObjectName(), ticket.getFileName(), ticket.getSize(), ticket.getContentType());
         permissionAssertService.assertBucketPermission(resolveBucket(ticket.getBucket()), BucketAction.UPLOAD);
-        return fileService.completeDirectUpload(
+        UploadResponse response = fileService.completeDirectUpload(
                 ticket.getBucket(),
                 ticket.getObjectName(),
                 ticket.getFileName(),
                 ticket.getContentType(),
-                ticket.getSize()
+                ticket.getSize(),
+                uploadTraceId
         );
+        log.info("Upload completion response, traceId: {}, bucket: {}, objectName: {}, fileName: {}, size: {}",
+                uploadTraceId, ticket.getBucket(), response.getObjectName(), response.getFileName(), response.getSize());
+        return response;
     }
 
     public ResponseEntity<InputStreamResource> buildDownloadResponse(String token, String rangeHeader) {
@@ -253,6 +273,7 @@ public class TransferProxyService {
                 try {
                     TransferUploadSessionResponse response = new TransferUploadSessionResponse();
                     response.setMode(TransportMode.DIRECT);
+                    response.setUploadTraceId(nullableText(request.getUploadTraceId()));
                     response.setBucket(preparedUpload.getBucket());
                     response.setObjectName(preparedUpload.getObjectName());
                     response.setFileName(preparedUpload.getFileName());
@@ -264,23 +285,30 @@ public class TransferProxyService {
                             preparedUpload.getObjectName(),
                             preparedUpload.getFileName(),
                             nullableText(request.getContentType()),
-                            request.getSize()
+                            request.getSize(),
+                            nullableText(request.getUploadTraceId())
                     ));
                     response.setHeaders(buildDirectUploadHeaders(request.getContentType()));
+                    log.info("Upload session selected mode, traceId: {}, mode: {}, bucket: {}, objectName: {}, fileName: {}",
+                            nullableText(request.getUploadTraceId()), response.getMode(), response.getBucket(), response.getObjectName(), response.getFileName());
                     return response;
-                } catch (RuntimeException ignored) {
-                    // continue to next available mechanism
+                } catch (RuntimeException e) {
+                    log.warn("Direct upload session unavailable, traceId: {}, bucket: {}, objectName: {}, message: {}",
+                            nullableText(request.getUploadTraceId()), preparedUpload.getBucket(), preparedUpload.getObjectName(), e.getMessage());
                 }
             }
             if ("APPLICATION".equals(candidate) || "PROXY".equals(candidate)) {
                 TransferUploadSessionResponse response = new TransferUploadSessionResponse();
                 response.setMode(TransportMode.APPLICATION);
+                response.setUploadTraceId(nullableText(request.getUploadTraceId()));
                 response.setBucket(preparedUpload.getBucket());
                 response.setObjectName(preparedUpload.getObjectName());
                 response.setFileName(preparedUpload.getFileName());
                 response.setContentType(nullableText(request.getContentType()));
                 response.setUploadUrl(buildAppUrl("/api/file/upload"));
                 response.setHeaders(Map.of());
+                log.info("Upload session selected mode, traceId: {}, mode: {}, bucket: {}, objectName: {}, fileName: {}",
+                        nullableText(request.getUploadTraceId()), response.getMode(), response.getBucket(), response.getObjectName(), response.getFileName());
                 return response;
             }
         }
@@ -292,7 +320,7 @@ public class TransferProxyService {
                                                  String objectName,
                                                  FileInfo fileInfo) {
         if (shouldUseLegacyHybridDownloadMode()) {
-            applyLegacyHybridDownloadMode(response, bucket, objectName, fileInfo, buildApplicationDownloadUrl(bucket, objectName));
+            applyLegacyHybridDownloadMode(response, fileInfo, response.getFallbackUrl());
             return;
         }
         for (String candidate : resolveDownloadPriorities()) {
@@ -312,7 +340,7 @@ public class TransferProxyService {
             }
             if ("APPLICATION".equals(candidate)) {
                 response.setMode(TransportMode.APPLICATION);
-                response.setDownloadUrl(buildApplicationDownloadUrl(bucket, objectName));
+                response.setDownloadUrl(response.getFallbackUrl());
                 return;
             }
         }
@@ -325,7 +353,7 @@ public class TransferProxyService {
                                                       FileInfo fileInfo,
                                                       String shareDownloadUrl) {
         if (shouldUseLegacyHybridDownloadMode()) {
-            applyLegacyHybridDownloadMode(response, bucket, objectName, fileInfo, shareDownloadUrl);
+            applyLegacyHybridDownloadMode(response, fileInfo, shareDownloadUrl);
             return;
         }
         for (String candidate : resolveDownloadPriorities()) {
@@ -386,8 +414,6 @@ public class TransferProxyService {
     }
 
     private void applyLegacyHybridDownloadMode(TransferDownloadSessionResponse response,
-                                               String bucket,
-                                               String objectName,
                                                FileInfo fileInfo,
                                                String applicationDownloadUrl) {
         long fileSize = fileInfo.getSize() == null ? 0L : fileInfo.getSize();
@@ -401,12 +427,6 @@ public class TransferProxyService {
         }
         response.setMode(TransportMode.APPLICATION);
         response.setDownloadUrl(applicationDownloadUrl);
-    }
-
-    private String buildApplicationDownloadUrl(String bucket, String objectName) {
-        String encodedObject = URLEncoder.encode(objectName, StandardCharsets.UTF_8);
-        String encodedBucket = URLEncoder.encode(bucket, StandardCharsets.UTF_8);
-        return buildAppUrl("/api/file/download?objectName=" + encodedObject + "&bucket=" + encodedBucket);
     }
 
     private String buildShareFileDownloadUrl(String shareCode, String password) {

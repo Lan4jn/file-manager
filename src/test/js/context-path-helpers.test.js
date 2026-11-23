@@ -17,7 +17,7 @@ test('normalizeContextPath should keep root path empty for browser joins', () =>
 test('joinContextPath should prepend non-root context path', () => {
     assert.equal(joinContextPath('', '/api/file/list'), '/api/file/list');
     assert.equal(joinContextPath('/fm', '/api/file/list'), '/fm/api/file/list');
-    assert.equal(joinContextPath('/fm/', 'lite'), '/fm/lite');
+    assert.equal(joinContextPath('/fm/', 'full'), '/fm/full');
 });
 
 test('isContextPathUrlMatch should match prefixed application urls', () => {

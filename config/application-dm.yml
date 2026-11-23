@@ -1,0 +1,28 @@
+# 达梦数据库环境配置。启动前设置 ENV_FILE=dm，并通过环境变量注入连接信息。
+
+spring:
+  datasource:
+    driver-class-name: dm.jdbc.driver.DmDriver
+    url: ${DM_URL:jdbc:dm://127.0.0.1:5236}
+    username: ${DM_USERNAME:FILE_MANAGER}
+    password: ${DM_PASSWORD:replace-me}
+    hikari:
+      minimum-idle: ${DM_POOL_MIN_IDLE:2}
+      maximum-pool-size: ${DM_POOL_MAX_SIZE:20}
+      connection-timeout: ${DM_POOL_CONNECTION_TIMEOUT_MS:30000}
+  jpa:
+    database-platform: org.hibernate.dialect.DmDialect
+    hibernate:
+      # 生产环境保持 validate；仅在全新测试 schema 中临时设置 DM_DDL_AUTO=create。
+      ddl-auto: ${DM_DDL_AUTO:validate}
+    show-sql: false
+    properties:
+      hibernate:
+        format_sql: false
+
+app:
+  database-migration:
+    enabled: false
+    sqlite-url: ${SQLITE_URL:jdbc:sqlite:./data/file-manager.db}
+    truncate-target: false
+    batch-size: 500

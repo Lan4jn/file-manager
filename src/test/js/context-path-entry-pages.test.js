@@ -4,7 +4,6 @@ const fs = require('node:fs');
 
 const pages = [
     'src/main/resources/static/index.html',
-    'src/main/resources/static/lite.html',
     'src/main/resources/static/share.html',
     'src/main/resources/static/test.html'
 ];

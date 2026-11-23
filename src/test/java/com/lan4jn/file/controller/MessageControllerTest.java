@@ -1,7 +1,9 @@
 package com.lan4jn.file.controller;
 
 import com.lan4jn.file.common.GlobalExceptionHandler;
+import com.lan4jn.file.common.PageResult;
 import com.lan4jn.file.model.ShareLink;
+import com.lan4jn.file.model.UserShareMessage;
 import com.lan4jn.file.service.UserShareMessageService;
 import org.junit.jupiter.api.Test;
 import org.springframework.security.authentication.UsernamePasswordAuthenticationToken;
@@ -44,6 +46,31 @@ class MessageControllerTest {
                 .andExpect(jsonPath("$.data.shareCode").value("NEW12345"));
 
         verify(messageService).forwardMessage(9L, "alice", List.of(2L, 3L));
+    }
+
+    @Test
+    void shouldPassValidOnlyToInboxService() throws Exception {
+        UserShareMessageService messageService = mock(UserShareMessageService.class);
+        MessageController controller = new MessageController(messageService);
+        MockMvc mockMvc = MockMvcBuilders.standaloneSetup(controller)
+                .setControllerAdvice(new GlobalExceptionHandler())
+                .build();
+
+        UserShareMessage message = new UserShareMessage();
+        message.setId(7L);
+        message.setShareCode("ACTIVE01");
+        when(messageService.listInbox("alice", 2, 10, true))
+                .thenReturn(new PageResult<>(List.of(message), 11, 2, 10));
+
+        mockMvc.perform(get("/api/messages/inbox")
+                        .param("page", "2")
+                        .param("size", "10")
+                        .param("validOnly", "true")
+                        .principal(new UsernamePasswordAuthenticationToken("alice", "N/A")))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.total").value(11))
+                .andExpect(jsonPath("$.data.page").value(2))
+                .andExpect(jsonPath("$.data.items[0].shareCode").value("ACTIVE01"));
     }
 
     @Test

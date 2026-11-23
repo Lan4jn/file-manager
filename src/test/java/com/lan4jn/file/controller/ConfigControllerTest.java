@@ -25,7 +25,6 @@ class ConfigControllerTest {
     void setUp() {
         configService = mock(ConfigService.class);
         ConfigController controller = new ConfigController(configService);
-        ReflectionTestUtils.setField(controller, "uiMode", "limited");
         ReflectionTestUtils.setField(controller, "serverPort", 9001);
         mockMvc = MockMvcBuilders.standaloneSetup(controller)
                 .setControllerAdvice(new GlobalExceptionHandler())
@@ -39,7 +38,7 @@ class ConfigControllerTest {
     void shouldExposeTransferSettingsToFrontendUiConfig() throws Exception {
         mockMvc.perform(get("/api/config/ui"))
                 .andExpect(status().isOk())
-                .andExpect(jsonPath("$.data.mode").value("limited"))
+                .andExpect(jsonPath("$.data.mode").value("full"))
                 .andExpect(jsonPath("$.data.port").value(9001))
                 .andExpect(jsonPath("$.data.uploadTransportMode").value("DIRECT"))
                 .andExpect(jsonPath("$.data.downloadTransportMode").value("DIRECT"))

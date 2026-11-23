@@ -51,3 +51,50 @@ test('should clear finished upload tasks when upload dialog closes', () => {
         { id: 'running', status: 'running' }
     ]);
 });
+
+test('should initialize target name from original file name', () => {
+    const items = helpers.normalizePendingUploadFiles([
+        { uid: 'upload-a', name: 'report.pdf', size: 12, raw: createRawFile('report.pdf', 12, 100) }
+    ]);
+
+    assert.equal(items[0].targetName, 'report.pdf');
+});
+
+test('should apply batch rename rule to pending files', () => {
+    const items = [
+        { id: '1', name: 'a.txt', targetName: 'a.txt', raw: createRawFile('a.txt', 1, 1) },
+        { id: '2', name: 'b.txt', targetName: 'b.txt', raw: createRawFile('b.txt', 1, 2) }
+    ];
+
+    const renamed = helpers.applyBatchRename(items, {
+        prefix: 'new-',
+        suffix: '-v2',
+        findText: '.txt',
+        replaceText: '.md'
+    });
+
+    assert.equal(renamed[0].targetName, 'new-a-v2.md');
+    assert.equal(renamed[1].targetName, 'new-b-v2.md');
+});
+
+test('should fallback application upload when direct upload confirmation reports missing object', () => {
+    assert.equal(
+        helpers.shouldFallbackToApplicationUpload({ message: '确认上传失败: Object does not exist' }),
+        true
+    );
+    assert.equal(
+        helpers.shouldFallbackToApplicationUpload({ message: 'The specified key does not exist' }),
+        true
+    );
+    assert.equal(
+        helpers.shouldFallbackToApplicationUpload({ message: '对象不存在' }),
+        true
+    );
+});
+
+test('should not fallback application upload when upload is cancelled', () => {
+    assert.equal(
+        helpers.shouldFallbackToApplicationUpload({ message: '上传已取消' }),
+        false
+    );
+});

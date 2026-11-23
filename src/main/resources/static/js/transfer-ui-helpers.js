@@ -32,6 +32,21 @@
         };
     }
 
+    function createProtectedArchiveDownloadMatcher(contextPath) {
+        return function (targetUrl) {
+            if (!targetUrl) {
+                return false;
+            }
+            var resolved = new URL(targetUrl, 'http://localhost');
+            var appPrefix = contextPathHelpers && typeof contextPathHelpers.joinContextPath === 'function'
+                ? contextPathHelpers.joinContextPath(contextPath, '/api/transfer/archive-tasks/')
+                : '/api/transfer/archive-tasks/';
+            return resolved.pathname.indexOf(appPrefix) === 0
+                && resolved.pathname.endsWith('/download')
+                && !resolved.searchParams.has('shareCode');
+        };
+    }
+
     function resolveDownloadSessionUrl() {
         return '/transfer/download/session';
     }
@@ -80,9 +95,11 @@
             return false;
         }
         var resolved = new URL(url, window.location.origin);
-        var matcher = createAppDownloadMatcher(getCurrentContextPath());
+        var contextPath = getCurrentContextPath();
+        var matcher = createAppDownloadMatcher(contextPath);
+        var archiveMatcher = createProtectedArchiveDownloadMatcher(contextPath);
         return resolved.origin === window.location.origin
-            && matcher(resolved.toString());
+            && (matcher(resolved.toString()) || archiveMatcher(resolved.toString()));
     }
 
     async function fetchProtectedDownload(url, fileName) {
@@ -99,7 +116,24 @@
         if (!response.ok) {
             throw new Error('下载失败: HTTP ' + response.status);
         }
-        var blob = await response.blob();
+        // This fallback buffers only small files; native/signed and file-system downloads stream instead.
+        var cap = 100 * 1024 * 1024;
+        var length = Number(response.headers.get('Content-Length'));
+        var message = '文件超过浏览器内存下载上限，请使用支持写盘的浏览器或授权下载直链';
+        if (length > cap) { if (response.body) await response.body.cancel(); throw new Error(message); }
+        var reader = response.body && response.body.getReader();
+        if (!reader) throw new Error('浏览器不支持安全的分段读取，请使用授权下载直链');
+        var parts = [], count = 0;
+        try {
+            while (true) {
+                var item = await reader.read();
+                if (item.done) break;
+                count += item.value.byteLength;
+                if (count > cap) { await reader.cancel(); throw new Error(message); }
+                parts.push(item.value);
+            }
+        } finally { reader.releaseLock(); }
+        var blob = new Blob(parts, {type: response.headers.get('Content-Type') || 'application/octet-stream'});
         saveBlob(blob, fileName);
         return url;
     }
@@ -112,7 +146,7 @@
 
         if (resolvedSession.fallbackUrl) {
             try {
-                return fetchBlobDownload(resolvedSession.downloadUrl, resolvedSession.fileName);
+                return await fetchBlobDownload(resolvedSession.downloadUrl, resolvedSession.fileName);
             } catch (error) {
                 if (!resolvedSession.fallbackUrl) {
                     throw error;
@@ -131,6 +165,18 @@
         var effectiveNavigate = typeof navigate === 'function' ? navigate : createNativeDownload;
         effectiveNavigate(resolvedSession.downloadUrl);
         return resolvedSession.downloadUrl;
+    }
+
+    async function runArchiveDownload(url, fileName, navigate) {
+        if (!url) {
+            throw new Error('当前会话未返回可用下载地址');
+        }
+        if (shouldFetchWithAuth(url)) {
+            return fetchProtectedDownload(url, fileName);
+        }
+        var effectiveNavigate = typeof navigate === 'function' ? navigate : createNativeDownload;
+        effectiveNavigate(url);
+        return url;
     }
 
     function uploadWithXhr(options) {
@@ -175,8 +221,10 @@
         resolveUploadSessionUrl: resolveUploadSessionUrl,
         resolveUploadCompleteUrl: resolveUploadCompleteUrl,
         createAppDownloadMatcher: createAppDownloadMatcher,
+        createProtectedArchiveDownloadMatcher: createProtectedArchiveDownloadMatcher,
         createNativeDownload: createNativeDownload,
         runSingleFileDownload: runSingleFileDownload,
+        runArchiveDownload: runArchiveDownload,
         uploadWithXhr: uploadWithXhr
     };
 

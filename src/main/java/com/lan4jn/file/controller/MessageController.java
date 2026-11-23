@@ -34,8 +34,9 @@ public class MessageController {
     @GetMapping("/inbox")
     public Result<PageResult<UserShareMessage>> inbox(Authentication authentication,
                                                       @RequestParam(value = "page", required = false, defaultValue = "1") int page,
-                                                      @RequestParam(value = "size", required = false, defaultValue = "20") int size) {
-        return Result.success(userShareMessageService.listInbox(authentication.getName(), page, size));
+                                                      @RequestParam(value = "size", required = false, defaultValue = "20") int size,
+                                                      @RequestParam(value = "validOnly", required = false, defaultValue = "false") boolean validOnly) {
+        return Result.success(userShareMessageService.listInbox(authentication.getName(), page, size, validOnly));
     }
 
     @GetMapping("/recipients")

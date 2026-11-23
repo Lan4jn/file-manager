@@ -33,9 +33,22 @@ test('should render compact title and description row in main header', () => {
     assert.match(indexHtml, /class="header-context"/);
 });
 
+test('should render workbench title and default-entry controls without hero panel', () => {
+    assert.doesNotMatch(indexHtml, /workbench-panel--hero/);
+    assert.match(indexHtml, /<div class="page-header page-header--workbench">/);
+    assert.match(indexHtml, /<h3 class="heading-5">工作台<\/h3>/);
+    assert.match(indexHtml, /下次登录默认显示工作台/);
+});
+
+test('should render unread badge and share content area for workbench reminders', () => {
+    assert.match(indexHtml, /<el-badge\s+v-if="inboxUnreadCount > 0"/);
+    assert.match(indexHtml, /class="workbench-reminder__content"/);
+    assert.match(indexHtml, /{{ item\.shareContentText \|\| '分享内容待加载' }}/);
+});
+
 test('should use compact file page layout classes', () => {
     assert.match(indexHtml, /class="page-content page-content--files"/);
-    assert.match(indexHtml, /class="drive-overview drive-overview--compact"/);
+    assert.match(indexHtml, /class="drive-overview drive-overview--compact drive-context"/);
     assert.match(appCss, /\.page-content--files/);
     assert.match(appCss, /\.drive-overview--compact/);
 });

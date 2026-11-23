@@ -1,0 +1,335 @@
+/* Blueprint palette; layout and component behavior remain in the compatibility stylesheet. */
+:root {
+    --bp-ink: #182c3a;
+    --bp-muted: #4b6474;
+    --bp-line: #c4d6df;
+    --bp-paper: #fbfdfe;
+    --bp-brand: #155b9b;
+    --bp-soft: #e1edf6;
+    --bp-ground: #edf3f5;
+    --bp-rail: #203b4c;
+    --bp-brand-hover: #134a7b;
+    --bp-blueprint: var(--bp-ground) url('../vendor/workspace-blueprint/ground.svg') right top / cover fixed no-repeat;
+    --bp-success: #276046;
+    --bp-success-soft: #e5f2e9;
+    --bp-warning: #764815;
+    --bp-warning-soft: #f6ead9;
+    --bp-danger: #902c33;
+    --bp-danger-soft: #f7e5e7;
+    --bp-shadow: 0 4px 12px #264a6010;
+    --bp-float-shadow: 0 12px 32px #203b4c25;
+}
+
+/* Bridge old surfaces and Element Plus, including overlays teleported to body. */
+.workspace-app, .workspace-share {
+    --p-bg: var(--bp-ground);
+    --p-surface: var(--bp-paper);
+    --p-ink: var(--bp-ink);
+    --p-muted: var(--bp-muted);
+    --p-accent: var(--bp-brand);
+    --p-action: var(--bp-brand);
+    --p-inv-bg: var(--bp-rail);
+    --p-inv-ink: #e9f2f7;
+    --p-inv-muted: #b8ced9;
+    --panel: var(--bp-paper);
+    --panel-strong: var(--bp-paper);
+    --panel-dark: var(--bp-soft);
+    --text: var(--bp-ink);
+    --muted: var(--bp-muted);
+    --text-secondary: var(--bp-muted);
+    --line: var(--bp-line);
+    --line-strong: var(--bp-line);
+    --hover: var(--bp-soft);
+    --primary: var(--bp-brand);
+    --primary-soft: var(--bp-soft);
+    --link: var(--bp-brand);
+    --success-soft: var(--bp-success-soft);
+    --warning-soft: var(--bp-warning-soft);
+    --danger-soft: var(--bp-danger-soft);
+    --el-color-primary: var(--bp-brand);
+    --el-color-primary-dark-2: var(--bp-brand-hover);
+    --el-color-primary-light-3: #4b80ac;
+    --el-color-primary-light-5: #779fc0;
+    --el-color-primary-light-7: #a5c3d8;
+    --el-color-primary-light-8: #c2d9e8;
+    --el-color-primary-light-9: var(--bp-soft);
+    --el-color-success: var(--bp-success);
+    --el-color-success-light-9: var(--bp-success-soft);
+    --el-color-success-light-8: #c4e1d0;
+    --el-color-warning: var(--bp-warning);
+    --el-color-warning-light-9: var(--bp-warning-soft);
+    --el-color-warning-light-8: #e6d3b7;
+    --el-color-danger: var(--bp-danger);
+    --el-color-danger-light-9: var(--bp-danger-soft);
+    --el-color-danger-light-8: #ead0d4;
+    --el-color-error: var(--bp-danger);
+    --el-color-info: var(--bp-muted);
+    --el-color-info-light-9: #eaf0f2;
+    --el-color-info-light-8: #d7e1e6;
+    --el-text-color-primary: var(--bp-ink);
+    --el-text-color-regular: var(--bp-ink);
+    --el-text-color-secondary: var(--bp-muted);
+    --el-text-color-placeholder: var(--bp-muted);
+    --el-text-color-disabled: #617582;
+    --el-border-color: var(--bp-line);
+    --el-border-color-light: var(--bp-line);
+    --el-border-color-lighter: #d9e5eb;
+    --el-bg-color: var(--bp-paper);
+    --el-bg-color-overlay: var(--bp-paper);
+    --el-fill-color-blank: var(--bp-paper);
+    --el-fill-color-light: #eff6fa;
+    --el-disabled-bg-color: #eaf0f3;
+    --el-disabled-border-color: #d1dfe6;
+    color-scheme: light;
+    background: var(--bp-blueprint);
+}
+
+:is(.workspace-app, .workspace-share) * { scrollbar-color: #98b5c7 transparent; }
+:is(.workspace-app, .workspace-share) ::selection { background: #bfdbef; color: #153b58; }
+:is(.workspace-app, .workspace-share) :focus-visible { outline: 2px solid var(--bp-brand); outline-offset: 2px; }
+:is(.workspace-app, .workspace-share) .skip-link { background: var(--bp-brand); color: #fff; }
+.workspace-app :is(.el-input__wrapper.is-focus, .el-select__wrapper.is-focused, .el-textarea__inner:focus-visible) {
+    outline: 2px solid var(--bp-brand);
+    outline-offset: 1px;
+}
+
+/* Shared navigation and working canvas; legacy mobile drawer behavior is retained. */
+.workspace-app :is(.main-container, .login-container) { background: transparent; }
+.workspace-app .header { background: #f9fcfd; }
+.workspace-app .main-content { background: transparent; }
+.workspace-app .sidebar {
+    color: #e9f2f7;
+    background: var(--bp-rail);
+    scrollbar-color: #8faebf transparent;
+}
+.workspace-app .sidebar-brand { border-color: #547080; }
+.workspace-app .sidebar-brand strong { color: #fff; font-weight: 650; }
+.workspace-app .sidebar-brand p, .workspace-app .sidebar-card :is(span, small) { color: #b8ced9; }
+.workspace-app .sidebar .brand-mark { background: #dcecf6; border-color: #dcecf6; color: #174a73; }
+.workspace-app .sidebar .el-menu { --el-menu-hover-bg-color: #2b4a5d; }
+.workspace-app .sidebar .el-menu-item { color: #e3edf3; border: 1px solid transparent; }
+.workspace-app .sidebar .el-menu-item .el-icon { color: inherit; }
+.workspace-app .sidebar .el-menu-item:hover { color: #fff; background: #2b4a5d; }
+.workspace-app .sidebar .el-menu-item.is-active { color: #173d56; background: #d8eaf5; border-color: #bad5e6; font-weight: 650; }
+.workspace-app .sidebar .el-menu-item.is-active .el-icon { color: inherit; }
+.workspace-app .sidebar :focus-visible { outline-color: #e3f2fa; outline-offset: -2px; }
+.workspace-app .sidebar .el-menu-item.is-active:focus-visible { outline-color: var(--bp-brand); }
+.workspace-app .sidebar-footer { color: #c0d2dc; background: transparent; border-top-color: #547080; }
+.workspace-app .workspace-nav-close { background: #2b4a5d; color: #fff; border-color: #8ca7b6; }
+.workspace-app .workspace-nav-toggle { background: var(--bp-paper); }
+.workspace-app .workspace-nav-backdrop { background: #182c3a60; }
+.workspace-app .user-avatar, .workspace-app .version-chip, .workspace-app .workspace-page-icon {
+    background: var(--bp-soft); color: var(--bp-brand); border-color: #b5d2e4;
+}
+.workspace-app .page-header { border-bottom-color: var(--bp-line); }
+.workspace-app .page-header h3 { font-weight: 650; }
+.workspace-app .page-header p { color: var(--bp-muted); }
+
+/* Legacy CSS uses !important on button paints and dialog backgrounds; match only those declarations. */
+.workspace-app .el-button--primary:where(:not(.is-text, .is-link, .is-disabled)) {
+    background: var(--bp-brand) !important;
+    border-color: var(--bp-brand) !important;
+    color: #fff;
+}
+.workspace-app .el-button--primary:not(.is-disabled):where(:not(.is-text, .is-link)):hover {
+    background: var(--bp-brand-hover) !important;
+    border-color: var(--bp-brand-hover) !important;
+}
+.workspace-app .el-button--primary.is-plain:not(.is-disabled):where(:not(.is-text, .is-link)) {
+    background: var(--bp-soft) !important;
+    border-color: #afcbdc !important;
+    color: var(--bp-brand);
+}
+.workspace-app .el-button:not(.el-button--primary):not(.is-disabled) {
+    color: var(--bp-ink); border-color: var(--bp-line); background: var(--bp-paper);
+}
+.workspace-app .el-button:not(.el-button--primary):not(.is-disabled):hover {
+    color: var(--bp-brand); border-color: #8eafc1; background: var(--bp-soft);
+}
+.workspace-app .el-button:is(.is-text, .is-link):not(.is-disabled) { color: var(--bp-brand); }
+.workspace-app .el-button--danger:not(.is-disabled) { color: var(--bp-danger) !important; }
+.workspace-app .el-button.is-disabled, .workspace-app .el-button.is-disabled:hover {
+    background: #eaf0f3 !important;
+    border-color: #d1dfe6 !important;
+    color: #617582 !important;
+    cursor: not-allowed;
+}
+.workspace-app :is(.el-checkbox__input, .el-radio__input):has(input:focus-visible) > :is(.el-checkbox__inner, .el-radio__inner),
+.workspace-app .el-radio-button:has(input:focus-visible) .el-radio-button__inner {
+    outline: 2px solid var(--bp-brand); outline-offset: 2px;
+}
+.workspace-app .el-input__wrapper.is-focus { border-color: var(--bp-brand) !important; }
+.workspace-app .el-dialog, .workspace-app .knowledge-dialog.el-dialog, .workspace-app .knowledge-dialog .el-dialog {
+    background: var(--bp-paper) !important;
+    border-color: var(--bp-line);
+    box-shadow: var(--bp-float-shadow);
+}
+.workspace-app .el-overlay { background: #182c3a55; }
+.workspace-app .el-dialog__header { background: #eff6fa; }
+.workspace-app .el-dialog__title { font-weight: 650; }
+.workspace-app :is(.el-message-box, .el-notification, .el-popover.el-popper) {
+    background: var(--bp-paper); box-shadow: var(--bp-float-shadow);
+}
+.workspace-app .el-alert--info.is-light { background: var(--bp-soft); color: #244f72; }
+.workspace-app .el-progress-bar__outer { background: var(--bp-soft); }
+.workspace-app .el-upload-dragger { background: #eff6fa; border-color: #8eafc1 !important; }
+.workspace-app .el-upload-dragger:hover { background: var(--bp-soft); border-color: var(--bp-brand) !important; }
+.workspace-app .el-upload-dragger .el-icon--upload { color: var(--bp-brand); }
+.workspace-app .upload-pending-list__item { background: #eff6fa; }
+.workspace-app .upload-success-notification {
+    background: var(--bp-paper) !important; border-color: #c4e1d0 !important; box-shadow: var(--bp-float-shadow) !important;
+}
+.workspace-app .upload-success-notification__action { color: var(--bp-success); }
+
+/* Shared data, task and help surfaces. */
+.workspace-app .el-table {
+    --el-table-border-color: #d9e5eb;
+    --el-table-header-bg-color: #e6f0f5;
+    --el-table-row-hover-bg-color: #eff6fa;
+    --el-table-current-row-bg-color: var(--bp-soft);
+    box-shadow: var(--bp-shadow);
+}
+.workspace-app .el-table th.el-table__cell { background: var(--el-table-header-bg-color); color: #314d5e; font-weight: 650; }
+.workspace-app .el-table__body tr.current-row > td.el-table__cell,
+.workspace-app .el-table__row:has(.el-checkbox.is-checked) > td { background: var(--bp-soft); }
+.workspace-app :is(.dialog-hero, .message-banner, .share-banner) { background: #d7e9f3; border-color: #b5d2e4; }
+.workspace-app :is(.dialog-section, .message-share-card, .dialog-panel--sidebar, .diagnostics-panel__toolbar, .message-forward-summary) {
+    background: #eff6fa; border-color: var(--bp-line);
+}
+.workspace-app :is(.dialog-shell, .el-tabs--border-card, .version-dialog .dialog-panel--content .dialog-section-intro) { background: var(--bp-paper); }
+.workspace-app .dialog-hero span, .workspace-app .version-item.active {
+    background: var(--bp-soft); color: var(--bp-brand); border-color: var(--bp-line);
+}
+.workspace-app .message-bubble, .workspace-app .message-bubble::before { background: #eff6fa; border-color: var(--bp-line); }
+.workspace-app .message-bubble--unread, .workspace-app .message-bubble--unread::before { background: var(--bp-soft); border-color: #b5d2e4; }
+.workspace-app :is(.download-task-center, .download-task-center__dialog, .message-center-panel) {
+    background: var(--bp-paper); border-color: var(--bp-line); box-shadow: var(--bp-float-shadow);
+}
+.workspace-app :is(.download-task-center__header, .download-task-center__item) { background: #eff6fa; }
+.workspace-app :is(.download-task-center__action, .download-center-toggle, .message-center-trigger) {
+    background: var(--bp-paper); border-color: var(--bp-line);
+}
+.workspace-app .download-task-center__action--danger { color: var(--bp-danger); border-color: #ead0d4; }
+
+/* Configure existing independent forms without changing save/permission logic. */
+.workspace-app .page-content--settings > .el-form {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 14px 18px;
+    max-width: none !important; /* Existing template caps each form with an inline max-width. */
+    padding: 18px;
+    background: var(--bp-paper);
+    border: 1px solid var(--bp-line);
+    border-radius: 12px;
+    box-shadow: var(--bp-shadow);
+}
+.workspace-app .page-content--settings > h4 { margin: 14px 0 8px; font-size: 17px; font-weight: 650; }
+.workspace-app .page-content--settings > .el-divider { margin: 14px 0; border-color: var(--bp-line); }
+.workspace-app .page-content--settings .el-form-item { display: block; margin: 0; min-width: 0; }
+.workspace-app .page-content--settings .el-form-item__label {
+    display: block;
+    width: auto !important; /* Element Plus writes the form's label-width inline. */
+    height: auto;
+    padding: 0;
+    text-align: start;
+    color: var(--bp-ink);
+    font-weight: 650;
+}
+.workspace-app .page-content--settings .el-form-item__content { margin-inline-start: 0 !important; align-items: center; min-width: 0; }
+.workspace-app .page-content--settings .el-form-item:last-child { grid-column: 1 / -1; border-top: 1px solid var(--bp-line); padding-top: 12px; }
+.workspace-app .page-content--settings .el-form-item:last-child .el-form-item__content { justify-content: flex-end; }
+.workspace-app .page-content--settings :is(.el-select,.el-input-number) { max-width: 100%; }
+.workspace-app .page-content--settings .el-checkbox { margin-right: 8px; }
+.workspace-app .transport-priority-editor { min-width: 0; width: 100%; }
+.workspace-app .transport-priority-editor__row { border-color: var(--bp-line); background: #eff6fa; flex-wrap: wrap; }
+
+/* Public hand-off uses the same paper, ink and controls without changing its lifecycle. */
+.workspace-share {
+    --accent: var(--bp-brand);
+    --accent-soft: var(--bp-soft);
+    --border: var(--bp-line);
+    --danger: var(--bp-danger);
+    padding: 28px 18px;
+    min-height: 100svh;
+}
+.workspace-share .shell { max-width: 910px; }
+.workspace-share .share-brand { padding-bottom: 28px; }
+.workspace-share .share-brand .title-3 { color: var(--bp-ink); font-size: 18px; font-weight: 650; }
+.workspace-share .share-brand a { color: var(--bp-brand); text-decoration: underline; }
+.workspace-share .hero-head {
+    flex-direction: column;
+    gap: 12px;
+    padding: 24px;
+    border: 1px solid #a9cddd;
+    background: #d4e8f2;
+    color: var(--bp-ink);
+}
+.workspace-share .hero-head h1 { color: var(--bp-ink); font-size: 30px; font-weight: 650; }
+.workspace-share .hero-head :is(.meta, .hint) { margin-top: 7px; color: #36556a; overflow-wrap: anywhere; }
+.workspace-share .hero-head .error { color: var(--bp-danger); overflow-wrap: anywhere; }
+.workspace-share .hero-head :is(.meta, .hint, .error):empty { margin: 0; }
+.workspace-share .hero-head .badge { background: var(--bp-soft); color: #244f72; border: 1px solid #c2d9e8; }
+.workspace-share :is(.verify, .panel) { margin-top: 14px; background: var(--bp-paper); border: 1px solid var(--bp-line); border-radius: 12px; box-shadow: var(--bp-shadow); }
+.workspace-share .verify { padding: 18px; align-items: center; }
+.workspace-share .verify input { min-width: 0; width: auto; background: var(--bp-paper); border-color: var(--bp-line); }
+.workspace-share .verify input::placeholder { color: var(--bp-muted); }
+.workspace-share button { min-height: 36px; color: #fff; background: var(--bp-brand); border-color: var(--bp-brand); }
+.workspace-share button:not(:disabled):hover { background: var(--bp-brand-hover); border-color: var(--bp-brand-hover); }
+.workspace-share button.secondary, .workspace-share .item-actions button, .workspace-share .task-action-btn {
+    background: var(--bp-paper); border-color: var(--bp-line); color: var(--bp-ink);
+}
+.workspace-share button.secondary:not(:disabled):hover, .workspace-share .item-actions button:not(:disabled):hover {
+    background: var(--bp-soft); border-color: #8eafc1;
+}
+.workspace-share button:disabled, .workspace-share .item-actions button:disabled, .workspace-share button.secondary:disabled {
+    background: #eaf0f3; border-color: #d1dfe6; color: #617582; cursor: not-allowed;
+}
+.workspace-share .task-action-btn--danger { color: var(--bp-danger); border-color: #ead0d4; }
+.workspace-share .panel-head { background: var(--bp-paper); padding: 15px 18px; }
+.workspace-share .panel-title { color: var(--bp-ink); font-size: 17px; font-weight: 650; }
+.workspace-share .list { padding: 0; }
+.workspace-share .item { min-height: 60px; padding: 11px 18px; border-color: #d9e5eb; }
+.workspace-share .item:hover { background: #eff6fa; }
+.workspace-share .item-name { font-weight: 650; white-space: normal; overflow-wrap: anywhere; }
+.workspace-share .item-sub { color: var(--bp-muted); }
+.workspace-share .item-kind { color: #244f72; background: var(--bp-soft); border: 1px solid #c2d9e8; align-self: center; }
+.workspace-share .share-download-toggle { background: var(--bp-paper); border-color: var(--bp-line); box-shadow: var(--bp-shadow); }
+
+@media (min-width: 701px) {
+    .workspace-app .main-container { grid-template-columns: 214px minmax(0, 1fr); grid-template-rows: 59px minmax(0, 1fr); }
+    .workspace-app .header { min-height: 59px; padding-block: 8px; }
+}
+@media (min-width: 701px) and (max-width: 1100px) {
+    .workspace-app .main-container { grid-template-columns: 182px minmax(0, 1fr); }
+}
+@media (max-width: 760px) {
+    .workspace-app .page-content--settings > .el-form { grid-template-columns: minmax(0, 1fr); }
+}
+@media (max-width: 700px) {
+    .workspace-app :is(.workspace-nav-toggle, .workspace-nav-close) { width: 44px; height: 44px; }
+    .workspace-app .page-content--settings > .el-form { padding: 12px; }
+    .workspace-share { padding-top: 17px; }
+    .workspace-share .share-brand { padding-bottom: 18px; }
+    .workspace-share .hero-head { padding: 17px; }
+    .workspace-share .hero-head h1 { font-size: 24px; }
+    .workspace-share .verify input { min-height: 44px; flex-basis: 128px; }
+    .workspace-share button { min-height: 44px; }
+    .workspace-share .item { grid-template-columns: minmax(0, 1fr) auto; align-items: center; padding: 10px 12px; gap: 6px 10px; }
+    .workspace-share .item-actions { grid-column: 1 / -1; }
+    .workspace-share .task-action-btn { width: 44px; }
+}
+
+.workspace-share #verifyBlock {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) auto;
+    align-items: end;
+    column-gap: 8px;
+    row-gap: 5px;
+}
+.workspace-share #verifyBlock :is(h2, label) { grid-column: 1 / -1; }
+.workspace-share #verifyBlock h2 { margin: 0 0 8px; font-size: 20px; line-height: 28px; font-weight: 650; }
+.workspace-share #verifyBlock label { font-size: 13px; font-weight: 650; }
+.workspace-share #verifyBlock button { min-height: 40px; }
+@media (max-width: 700px) {
+    .workspace-share #verifyBlock button { min-height: 44px; }
+}

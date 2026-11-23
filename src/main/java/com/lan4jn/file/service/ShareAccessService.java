@@ -45,7 +45,7 @@ final class ShareAccessService {
             info.setSize(0L);
             return info;
         }
-        return fileService.getFileInfo(shareLink.getObjectName(), shareLink.getBucket());
+        return loadSharedFileInfo(shareLink.getObjectName(), shareLink.getBucket());
     }
 
     List<FileInfo> listSharedItems(String shareCode, String password, String path) {
@@ -75,7 +75,7 @@ final class ShareAccessService {
             folderInfo.setSize(0L);
             return folderInfo;
         }
-        return fileService.getFileInfo(objectName, shareLink.getBucket());
+        return loadSharedFileInfo(objectName, shareLink.getBucket());
     }
 
     void downloadShareAsZip(String shareCode, String password, OutputStream outputStream) {
@@ -178,7 +178,7 @@ final class ShareAccessService {
             fileInfo.setSize(0L);
             return fileInfo;
         }
-        return fileService.getFileInfo(objectName, bucket);
+        return loadSharedFileInfo(objectName, bucket);
     }
 
     private Map<String, FileInfo> collectShareDownloadEntries(ShareLink shareLink) {
@@ -193,7 +193,7 @@ final class ShareAccessService {
                         shareSupport.putUniqueEntry(entries, entryName, fileInfo);
                     }
                 } else {
-                    FileInfo fileInfo = fileService.getFileInfo(root, shareLink.getBucket());
+                    FileInfo fileInfo = loadSharedFileInfo(root, shareLink.getBucket());
                     shareSupport.putUniqueEntry(entries, fileInfo.getFileName(), fileInfo);
                 }
             }
@@ -206,5 +206,29 @@ final class ShareAccessService {
             shareSupport.putUniqueEntry(entries, fileInfo.getFileName(), fileInfo);
         }
         return entries;
+    }
+
+    private FileInfo loadSharedFileInfo(String objectName, String bucket) {
+        try {
+            return fileService.getFileInfo(objectName, bucket);
+        } catch (RuntimeException e) {
+            if (isMissingSharedContent(e)) {
+                throw new RuntimeException("分享内容已被删除或移动", e);
+            }
+            throw new RuntimeException("分享内容加载失败，请稍后重试", e);
+        }
+    }
+
+    private boolean isMissingSharedContent(RuntimeException e) {
+        String message = e.getMessage();
+        if (message == null) {
+            return false;
+        }
+        String normalized = message.toLowerCase();
+        return normalized.contains("object does not exist")
+                || normalized.contains("not found")
+                || normalized.contains("no such key")
+                || normalized.contains("nosuchkey")
+                || normalized.contains("404");
     }
 }

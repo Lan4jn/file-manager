@@ -2,7 +2,9 @@
 /data/
 /share/
 /logs/
-/config/
+/config/*
+!/config/application-dm.yml
+!/config/application-multi.yml
 /.kiro/
 /.claude/
 /.idea/

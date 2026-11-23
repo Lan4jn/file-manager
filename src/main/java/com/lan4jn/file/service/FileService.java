@@ -1,6 +1,7 @@
 package com.lan4jn.file.service;
 
 import com.lan4jn.file.common.PageResult;
+import com.lan4jn.file.dto.FileRenameResponse;
 import com.lan4jn.file.dto.UploadResponse;
 import com.lan4jn.file.model.BucketInfo;
 import com.lan4jn.file.model.BucketStatsRefreshStatus;
@@ -33,6 +34,7 @@ public class FileService {
     private final FileQueryService fileQueryService;
     private final FileCommandService fileCommandService;
     private final ArchiveService archiveService;
+    private WorkbenchService workbenchService;
     private BucketService bucketService;
     private BucketStatsRefreshService bucketStatsRefreshService;
 
@@ -61,6 +63,11 @@ public class FileService {
     @Autowired(required = false)
     void setBucketStatsRefreshService(BucketStatsRefreshService bucketStatsRefreshService) {
         this.bucketStatsRefreshService = bucketStatsRefreshService;
+    }
+
+    @Autowired(required = false)
+    void setWorkbenchService(WorkbenchService workbenchService) {
+        this.workbenchService = workbenchService;
     }
 
     public List<BucketInfo> listBuckets(String sortBy, String order) {
@@ -99,6 +106,14 @@ public class FileService {
         return fileCommandService.uploadFile(file, folder, bucket, defaultBucket, publicUrl);
     }
 
+    public UploadResponse uploadFile(MultipartFile file,
+                                     String folder,
+                                     String bucket,
+                                     String targetFileName,
+                                     String uploadTraceId) {
+        return fileCommandService.uploadFile(file, folder, bucket, defaultBucket, publicUrl, targetFileName, uploadTraceId);
+    }
+
     public FileDomainSupport.PreparedUpload prepareDirectUpload(String fileName, Long size, String folder, String bucket) {
         return fileCommandService.prepareDirectUpload(fileName, size, folder, bucket, defaultBucket);
     }
@@ -109,6 +124,15 @@ public class FileService {
                                                String contentType,
                                                Long expectedSize) {
         return fileCommandService.completeDirectUpload(bucket, objectName, fileName, contentType, expectedSize, publicUrl);
+    }
+
+    public UploadResponse completeDirectUpload(String bucket,
+                                               String objectName,
+                                               String fileName,
+                                               String contentType,
+                                               Long expectedSize,
+                                               String uploadTraceId) {
+        return fileCommandService.completeDirectUpload(bucket, objectName, fileName, contentType, expectedSize, publicUrl, uploadTraceId);
     }
 
     public List<FileInfo> listFiles(String folder, String bucket, String sortBy, String order) {
@@ -164,6 +188,14 @@ public class FileService {
         fileCommandService.moveFile(sourceObjectName, destObjectName, sourceBucket, destBucket, defaultBucket);
     }
 
+    public FileRenameResponse rename(String sourcePath, String targetName, String bucket, String conflictPolicy) {
+        String targetPath = fileCommandService.rename(sourcePath, targetName, bucket, defaultBucket, conflictPolicy);
+        FileRenameResponse response = new FileRenameResponse();
+        response.setSourcePath(sourcePath);
+        response.setTargetPath(targetPath);
+        return response;
+    }
+
     public String getPreviewUrl(String objectName, String bucket) {
         return fileQueryService.getPreviewUrl(objectName, bucket, defaultBucket, publicUrl);
     }
@@ -217,6 +249,13 @@ public class FileService {
 
     public void downloadResolvedFilesAsZip(List<FileInfo> files, String bucket, OutputStream outputStream) throws Exception {
         archiveService.streamFilesAsZip(files, support.resolveBucket(bucket, defaultBucket), defaultBucket, outputStream);
+    }
+
+    public void recordDirectoryAccess(String username, String bucket, String folder) {
+        if (workbenchService == null || folder == null || folder.isBlank()) {
+            return;
+        }
+        workbenchService.recordDirectoryAccess(username, support.resolveBucket(bucket, defaultBucket), folder, getFileName(folder));
     }
 
     private String getFileName(String objectName) {

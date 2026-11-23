@@ -6,6 +6,7 @@ import jakarta.persistence.Entity;
 import jakarta.persistence.GeneratedValue;
 import jakarta.persistence.GenerationType;
 import jakarta.persistence.Id;
+import jakarta.persistence.Lob;
 import jakarta.persistence.Table;
 import jakarta.persistence.Transient;
 
@@ -35,7 +36,7 @@ public class TransferArchiveTask {
     @Column(nullable = false, length = 255)
     private String bucketName;
 
-    @Column(length = 4000)
+    @Lob
     @JsonIgnore
     private String sourceDescriptor;
 
@@ -61,7 +62,7 @@ public class TransferArchiveTask {
 
     private Long expireTime;
 
-    @Column(length = 2000)
+    @Lob
     private String errorMessage;
 
     @Transient

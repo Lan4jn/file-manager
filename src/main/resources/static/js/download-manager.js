@@ -117,137 +117,56 @@
         }
     };
 
-    const createChunkedDownloader = ({ url, fileName, totalSize, headers, chunkSize, onProgress, saveBlob: saveBlobOverride, fetchImpl }) => {
-        const resolvedChunkSize = chunkSize || DEFAULT_CHUNK_SIZE;
-        const chunks = [];
-        const effectiveFetch = fetchImpl || fetch;
-        const effectiveSaveBlob = typeof saveBlobOverride === 'function' ? saveBlobOverride : saveBlob;
-        let downloadedBytes = 0;
-        let nextStart = 0;
-        let startedAt = 0;
-        let status = 'idle';
-        let error = '';
-        let activePromise = null;
-
-        const buildProgressSnapshot = () => {
-            const elapsedSeconds = Math.max((Date.now() - startedAt) / 1000, 0.001);
-            return {
-                downloadedBytes,
-                totalBytes: totalSize,
-                progress: totalSize > 0 ? Math.min(100, downloadedBytes / totalSize * 100) : 0,
-                speedBytesPerSecond: downloadedBytes / elapsedSeconds
-            };
+    const MAX_MEMORY_SIZE = 100 * 1024 * 1024;
+    const createChunkedDownloader = ({ url, fileName, totalSize, headers, chunkSize = DEFAULT_CHUNK_SIZE, onProgress, fileHandle, saveBlob: saveOverride, fetchImpl = fetch }) => {
+        const disk = !saveOverride && (fileHandle || supportsStreamToDisk());
+        if (!Number.isSafeInteger(totalSize) || totalSize < 0 || !Number.isSafeInteger(chunkSize) || chunkSize <= 0) throw new Error('无效的下载长度');
+        if (!disk && totalSize > MAX_MEMORY_SIZE) throw new Error('文件过大，当前环境不支持边读边写；请使用浏览器下载或支持写盘的 HTTPS 浏览器');
+        const parts = [];
+        let offset = 0, started = 0, status = 'idle', error = '', pending, writable, request;
+        const getState = () => ({ status, error, downloadedBytes: offset, totalBytes: totalSize, progress: totalSize ? Math.min(100, offset * 100 / totalSize) : 0 });
+        const discard = async () => {
+            parts.length = 0;
+            const stream = writable;
+            writable = null;
+            if (stream) await stream.abort().catch(() => {});
         };
-
-        const getState = () => ({
-            status,
-            error,
-            downloadedBytes,
-            totalBytes: totalSize,
-            progress: totalSize > 0 ? Math.min(100, downloadedBytes / totalSize * 100) : 0
-        });
-
-        const run = async () => {
-            if (status === 'running') {
-                return activePromise;
+        const transfer = async () => {
+            if (disk && !writable) {
+                const handle = fileHandle || await window.showSaveFilePicker({ suggestedName: fileName || 'download.bin' });
+                if (status === 'cancelled') return null;
+                writable = await handle.createWritable();
+                if (status === 'cancelled') { await discard(); return null; }
             }
-            if (status === 'completed' || status === 'cancelled') {
-                return null;
+            while (status === 'running' && offset < totalSize) {
+                const length = Math.min(chunkSize, DEFAULT_CHUNK_SIZE, totalSize - offset);
+                request = new AbortController();
+                const res = await fetchImpl(url, { method:'GET', headers:{...headers, Range:buildRangeHeader(offset,length,totalSize)}, signal:request.signal });
+                const range = parseContentRange(res.headers.get('Content-Range'));
+                if (res.status !== 206 || !range || range.start !== offset || range.end !== offset+length-1 || (range.total !== null && range.total !== totalSize)) throw new Error('分块下载失败，Content-Range 不匹配');
+                const buffer = await res.arrayBuffer();
+                if (status === 'cancelled') return null;
+                if (buffer.byteLength !== length) throw new Error('分块下载失败，分块大小不正确');
+                if (writable) await writable.write(buffer); else parts.push(buffer);
+                if (status === 'cancelled') return null;
+                offset += length;
+                if (onProgress) onProgress({...getState(),speedBytesPerSecond:offset/Math.max(.001,(Date.now()-started)/1000)});
             }
-            if (!startedAt) {
-                startedAt = Date.now();
-            }
-            status = 'running';
-            error = '';
-
-            activePromise = (async () => {
-                while (nextStart < totalSize) {
-                    if (status === 'paused' || status === 'cancelled') {
-                        return null;
-                    }
-                    const rangeStart = nextStart;
-                    const expectedEnd = Math.min(rangeStart + resolvedChunkSize - 1, totalSize - 1);
-                    const expectedLength = expectedEnd - rangeStart + 1;
-                    const response = await effectiveFetch(url, {
-                        method: 'GET',
-                        headers: {
-                            ...(headers || {}),
-                            Range: buildRangeHeader(rangeStart, resolvedChunkSize, totalSize)
-                        }
-                    });
-
-                    if (response.status !== 206) {
-                        throw new Error('分块下载失败，服务端未返回 206');
-                    }
-
-                    const buffer = await response.arrayBuffer();
-                    if (status === 'cancelled') {
-                        return null;
-                    }
-
-                    const contentRange = parseContentRange(response.headers.get('Content-Range'));
-                    if (!contentRange || contentRange.start !== rangeStart || contentRange.end !== expectedEnd) {
-                        throw new Error('分块下载失败，Content-Range 不匹配');
-                    }
-                    if (contentRange.total !== null && contentRange.total !== totalSize) {
-                        throw new Error('分块下载失败，文件大小与预期不一致');
-                    }
-                    if (buffer.byteLength !== expectedLength) {
-                        throw new Error('分块下载失败，分块大小不正确');
-                    }
-
-                    chunks.push(buffer);
-                    downloadedBytes += buffer.byteLength;
-                    nextStart = rangeStart + buffer.byteLength;
-
-                    if (typeof onProgress === 'function') {
-                        onProgress(buildProgressSnapshot());
-                    }
-                    if (status === 'paused' || status === 'cancelled') {
-                        return null;
-                    }
-                }
-
-                const blob = new Blob(chunks);
-                effectiveSaveBlob(blob, fileName);
-                status = 'completed';
-                return blob;
-            })().catch((downloadError) => {
-                if (status === 'paused' || status === 'cancelled') {
-                    return null;
-                }
-                status = 'failed';
-                error = downloadError && downloadError.message ? downloadError.message : '下载失败';
-                throw downloadError;
-            }).finally(() => {
-                activePromise = null;
-            });
-
-            return activePromise;
+            if (status !== 'running') return null;
+            let result = null;
+            if (writable) { await writable.close(); writable = null; }
+            else { result = new Blob(parts); (saveOverride || saveBlob)(result,fileName); parts.length=0; }
+            status='completed';
+            return result;
         };
-
-        return {
-            start: run,
-            resume: async () => {
-                if (status !== 'paused') {
-                    return null;
-                }
-                return run();
-            },
-            pause: () => {
-                if (status === 'running') {
-                    status = 'paused';
-                }
-            },
-            cancel: () => {
-                if (status === 'completed') {
-                    return;
-                }
-                status = 'cancelled';
-                error = '';
-            },
-            getState
+        const run = () => {
+            if (pending) return pending;
+            if (['failed','cancelled','completed'].includes(status)) return Promise.resolve(null);
+            status = 'running'; started ||= Date.now();
+            pending = transfer().catch(async e=>{await discard();if(status==='cancelled')return null;status='failed';error=e.message||'下载失败';throw e;}).finally(()=>{pending=null;request=null;});
+            return pending;
         };
+        return { start:run, pause(){if(status==='running')status='paused';}, async resume(){if(status!=='paused')return null;if(pending)await pending;return status==='paused'?run():null;}, cancel(){if(status==='completed')return;status='cancelled';request?.abort();void discard();}, getState };
     };
 
     const downloadInChunks = async ({ url, fileName, totalSize, headers, chunkSize, onProgress, saveBlob: saveBlobOverride, fetchImpl }) => {

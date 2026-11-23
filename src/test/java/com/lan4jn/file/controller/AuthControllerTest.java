@@ -210,6 +210,36 @@ class AuthControllerTest {
                 .andExpect(jsonPath("$.message").value("登录挑战已失效，请刷新后重试"));
     }
 
+    @Test
+    void shouldExposeCertificateIssuanceEnabledInRuntimeConfig() throws Exception {
+        mockMvc.perform(get("/api/auth/runtime-config"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.certificateIssuanceEnabled").value(false));
+    }
+
+    @Test
+    void shouldExposeCertificateIssuanceEnabledTrueWhenSettingsEnabled() throws Exception {
+        com.lan4jn.file.service.IssuerBridgeSettings settings = mock(com.lan4jn.file.service.IssuerBridgeSettings.class);
+        when(settings.isEnabled()).thenReturn(true);
+        AuthController controller = new AuthController(
+                jwtTokenUtil,
+                userRepository,
+                mock(org.springframework.security.crypto.password.PasswordEncoder.class),
+                mock(AppInfoService.class),
+                permissionResolverService,
+                mock(UserService.class),
+                loginProtectionService,
+                new LoginChallengeService(),
+                mock(ConfigService.class)
+        );
+        controller.setIssuerBridgeSettings(settings);
+        MockMvc localMvc = MockMvcBuilders.standaloneSetup(controller).build();
+
+        localMvc.perform(get("/api/auth/runtime-config"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.certificateIssuanceEnabled").value(true));
+    }
+
     private String sha512(String value) throws Exception {
         MessageDigest digest = MessageDigest.getInstance("SHA-512");
         byte[] hash = digest.digest(value.getBytes(StandardCharsets.UTF_8));

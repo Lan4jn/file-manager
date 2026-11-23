@@ -4,9 +4,12 @@ import jakarta.persistence.Entity;
 import jakarta.persistence.GeneratedValue;
 import jakarta.persistence.GenerationType;
 import jakarta.persistence.Id;
+import jakarta.persistence.Lob;
 import jakarta.persistence.Table;
+import jakarta.persistence.Transient;
 
 import java.time.LocalDateTime;
+import java.util.List;
 
 @Entity
 @Table(name = "sys_user_share_message")
@@ -20,6 +23,7 @@ public class UserShareMessage {
     private String senderUsername;
     private String shareCode;
     private String messageType;
+    @Lob
     private String body;
     private String originSenderUsername;
     private String forwardedByUsername;
@@ -30,6 +34,30 @@ public class UserShareMessage {
     private LocalDateTime readTime;
     private LocalDateTime createTime;
     private Boolean deleted;
+
+    @Transient
+    private String bucket;
+
+    @Transient
+    private String objectName;
+
+    @Transient
+    private String fileName;
+
+    @Transient
+    private Boolean isFolder;
+
+    @Transient
+    private LocalDateTime expireTime;
+
+    @Transient
+    private Boolean cancelled;
+
+    @Transient
+    private List<FileInfo> shareItems;
+
+    @Transient
+    private String shareItemsError;
 
     public Long getId() {
         return id;
@@ -149,5 +177,69 @@ public class UserShareMessage {
 
     public void setDeleted(Boolean deleted) {
         this.deleted = deleted;
+    }
+
+    public String getBucket() {
+        return bucket;
+    }
+
+    public void setBucket(String bucket) {
+        this.bucket = bucket;
+    }
+
+    public String getObjectName() {
+        return objectName;
+    }
+
+    public void setObjectName(String objectName) {
+        this.objectName = objectName;
+    }
+
+    public String getFileName() {
+        return fileName;
+    }
+
+    public void setFileName(String fileName) {
+        this.fileName = fileName;
+    }
+
+    public Boolean getIsFolder() {
+        return isFolder;
+    }
+
+    public void setIsFolder(Boolean folder) {
+        isFolder = folder;
+    }
+
+    public LocalDateTime getExpireTime() {
+        return expireTime;
+    }
+
+    public void setExpireTime(LocalDateTime expireTime) {
+        this.expireTime = expireTime;
+    }
+
+    public Boolean getCancelled() {
+        return cancelled;
+    }
+
+    public void setCancelled(Boolean cancelled) {
+        this.cancelled = cancelled;
+    }
+
+    public List<FileInfo> getShareItems() {
+        return shareItems;
+    }
+
+    public void setShareItems(List<FileInfo> shareItems) {
+        this.shareItems = shareItems;
+    }
+
+    public String getShareItemsError() {
+        return shareItemsError;
+    }
+
+    public void setShareItemsError(String shareItemsError) {
+        this.shareItemsError = shareItemsError;
     }
 }

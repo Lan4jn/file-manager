@@ -111,6 +111,16 @@ public class TransferSessionService {
                                    String fileName,
                                    String contentType,
                                    Long size) {
+        return issueUploadToken(ownerUsername, bucket, objectName, fileName, contentType, size, null);
+    }
+
+    public String issueUploadToken(String ownerUsername,
+                                   String bucket,
+                                   String objectName,
+                                   String fileName,
+                                   String contentType,
+                                   Long size,
+                                   String uploadTraceId) {
         String normalizedOwner = requireText(ownerUsername, "ownerUsername");
         String normalizedBucket = requireText(bucket, "bucket");
         String normalizedObjectName = requireText(objectName, "objectName");
@@ -124,6 +134,7 @@ public class TransferSessionService {
         claims.put("fileName", normalizedFileName);
         claims.put("contentType", nullableText(contentType));
         claims.put("size", size);
+        claims.put("uploadTraceId", nullableText(uploadTraceId));
         claims.put("expireAt", expireAt);
 
         return Jwts.builder()
@@ -157,12 +168,13 @@ public class TransferSessionService {
         String objectName = claims.get("objectName", String.class);
         String fileName = claims.get("fileName", String.class);
         String contentType = claims.get("contentType", String.class);
+        String uploadTraceId = claims.get("uploadTraceId", String.class);
         Long size = toLong(claims.get("size"));
         Long expireAt = toLong(claims.get("expireAt"));
         if (expireAt == null || expireAt <= System.currentTimeMillis()) {
             throw new IllegalArgumentException("上传会话不存在或已过期");
         }
-        return new UploadTicket(ownerUsername, bucket, objectName, fileName, contentType, size, expireAt);
+        return new UploadTicket(ownerUsername, bucket, objectName, fileName, contentType, size, uploadTraceId, expireAt);
     }
 
     private Claims parseClaims(String token) {
@@ -280,6 +292,7 @@ public class TransferSessionService {
         private final String fileName;
         private final String contentType;
         private final Long size;
+        private final String uploadTraceId;
         private final long expireAt;
 
         public UploadTicket(String ownerUsername,
@@ -288,6 +301,7 @@ public class TransferSessionService {
                             String fileName,
                             String contentType,
                             Long size,
+                            String uploadTraceId,
                             long expireAt) {
             this.ownerUsername = ownerUsername;
             this.bucket = bucket;
@@ -295,6 +309,7 @@ public class TransferSessionService {
             this.fileName = fileName;
             this.contentType = contentType;
             this.size = size;
+            this.uploadTraceId = uploadTraceId;
             this.expireAt = expireAt;
         }
 
@@ -320,6 +335,10 @@ public class TransferSessionService {
 
         public Long getSize() {
             return size;
+        }
+
+        public String getUploadTraceId() {
+            return uploadTraceId;
         }
 
         public long getExpireAt() {

@@ -6,6 +6,8 @@ import com.lan4jn.file.dto.FileTransferExecuteRequest;
 import com.lan4jn.file.dto.FileTransferExecuteResponse;
 import com.lan4jn.file.dto.FileTransferPreviewRequest;
 import com.lan4jn.file.dto.FileTransferPreviewResponse;
+import com.lan4jn.file.dto.FileRenameRequest;
+import com.lan4jn.file.dto.FileRenameResponse;
 import com.lan4jn.file.dto.UploadResponse;
 import com.lan4jn.file.model.BucketInfo;
 import com.lan4jn.file.model.BucketStatsRefreshStatus;
@@ -28,6 +30,7 @@ import org.springframework.http.HttpHeaders;
 import org.springframework.http.MediaType;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
+import org.springframework.security.core.Authentication;
 import org.springframework.web.bind.annotation.DeleteMapping;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PostMapping;
@@ -151,13 +154,18 @@ public class FileController {
     public Result<UploadResponse> upload(
             @RequestParam("file") MultipartFile file,
             @RequestParam(value = "folder", required = false, defaultValue = "") String folder,
-            @RequestParam(value = "bucket", required = false, defaultValue = "") String bucket) {
+            @RequestParam(value = "bucket", required = false, defaultValue = "") String bucket,
+            @RequestParam(value = "targetFileName", required = false, defaultValue = "") String targetFileName,
+            @RequestParam(value = "uploadTraceId", required = false, defaultValue = "") String uploadTraceId) {
         folder = RequestValidationUtils.optionalText(folder, "folder");
         bucket = RequestValidationUtils.optionalText(bucket, "bucket");
+        targetFileName = RequestValidationUtils.optionalText(targetFileName, "targetFileName");
+        uploadTraceId = RequestValidationUtils.optionalText(uploadTraceId, "uploadTraceId");
         permissionAssertService.assertApiPermission(PermissionCodes.API_FILE_OPERATE);
         permissionAssertService.assertBucketPermission(resolveBucket(bucket), BucketAction.UPLOAD);
-        log.info("Uploading file: {}, folder: {}, bucket: {}", file.getOriginalFilename(), folder, bucket);
-        return Result.success(fileService.uploadFile(file, folder, bucket));
+        log.info("Upload request received, traceId: {}, originalFileName: {}, targetFileName: {}, size: {}, contentType: {}, folder: {}, bucket: {}",
+                uploadTraceId, file.getOriginalFilename(), targetFileName, file.getSize(), file.getContentType(), folder, bucket);
+        return Result.success(fileService.uploadFile(file, folder, bucket, targetFileName, uploadTraceId));
     }
 
     @GetMapping("/list")
@@ -168,7 +176,8 @@ public class FileController {
             @RequestParam(value = "order", required = false, defaultValue = "asc") String order,
             @RequestParam(value = "folderFirst", required = false, defaultValue = "true") boolean folderFirst,
             @RequestParam(value = "page", required = false, defaultValue = "0") int page,
-            @RequestParam(value = "size", required = false, defaultValue = "0") int size) {
+            @RequestParam(value = "size", required = false, defaultValue = "0") int size,
+            Authentication authentication) {
         folder = RequestValidationUtils.optionalText(folder, "folder");
         bucket = RequestValidationUtils.optionalText(bucket, "bucket");
         permissionAssertService.assertApiPermission(PermissionCodes.API_FILE_BROWSE);
@@ -177,10 +186,13 @@ public class FileController {
                 folder, bucket, sortBy, order, page, size);
 
         if (page <= 0 || size <= 0) {
-            return Result.success(fileService.listFiles(folder, bucket, sortBy, order));
+            Result<?> result = Result.success(fileService.listFiles(folder, bucket, sortBy, order));
+            recordDirectoryHistory(authentication, bucket, folder);
+            return result;
         }
 
         PageResult<FileInfo> pageResult = fileService.listFiles(folder, bucket, sortBy, order, folderFirst, page, size);
+        recordDirectoryHistory(authentication, bucket, folder);
         return Result.success(pageResult);
     }
 
@@ -257,6 +269,19 @@ public class FileController {
             throw e;
         }
         return Result.success();
+    }
+
+    @PostMapping("/rename")
+    public Result<FileRenameResponse> rename(@RequestBody FileRenameRequest request) {
+        if (request == null) {
+            throw new IllegalArgumentException("请求不能为空");
+        }
+        String sourcePath = RequestValidationUtils.requireText(request.getSourcePath(), "sourcePath");
+        String targetName = RequestValidationUtils.requireText(request.getTargetName(), "targetName");
+        String bucket = RequestValidationUtils.optionalText(request.getBucket(), "bucket");
+        permissionAssertService.assertApiPermission(PermissionCodes.API_FILE_OPERATE);
+        permissionAssertService.assertBucketPermission(resolveBucket(bucket), BucketAction.BATCH);
+        return Result.success(fileService.rename(sourcePath, targetName, bucket, request.getConflictPolicy()));
     }
 
     @GetMapping("/download")
@@ -530,6 +555,21 @@ public class FileController {
             return snapshot != null ? snapshot.username() : null;
         } catch (RuntimeException ignored) {
             return null;
+        }
+    }
+
+    private void recordDirectoryHistory(Authentication authentication, String bucket, String folder) {
+        if (authentication == null || authentication.getName() == null || authentication.getName().isBlank()) {
+            return;
+        }
+        if (folder == null || folder.isBlank()) {
+            return;
+        }
+        try {
+            fileService.recordDirectoryAccess(authentication.getName(), bucket, folder);
+        } catch (RuntimeException ex) {
+            log.warn("Record directory history failed for user={}, bucket={}, folder={}, error={}",
+                    authentication.getName(), bucket, folder, ex.getMessage());
         }
     }
 }

@@ -142,7 +142,9 @@ const uploadDialogHelpers = window.UploadDialogHelpers || {
             });
         return merged;
     },
-    clearClosedUploadTasks: (tasks) => (tasks || []).filter((task) => task && task.status === 'running')
+    clearClosedUploadTasks: (tasks) => (tasks || []).filter((task) => task && task.status === 'running'),
+    applyBatchRename: (items) => items || [],
+    shouldFallbackToApplicationUpload: () => false
 };
 const fileActionVisibilityHelpers = window.FileActionVisibilityHelpers || {
     getRowActionMeta: (code) => ({ code, label: code, icon: '' }),
@@ -173,6 +175,31 @@ const fileTransferHelpers = window.FileTransferHelpers || {
         }
         return '';
     }
+};
+const workbenchHelpers = window.WorkbenchHelpers || {
+    normalizeOverview: () => ({ defaultWorkbench: false, recentDirectories: [], favoriteDirectories: [], shareReminders: [] }),
+    resolveInitialMenu: (currentMenu) => currentMenu || 'buckets',
+    hasWorkbenchContent: () => false
+};
+const shareBannerHelpers = window.ShareBannerHelpers || {
+    isShareMessage: () => false,
+    buildShareSentBanner: () => ({ title: '', content: '' }),
+    buildShareReceivedBanner: () => ({ title: '', content: '' }),
+    deriveShareRemindersFromInbox: () => []
+};
+const shareManagementHelpers = window.ShareManagementHelpers || {
+    normalizeShareContentItems: () => [],
+    buildVisibleShareContent: (items) => ({ visibleItems: items || [], hiddenCount: 0, hiddenItems: [] }),
+    formatShareTargetType: (share) => share && share.targetType === 'USER' ? '分享到用户' : '分享到链接',
+    formatShareItemsErrorMessage: (error) => '加载失败：' + (error?.response?.data?.message || error?.message || '分享内容加载失败，请稍后重试')
+};
+const sharePaginationHelpers = window.SharePaginationHelpers || {
+    buildPagedShareParams: (page, size, validOnly) => ({ page: page || 1, size: size || 25, validOnly: !!validOnly }),
+    resolvePageAfterFilterChange: () => 1
+};
+const renameHelpers = window.RenameHelpers || {
+    validateRenameTargetName: () => '',
+    buildRenamePayload: () => ({})
 };
 const urlHelpers = window.UrlHelpers || {
     buildApiUrl: (origin, basePath, params) => {
@@ -237,8 +264,10 @@ const messageCenterHelpers = window.MessageCenterHelpers || {
 };
 
 const zhCnLocale = {
+    ...window.ElementPlusLocaleZhCn,
     name: 'zh-cn',
     el: {
+        ...window.ElementPlusLocaleZhCn?.el,
         pagination: {
             goto: '前往',
             pagesize: '条/页',
@@ -261,8 +290,26 @@ const app = createApp({
         const token = ref(localStorage.getItem('token') || '');
         const userInfo = ref({});
         const currentMenu = ref('buckets');
+        const navigationOpen = ref(false);
+        const closeNavigation = () => {
+            if (!navigationOpen.value) return;
+            navigationOpen.value = false;
+            nextTick(() => document.querySelector('.workspace-nav-toggle')?.focus());
+        };
+        const handleNavigationResize = () => {
+            if (window.matchMedia('(min-width: 701px)').matches) navigationOpen.value = false;
+        };
+        watch(isLoggedIn, value => { if (!value) navigationOpen.value = false; });
+        const toggleNavigation = () => {
+            if (navigationOpen.value) return closeNavigation();
+            navigationOpen.value = true;
+            nextTick(() => document.querySelector('.workspace-nav-close')?.focus());
+        };
         const loginForm = ref({ username: '', password: '' });
         const loginLoading = ref(false);
+        const workbenchOverview = ref(workbenchHelpers.normalizeOverview());
+        const workbenchLoading = ref(false);
+        const workbenchPreferenceSaving = ref(false);
 
         // Bucket management
         const bucketList = ref([]);
@@ -306,6 +353,12 @@ const filePageSize = ref(25);
         const uploadDialogDropActive = ref(false);
         const uploadTasks = ref([]);
         const pendingUploadFiles = ref([]);
+        const uploadBatchRenameRule = ref({
+            prefix: '',
+            suffix: '',
+            findText: '',
+            replaceText: ''
+        });
         const syncingFileKeys = ref(new Set());
         const syncingFileMeta = ref({});
         const uploadCancelRequested = ref(false);
@@ -317,15 +370,28 @@ const filePageSize = ref(25);
         const uploadRef = ref(null);
         const uploading = ref(false);
         const showFolderDialog = ref(false);
+        const showRenameDialog = ref(false);
         const showShareDialog = ref(false);
         const showBatchShareDialog = ref(false);
         const showUserDialog = ref(false);
         const showProfileDialog = ref(false);
+        const showCertDialog = ref(false);
+        const userCertificates = ref([]);
+        const loadUserCertificates = async () => {
+            try {
+                const res = await certHelpers.getCertificates();
+                userCertificates.value = res.data || [];
+            } catch (e) {
+                ElementPlus.ElMessage.error('加载证书列表失败');
+            }
+        };
         const showRoleDialog = ref(false);
         const showMinioKeyDialog = ref(false);
         const showHelpDialog = ref(false);
         const showVersionDialog = ref(false);
+        const showDiagnosticsDialog = ref(false);
         const showPreviewDialog = ref(false);
+        const clientDiagnosticsLogs = ref([]);
         const downloadTasks = ref([]);
         const downloadCenterVisible = ref(false);
         const downloadCenterMinimized = ref(false);
@@ -440,8 +506,22 @@ const filePageSize = ref(25);
 
         // Lists
         const shareList = ref([]);
+        const sharePage = ref(1);
+        const sharePageSize = ref(25);
+        const shareTotal = ref(0);
+        const shareValidOnly = ref(false);
+        const renameState = ref({
+            sourcePath: '',
+            targetName: '',
+            isFolder: false,
+            conflictPolicy: 'OVERWRITE'
+        });
         const shareTab = ref('my-shares');
         const inboxList = ref([]);
+        const inboxPage = ref(1);
+        const inboxPageSize = ref(25);
+        const inboxTotal = ref(0);
+        const inboxValidOnly = ref(false);
         const inboxLoading = ref(false);
         const recipientList = ref([]);
         const recipientLoading = ref(false);
@@ -506,7 +586,7 @@ const filePageSize = ref(25);
                 ...extra
             };
         };
-        const fileRowActionOptions = ['DOWNLOAD', 'SHARE', 'PREVIEW', 'DELETE', 'MOVE', 'COPY']
+        const fileRowActionOptions = ['DOWNLOAD', 'SHARE', 'PREVIEW', 'RENAME', 'DELETE', 'MOVE', 'COPY']
             .map(code => buildRowActionDefinition(code, { value: code }));
         const showTransferDialog = ref(false);
         const transferState = ref({
@@ -547,6 +627,49 @@ const filePageSize = ref(25);
             baseURL: contextPathHelpers.joinContextPath(appContextPath, '/api'),
             timeout: 30000
         });
+        const certHelpers = createClientCertificateHelpers(api);
+
+        const stringifyDiagnosticDetail = (detail) => {
+            if (detail === null || detail === undefined) {
+                return '';
+            }
+            if (typeof detail === 'string') {
+                return detail;
+            }
+            try {
+                return JSON.stringify(detail, null, 2);
+            } catch (error) {
+                return String(detail);
+            }
+        };
+
+        const recordClientDiagnostic = (level, event, detail) => {
+            const entry = {
+                id: 'diag-' + Date.now().toString(36) + '-' + Math.random().toString(36).slice(2, 8),
+                time: new Date().toLocaleString(),
+                level: level || 'info',
+                event: event || 'event',
+                detail: stringifyDiagnosticDetail(detail)
+            };
+            clientDiagnosticsLogs.value = [entry, ...clientDiagnosticsLogs.value].slice(0, 100);
+            return entry;
+        };
+
+        const clearClientDiagnostics = () => {
+            clientDiagnosticsLogs.value = [];
+        };
+
+        const copyClientDiagnostics = async () => {
+            const payload = clientDiagnosticsLogs.value
+                .map(item => '[' + item.time + '] ' + item.level + ' ' + item.event + '\n' + (item.detail || ''))
+                .join('\n\n');
+            try {
+                await navigator.clipboard.writeText(payload || '暂无诊断日志');
+                ElementPlus.ElMessage.success('诊断日志已复制');
+            } catch (error) {
+                ElementPlus.ElMessage.error('复制失败，请在面板中手动选择复制');
+            }
+        };
 
         api.interceptors.request.use(config => {
             if (token.value) {
@@ -568,6 +691,13 @@ const filePageSize = ref(25);
                 return response.data;
             },
             error => {
+                recordClientDiagnostic('error', 'http-error', {
+                    url: error.config && error.config.url,
+                    method: error.config && error.config.method,
+                    status: error.response && error.response.status,
+                    message: error.response && error.response.data ? error.response.data.message : error.message,
+                    data: error.response && error.response.data
+                });
                 if (error.response && error.response.status === 401) {
                     logout();
                 }
@@ -617,10 +747,12 @@ const filePageSize = ref(25);
         const shouldShowRoleBucketPermissionEditor = computed(() => {
             return permissionUiHelpers.shouldShowRoleBucketPermissions(roleForm.value.apiPermissions || []);
         });
+        const canOpenDiagnostics = computed(() => hasApiPermission('SYSTEM_CONFIG_ACCESS'));
 
         const currentViewTitle = computed(() => {
             const titles = {
                 buckets: '存储空间',
+                workbench: '工作台',
                 files: '我的文件',
                 shares: '共享中心',
                 'audit-logs': '审计日志',
@@ -635,6 +767,7 @@ const filePageSize = ref(25);
         const currentViewDescription = computed(() => {
             const descriptions = {
                 buckets: '统一管理对象存储桶与容量分布。',
+                workbench: '继续最近的目录操作，集中查看常用目录入口。',
                 files: '按目录组织文件，上传、分享、下载一体化处理。',
                 shares: '集中查看我的分享、站内收件箱与提取码信息。',
                 'audit-logs': '审计文件操作、分享行为与关键系统动作。',
@@ -697,6 +830,14 @@ const filePageSize = ref(25);
                 return currentBucket.value + ' / 根目录';
             }
             return currentBucket.value + ' / ' + currentFolder.value;
+        });
+        const isCurrentDirectoryFavorite = computed(() => {
+            if (!currentBucket.value || !currentFolder.value) {
+                return false;
+            }
+            return (workbenchOverview.value.favoriteDirectories || []).some(item => item
+                && item.bucketName === currentBucket.value
+                && item.directoryPath === currentFolder.value);
         });
 
         const copyText = async (text) => {
@@ -1041,25 +1182,70 @@ const filePageSize = ref(25);
             }
         };
 
-        const uploadFileRequest = async ({ file, onProgress, onXhr }) => {
-            const sessionRes = await api.post(transferUiHelpers.resolveUploadSessionUrl(), {
-                fileName: file.name,
+        const createUploadTraceId = () => {
+            const randomPart = Math.random().toString(36).slice(2, 10);
+            return 'up-' + Date.now().toString(36) + '-' + randomPart;
+        };
+
+        const logUploadTrace = (traceId, stage, detail = {}) => {
+            if (!window.console || typeof window.console.info !== 'function') {
+                return;
+            }
+            window.console.info('[upload-trace]', Object.assign({
+                traceId,
+                stage,
+                time: new Date().toISOString()
+            }, detail));
+        };
+
+        const uploadFileRequest = async ({ file, onProgress, onXhr, targetFileName }) => {
+            const uploadTraceId = createUploadTraceId();
+            const resolvedTargetFileName = targetFileName || file.name;
+            logUploadTrace(uploadTraceId, 'session:start', {
+                originalFileName: file.name,
+                targetFileName: resolvedTargetFileName,
                 size: file.size,
                 contentType: file.type || 'application/octet-stream',
                 folder: currentFolder.value,
                 bucket: currentBucket.value
             });
+            const sessionRes = await api.post(transferUiHelpers.resolveUploadSessionUrl(), {
+                fileName: resolvedTargetFileName,
+                originalFileName: file.name,
+                targetFileName: resolvedTargetFileName,
+                size: file.size,
+                contentType: file.type || 'application/octet-stream',
+                folder: currentFolder.value,
+                bucket: currentBucket.value,
+                uploadTraceId
+            });
             const session = sessionRes.data || sessionRes || {};
+            logUploadTrace(uploadTraceId, 'session:created', {
+                mode: session.mode,
+                bucket: session.bucket,
+                objectName: session.objectName,
+                fileName: session.fileName,
+                hasUploadUrl: !!session.uploadUrl,
+                hasUploadToken: !!session.uploadToken
+            });
             const retryCompleteUpload = async (uploadToken, maxAttempts = 3) => {
                 let lastError = null;
                 for (let attempt = 1; attempt <= maxAttempts; attempt++) {
                     try {
+                        logUploadTrace(uploadTraceId, 'complete:start', { attempt, maxAttempts });
                         const completeRes = await api.post(transferUiHelpers.resolveUploadCompleteUrl(), {
-                            uploadToken
+                            uploadToken,
+                            uploadTraceId
                         });
+                        logUploadTrace(uploadTraceId, 'complete:success', { attempt });
                         return completeRes;
                     } catch (error) {
                         lastError = error;
+                        logUploadTrace(uploadTraceId, 'complete:error', {
+                            attempt,
+                            maxAttempts,
+                            message: extractUploadErrorMessage(error, error.message || '上传确认失败')
+                        });
                         if (attempt < maxAttempts) {
                             await new Promise((resolve) => setTimeout(resolve, attempt * 500));
                         }
@@ -1070,6 +1256,11 @@ const filePageSize = ref(25);
 
             const uploadThroughApplication = () => new Promise((resolve, reject) => {
                 const xhr = new XMLHttpRequest();
+                logUploadTrace(uploadTraceId, 'application:start', {
+                    originalFileName: file.name,
+                    targetFileName: resolvedTargetFileName,
+                    size: file.size
+                });
                 xhr.open('POST', uploadUrl.value, true);
                 if (typeof onXhr === 'function') {
                     onXhr(xhr);
@@ -1088,37 +1279,61 @@ const filePageSize = ref(25);
                     });
                 };
                 xhr.onload = () => {
+                    logUploadTrace(uploadTraceId, 'application:response', { status: xhr.status });
                     if (xhr.status >= 200 && xhr.status < 300) {
                         try {
                             const response = JSON.parse(xhr.responseText);
                             if (response.code === 200) {
+                                logUploadTrace(uploadTraceId, 'application:success', {
+                                    objectName: response.data && response.data.objectName,
+                                    fileName: response.data && response.data.fileName,
+                                    size: response.data && response.data.size
+                                });
                                 resolve({ xhr, response, mode: 'APPLICATION' });
                                 return;
                             }
+                            logUploadTrace(uploadTraceId, 'application:error', { message: response.message || '上传失败' });
                             reject(new Error(response.message || '上传失败'));
                         } catch (error) {
+                            logUploadTrace(uploadTraceId, 'application:error', { message: error.message || '响应解析失败' });
                             reject(error);
                         }
                         return;
                     }
                     try {
                         const response = JSON.parse(xhr.responseText);
+                        logUploadTrace(uploadTraceId, 'application:error', { status: xhr.status, message: response.message || '' });
                         reject(new Error(response.message || ('上传失败: HTTP ' + xhr.status)));
                     } catch (error) {
+                        logUploadTrace(uploadTraceId, 'application:error', { status: xhr.status, message: 'HTTP ' + xhr.status });
                         reject(new Error('上传失败: HTTP ' + xhr.status));
                     }
                 };
-                xhr.onerror = () => reject(new Error('网络错误'));
-                xhr.onabort = () => reject(new Error('上传已取消'));
+                xhr.onerror = () => {
+                    logUploadTrace(uploadTraceId, 'application:error', { message: '网络错误' });
+                    reject(new Error('网络错误'));
+                };
+                xhr.onabort = () => {
+                    logUploadTrace(uploadTraceId, 'application:abort');
+                    reject(new Error('上传已取消'));
+                };
                 const formData = new FormData();
                 formData.append('file', file);
                 Object.entries(uploadData.value || {}).forEach(([key, value]) => {
                     formData.append(key, value);
                 });
+                formData.append('targetFileName', resolvedTargetFileName);
+                formData.append('uploadTraceId', uploadTraceId);
                 xhr.send(formData);
             });
 
             const uploadDirectly = async () => {
+                logUploadTrace(uploadTraceId, 'direct:start', {
+                    bucket: session.bucket,
+                    objectName: session.objectName,
+                    fileName: session.fileName,
+                    size: file.size
+                });
                 await transferUiHelpers.uploadWithXhr({
                     url: session.uploadUrl,
                     method: 'PUT',
@@ -1127,7 +1342,16 @@ const filePageSize = ref(25);
                     onProgress,
                     onXhr
                 });
+                logUploadTrace(uploadTraceId, 'direct:put-success', {
+                    bucket: session.bucket,
+                    objectName: session.objectName
+                });
                 const completeRes = await retryCompleteUpload(session.uploadToken);
+                logUploadTrace(uploadTraceId, 'direct:success', {
+                    objectName: completeRes.data && completeRes.data.objectName,
+                    fileName: completeRes.data && completeRes.data.fileName,
+                    size: completeRes.data && completeRes.data.size
+                });
                 return {
                     response: { code: 200, data: completeRes.data || completeRes },
                     mode: 'DIRECT'
@@ -1140,6 +1364,12 @@ const filePageSize = ref(25);
                 } catch (error) {
                     if (error.message === '上传已取消') {
                         throw error;
+                    }
+                    if (uploadDialogHelpers.shouldFallbackToApplicationUpload(error)) {
+                        logUploadTrace(uploadTraceId, 'direct:fallback-application', {
+                            message: extractUploadErrorMessage(error, error.message || '上传确认失败')
+                        });
+                        return uploadThroughApplication();
                     }
                     if (session.uploadToken) {
                         throw new Error('文件已上传到对象存储，但上传确认失败: ' + extractUploadErrorMessage(error, '请稍后重试'));
@@ -1202,8 +1432,22 @@ const filePageSize = ref(25);
         };
 
         const runUploadBatch = async (files, options = {}) => {
-            const rawFiles = (files || []).filter(Boolean);
-            if (!rawFiles.length) {
+            const uploadItems = (files || []).map((item) => {
+                if (!item) {
+                    return null;
+                }
+                if (item.raw) {
+                    return {
+                        raw: item.raw,
+                        targetName: String(item.targetName || item.name || item.raw.name || '').trim() || item.raw.name
+                    };
+                }
+                return {
+                    raw: item,
+                    targetName: item.name
+                };
+            }).filter(Boolean);
+            if (!uploadItems.length) {
                 ElementPlus.ElMessage.warning('请先选择要上传的文件');
                 return;
             }
@@ -1217,16 +1461,19 @@ const filePageSize = ref(25);
             const uploadedItems = [];
             const uploadBucket = currentBucket.value;
             try {
-                for (const file of rawFiles) {
+                for (const uploadItem of uploadItems) {
+                    const file = uploadItem.raw;
                     if (uploadCancelRequested.value) {
                         break;
                     }
                     const task = createUploadTask(file);
+                    task.name = uploadItem.targetName || task.name;
                     uploadTasks.value = [task, ...uploadTasks.value];
                     updateUploadTask(task.id, { step: '正在上传', progress: 0 });
                     try {
                         const result = await uploadFileRequest({
                             file,
+                            targetFileName: uploadItem.targetName,
                             onXhr: (xhr) => {
                                 updateUploadTask(task.id, { xhr });
                             },
@@ -1296,7 +1543,7 @@ const filePageSize = ref(25);
             );
         };
 
-        const runChunkedFileDownload = async (file, session, taskId) => {
+        const runChunkedFileDownload = async (file, session, taskId, fileHandle) => {
             const currentTaskId = taskId || addDownloadTask(createDownloadTask({
                 type: 'single-file',
                 name: file.fileName,
@@ -1316,6 +1563,7 @@ const filePageSize = ref(25);
                 abortController: null
             });
             const directUrl = session?.downloadUrl;
+            const fallbackUrl = session?.fallbackUrl;
             const nativeUrl = session?.fallbackUrl || session?.downloadUrl;
             const progressHandler = (progress) => {
                 updateDownloadTask(currentTaskId, {
@@ -1326,28 +1574,41 @@ const filePageSize = ref(25);
                     speedBytesPerSecond: progress.speedBytesPerSecond
                 });
             };
+            const fallbackChunkedDownloadToNative = (error) => {
+                if (!fallbackUrl || fallbackUrl === directUrl || !canUseNativeDownload(fallbackUrl)) {
+                    return false;
+                }
+                recordClientDiagnostic('warn', 'download-fallback', {
+                    fileName: file.fileName,
+                    directUrl,
+                    fallbackUrl,
+                    reason: error && error.message ? error.message : String(error || '')
+                });
+                updateDownloadTask(currentTaskId, {
+                    step: '直连失败，已切换浏览器下载',
+                    progress: 100,
+                    downloadedBytes: file.size || 0,
+                    totalBytes: file.size || 0,
+                    speedBytesPerSecond: 0,
+                    error: ''
+                });
+                openNativeDownload(fallbackUrl);
+                markDelegatedDownloadTask(currentTaskId, {
+                    step: '浏览器下载中',
+                    downloadedBytes: file.size || 0
+                });
+                if (window.console && typeof window.console.warn === 'function') {
+                    window.console.warn('[download-fallback]', error && error.message ? error.message : error);
+                }
+                ElementPlus.ElMessage.success('直连失败，已切换浏览器下载');
+                return true;
+            };
             updateDownloadTask(currentTaskId, {
                 controller: null,
                 retryHandler: () => runChunkedFileDownload(file, session, currentTaskId)
             });
             try {
-                if (downloadHelpers.supportsStreamToDisk && downloadHelpers.supportsStreamToDisk()) {
-                    await downloadHelpers.streamDownloadToDisk({
-                        url: directUrl,
-                        fileName: file.fileName,
-                        totalSize: file.size || 0,
-                        headers: buildDownloadHeadersForUrl(directUrl),
-                        onProgress: progressHandler
-                    });
-                    completeDownloadTask(currentTaskId, {
-                        step: '保存完成',
-                        downloadedBytes: file.size || 0
-                    });
-                    ElementPlus.ElMessage.success('下载完成');
-                    return;
-                }
-
-                if (canUseNativeDownload(nativeUrl)) {
+                if (!fileHandle && !downloadHelpers.supportsStreamToDisk?.() && canUseNativeDownload(nativeUrl)) {
                     updateDownloadTask(currentTaskId, {
                         step: '已交给浏览器下载',
                         progress: 100,
@@ -1365,6 +1626,7 @@ const filePageSize = ref(25);
                 }
 
                 const controller = downloadHelpers.createChunkedDownloader({
+                    fileHandle,
                     url: directUrl,
                     fileName: file.fileName,
                     totalSize: file.size || 0,
@@ -1392,6 +1654,10 @@ const filePageSize = ref(25);
                 });
                 ElementPlus.ElMessage.success('下载完成');
             } catch (error) {
+                if (error?.name === 'AbortError') { markCancelledDownloadTask(currentTaskId); return; }
+                if (fallbackChunkedDownloadToNative(error)) {
+                    return;
+                }
                 failDownloadTask(currentTaskId, error.message || '下载失败');
                 ElementPlus.ElMessage.error('下载失败: ' + (error.message || ''));
             }
@@ -1488,7 +1754,7 @@ const filePageSize = ref(25);
                         });
                     },
                     wait: createAbortablePollWait(abortController),
-                    openDownload: (url) => openNativeDownload(url)
+                    openDownload: (url) => transferUiHelpers.runArchiveDownload(url, fileName, openNativeDownload)
                 });
                 completeDownloadTask(currentTaskId, {
                     step: '保存完成',
@@ -1554,7 +1820,7 @@ const filePageSize = ref(25);
                         });
                     },
                     wait: createAbortablePollWait(abortController),
-                    openDownload: (url) => openNativeDownload(url)
+                    openDownload: (url) => transferUiHelpers.runArchiveDownload(url, archiveName, openNativeDownload)
                 });
                 completeDownloadTask(currentTaskId, {
                     step: '保存完成',
@@ -1691,7 +1957,7 @@ const filePageSize = ref(25);
         };
 
         const syncCurrentMenu = () => {
-            const menuOrder = ['buckets', 'files', 'shares', 'audit-logs', 'users', 'roles', 'minio-keys', 'config'];
+            const menuOrder = ['workbench', 'buckets', 'files', 'shares', 'audit-logs', 'users', 'roles', 'minio-keys', 'config'];
             if (canAccessMenu(currentMenu.value)) {
                 return;
             }
@@ -1905,6 +2171,23 @@ const filePageSize = ref(25);
         };
 
         // Methods
+        const finishLogin = async (data) => {
+            token.value = data.token;
+            localStorage.setItem('token', token.value);
+            userInfo.value = data;
+            isLoggedIn.value = true;
+            await loadCurrentPermissions();
+            await loadPermissions();
+            await loadInbox();
+            await loadWorkbenchOverview();
+            connectMessageSocket();
+            currentMenu.value = workbenchHelpers.resolveInitialMenu(currentMenu.value, workbenchOverview.value, canAccessMenu);
+            if (workbenchHelpers.shouldPreloadBucketsAfterLogin(currentMenu.value, Array.from(apiPermissionSet.value), isSuperAdmin.value)) {
+                await loadBuckets();
+            }
+            handleMenuSelect(currentMenu.value);
+        };
+
         const handleLogin = async () => {
             console.log('[Login] Starting login attempt');
             if (!loginForm.value.username || !loginForm.value.password) {
@@ -1925,23 +2208,31 @@ const filePageSize = ref(25);
                     challengeId: challengeData.challengeId,
                     passwordProof: passwordProof
                 });
-                console.log('[Login] Response received:', res);
                 if (res.code === 200) {
-                    token.value = res.data.token;
-                    localStorage.setItem('token', token.value);
-                    userInfo.value = res.data;
-                    isLoggedIn.value = true;
-                    await loadCurrentPermissions();
-                    await loadPermissions();
-                    await loadInbox();
-                    connectMessageSocket();
-                    handleMenuSelect(currentMenu.value);
+                    await finishLogin(res.data);
                 } else {
                     ElementPlus.ElMessage.error(res.message || '登录失败');
                 }
             } catch (error) {
                 console.error('[Login] Error:', error);
                 ElementPlus.ElMessage.error(loginErrorHelpers.extractLoginErrorMessage(error));
+            } finally {
+                loginLoading.value = false;
+            }
+        };
+
+        const handleCertLogin = async () => {
+            loginLoading.value = true;
+            try {
+                const res = await certHelpers.login();
+                if (res.code === 200) {
+                    await finishLogin(res.data);
+                } else {
+                    ElementPlus.ElMessage.error(res.message || '证书登录失败');
+                }
+            } catch (error) {
+                console.error('[CertLogin] Error:', error);
+                ElementPlus.ElMessage.error('证书登录异常');
             } finally {
                 loginLoading.value = false;
             }
@@ -1972,6 +2263,7 @@ const filePageSize = ref(25);
             feedbackForm.value = { category: 'GENERAL', title: '', body: '' };
             isLoggedIn.value = false;
             currentMenu.value = 'buckets';
+            workbenchOverview.value = workbenchHelpers.normalizeOverview();
             shareTab.value = 'my-shares';
             loginForm.value = { username: '', password: '' };
         };
@@ -1979,6 +2271,9 @@ const filePageSize = ref(25);
         const handleCommand = (command) => {
             if (command === 'logout') {
                 logout();
+            } else if (command === 'cert-mgmt') {
+                showCertDialog.value = true;
+                loadUserCertificates();
             } else if (command === 'profile') {
                 profileForm.value = {
                     nickname: userInfo.value.nickname || '',
@@ -1992,8 +2287,33 @@ const filePageSize = ref(25);
             }
         };
 
-        const openLiteMode = () => {
-            window.location.href = contextPathHelpers.joinContextPath(appContextPath, '/lite');
+        const bindPassword = ref('');
+        const handleBindCert = async () => {
+            if (!bindPassword.value) {
+                ElementPlus.ElMessage.warning('请输入密码');
+                return;
+            }
+            try {
+                const password = bindPassword.value;
+                bindPassword.value = '';
+                await certHelpers.bindCertificate(password);
+                ElementPlus.ElMessage.success('证书绑定成功');
+                bindPassword.value = '';
+                loadUserCertificates();
+            } catch (e) {
+                ElementPlus.ElMessage.error(e.response?.data?.message || '绑定失败');
+            }
+        };
+
+        const handleRevokeCert = async (id) => {
+            try {
+                await ElementPlus.ElMessageBox.confirm('撤销后，该设备不能再凭这张证书登录。是否继续？', '撤销客户端证书', { type: 'warning' });
+                await certHelpers.revokeCertificate(id);
+                ElementPlus.ElMessage.success('证书已撤销');
+                loadUserCertificates();
+            } catch (e) {
+                if (e !== 'cancel' && e !== 'close') ElementPlus.ElMessage.error('撤销失败');
+            }
         };
 
         const saveProfile = async () => {
@@ -2036,6 +2356,200 @@ const filePageSize = ref(25);
             }
         };
 
+        const loadWorkbenchOverview = async () => {
+            workbenchLoading.value = true;
+            try {
+                const res = await api.get('/workbench/overview');
+                workbenchOverview.value = workbenchHelpers.normalizeOverview(res.data || res);
+                syncWorkbenchShareReminders();
+            } catch (error) {
+                workbenchOverview.value = workbenchHelpers.normalizeOverview();
+                ElementPlus.ElMessage.error('加载工作台失败: ' + (error.response?.data?.message || error.message || '未知错误'));
+            } finally {
+                workbenchLoading.value = false;
+            }
+        };
+
+        const updateWorkbenchPreference = async (value) => {
+            const nextValue = !!value;
+            const previousValue = !!workbenchOverview.value.defaultWorkbench;
+            workbenchOverview.value = {
+                ...workbenchOverview.value,
+                defaultWorkbench: nextValue
+            };
+            workbenchPreferenceSaving.value = true;
+            try {
+                await api.put('/workbench/preference', { defaultWorkbench: nextValue });
+                ElementPlus.ElMessage.success('工作台偏好已保存');
+            } catch (error) {
+                workbenchOverview.value = {
+                    ...workbenchOverview.value,
+                    defaultWorkbench: previousValue
+                };
+                ElementPlus.ElMessage.error('保存失败: ' + (error.response?.data?.message || error.message || '未知错误'));
+            } finally {
+                workbenchPreferenceSaving.value = false;
+            }
+        };
+
+        const syncWorkbenchShareReminders = () => {
+            workbenchOverview.value = {
+                ...workbenchOverview.value,
+                shareReminders: shareBannerHelpers.deriveShareRemindersFromInbox(inboxList.value, 5)
+            };
+        };
+
+        const showShareBanner = (banner, type = 'info') => {
+            if (!banner || (!banner.title && !banner.content)) {
+                return;
+            }
+            ElementPlus.ElNotification({
+                title: banner.title || '分享提醒',
+                message: banner.content || '',
+                type,
+                duration: 5000,
+                position: 'top-right'
+            });
+        };
+
+        const openWorkbenchDirectory = async (item) => {
+            if (!item || !item.bucketName) {
+                return;
+            }
+            currentBucket.value = item.bucketName;
+            lastCompatibleBucket.value = item.bucketName;
+            currentFolder.value = item.directoryPath || '';
+            currentMenu.value = 'files';
+            folderHistory.value = [];
+            historyIndex.value = -1;
+            updateBreadcrumb();
+            await loadFiles();
+        };
+
+        const openWorkbenchShareReminder = async (item) => {
+            const action = workbenchHelpers.resolveShareReminderAction(item);
+            if (action.type === 'share') {
+                window.open(buildShareUrl({ shareCode: action.shareCode }, false), '_blank');
+                return;
+            }
+            if (action.type === 'message') {
+                const message = inboxList.value.find(entry => entry && entry.id === action.messageId);
+                await openInboxShare(message || { id: action.messageId });
+                return;
+            }
+            messageCenterTab.value = 'messages';
+            messageCenterVisible.value = true;
+        };
+
+        const openRenameDialog = (file) => {
+            if (!guardFileOperation(file, '重命名')) {
+                return;
+            }
+            renameState.value = {
+                sourcePath: file.objectName,
+                targetName: file.fileName || '',
+                isFolder: !!file.isFolder,
+                conflictPolicy: 'OVERWRITE'
+            };
+            showRenameDialog.value = true;
+        };
+
+        const submitRename = async () => {
+            const validationMessage = renameHelpers.validateRenameTargetName(renameState.value.targetName);
+            if (validationMessage) {
+                ElementPlus.ElMessage.warning(validationMessage);
+                return;
+            }
+            try {
+                let conflictPolicy = 'OVERWRITE';
+                try {
+                    await api.post('/file/rename', renameHelpers.buildRenamePayload({
+                        ...renameState.value,
+                        conflictPolicy: 'ASK'
+                    }, currentBucket.value));
+                    conflictPolicy = '';
+                } catch (error) {
+                    const message = error.response?.data?.message || error.message || '';
+                    if (String(message).includes('已存在')) {
+                        const action = await ElementPlus.ElMessageBox.confirm(
+                            '同目录下已存在同名项目。选择“确定”为覆盖，选择“取消”为自动重命名。',
+                            '检测到同名冲突',
+                            { confirmButtonText: '覆盖', cancelButtonText: '自动重命名', distinguishCancelAndClose: true, type: 'warning' }
+                        ).then(() => 'overwrite').catch((action) => action === 'cancel' ? 'rename' : 'close');
+                        if (action === 'close') {
+                            return;
+                        }
+                        conflictPolicy = action === 'rename' ? 'RENAME' : 'OVERWRITE';
+                    } else {
+                        throw error;
+                    }
+                }
+                if (conflictPolicy) {
+                    await api.post('/file/rename', renameHelpers.buildRenamePayload({
+                        ...renameState.value,
+                        conflictPolicy
+                    }, currentBucket.value));
+                }
+                ElementPlus.ElMessage.success('重命名成功');
+                showRenameDialog.value = false;
+                await loadFiles();
+            } catch (error) {
+                ElementPlus.ElMessage.error('重命名失败: ' + (error.response?.data?.message || error.message || '未知错误'));
+            }
+        };
+
+        const toggleCurrentDirectoryFavorite = async () => {
+            if (!currentBucket.value || !currentFolder.value) {
+                ElementPlus.ElMessage.warning('根目录暂不支持收藏，请先进入具体目录');
+                return;
+            }
+            try {
+                if (isCurrentDirectoryFavorite.value) {
+                    await api.delete('/workbench/favorites', {
+                        params: {
+                            bucketName: currentBucket.value,
+                            directoryPath: currentFolder.value
+                        }
+                    });
+                    ElementPlus.ElMessage.success('已取消收藏目录');
+                } else {
+                    const normalizedFolder = String(currentFolder.value || '').replace(/\/$/, '');
+                    const lastSlashIndex = normalizedFolder.lastIndexOf('/');
+                    const directoryName = lastSlashIndex >= 0
+                        ? normalizedFolder.slice(lastSlashIndex + 1)
+                        : normalizedFolder;
+                    await api.post('/workbench/favorites', {
+                        bucketName: currentBucket.value,
+                        directoryPath: currentFolder.value,
+                        directoryName: directoryName || currentFolder.value
+                    });
+                    ElementPlus.ElMessage.success('已收藏当前目录');
+                }
+                await loadWorkbenchOverview();
+            } catch (error) {
+                ElementPlus.ElMessage.error((isCurrentDirectoryFavorite.value ? '取消收藏失败: ' : '收藏目录失败: ')
+                    + (error.response?.data?.message || error.message || '未知错误'));
+            }
+        };
+
+        const removeFavoriteDirectory = async (item) => {
+            if (!item || !item.bucketName || !item.directoryPath) {
+                return;
+            }
+            try {
+                await api.delete('/workbench/favorites', {
+                    params: {
+                        bucketName: item.bucketName,
+                        directoryPath: item.directoryPath
+                    }
+                });
+                ElementPlus.ElMessage.success('已取消收藏目录');
+                await loadWorkbenchOverview();
+            } catch (error) {
+                ElementPlus.ElMessage.error('取消收藏失败: ' + (error.response?.data?.message || error.message || '未知错误'));
+            }
+        };
+
         const checkAuth = async () => {
             if (!token.value) return;
             try {
@@ -2046,7 +2560,12 @@ const filePageSize = ref(25);
                     await loadCurrentPermissions();
                     await loadPermissions();
                     await loadInbox();
+                    await loadWorkbenchOverview();
                     connectMessageSocket();
+                    currentMenu.value = workbenchHelpers.resolveInitialMenu(currentMenu.value, workbenchOverview.value, canAccessMenu);
+                    if (workbenchHelpers.shouldPreloadBucketsAfterLogin(currentMenu.value, Array.from(apiPermissionSet.value), isSuperAdmin.value)) {
+                        await loadBuckets();
+                    }
                     handleMenuSelect(currentMenu.value);
                 } else {
                     logout();
@@ -2147,8 +2666,11 @@ const filePageSize = ref(25);
             if (!ensureMenuAccess(index)) {
                 return;
             }
+            closeNavigation();
             currentMenu.value = index;
-            if (index === 'buckets') {
+            if (index === 'workbench') {
+                loadWorkbenchOverview();
+            } else if (index === 'buckets') {
                 loadBuckets();
             } else if (index === 'files') {
                 if (!currentBucket.value && bucketList.value.length > 0) {
@@ -2746,6 +3268,13 @@ const filePageSize = ref(25);
 
         const normalizePendingUploadFiles = (files) => uploadDialogHelpers.normalizePendingUploadFiles(files);
 
+        const applyUploadBatchRenameRule = () => {
+            pendingUploadFiles.value = uploadDialogHelpers.applyBatchRename(
+                pendingUploadFiles.value,
+                uploadBatchRenameRule.value
+            );
+        };
+
         const syncPendingUploadFilesFromUploadRef = () => {
             pendingUploadFiles.value = normalizePendingUploadFiles(uploadRef.value?.uploadFiles || []);
         };
@@ -2779,7 +3308,10 @@ const filePageSize = ref(25);
 
             // 文件下载
               try {
-                  const sessionRes = await api.post(transferUiHelpers.resolveDownloadSessionUrl({
+                  const useTaskCenter = shouldUseTaskCenterForFile(file);
+                   const fileHandle = useTaskCenter && downloadHelpers.supportsStreamToDisk?.()
+                       ? await window.showSaveFilePicker({suggestedName: file.fileName || 'download.bin'}) : null;
+                   const sessionRes = await api.post(transferUiHelpers.resolveDownloadSessionUrl({
                       scene: 'FILE',
                       bucket: currentBucket.value,
                       objectName: file.objectName
@@ -2789,12 +3321,21 @@ const filePageSize = ref(25);
                       objectName: file.objectName
                   });
                   const session = sessionRes.data || sessionRes;
-                  if (shouldUseTaskCenterForFile(file)) {
-                      await runChunkedFileDownload(file, session);
+                  recordClientDiagnostic('info', 'download-session', {
+                      fileName: file.fileName,
+                      bucket: currentBucket.value,
+                      objectName: file.objectName,
+                      mode: session.mode,
+                      downloadUrl: session.downloadUrl,
+                      fallbackUrl: session.fallbackUrl
+                  });
+                  if (useTaskCenter) {
+                      await runChunkedFileDownload(file, session, null, fileHandle);
                       return;
                   }
                   await transferUiHelpers.runSingleFileDownload(session, (url) => openNativeDownload(url));
               } catch (error) {
+                  if (error?.name === 'AbortError') return;
                   ElementPlus.ElMessage.error('下载失败: ' + (error.response?.data?.message || error.message || '未知错误'));
               }
           };
@@ -2925,9 +3466,7 @@ const filePageSize = ref(25);
             return baseUrl + ' （分享已加密，提取码：' + share.password + '）';
         };
 
-        const formatShareTargetType = (share) => {
-            return share.targetType === 'USER' ? '分享到用户' : '分享到链接';
-        };
+        const formatShareTargetType = (share) => shareManagementHelpers.formatShareTargetType(share);
 
         const deleteFile = async (file) => {
             if (!guardFileOperation(file, '删除文件')) {
@@ -2969,6 +3508,11 @@ const filePageSize = ref(25);
                     visible: !file.isFolder && hasApiPermission('API_FILE_OPERATE') && hasBucketPermission(currentBucket.value, 'DOWNLOAD'),
                     disabled: !!file.syncing,
                     onClick: () => previewFile(file)
+                }),
+                buildRowActionDefinition('RENAME', {
+                    visible: hasApiPermission('API_FILE_OPERATE') && hasBucketPermission(currentBucket.value, 'BATCH'),
+                    disabled: !!file.syncing,
+                    onClick: () => openRenameDialog(file)
                 }),
                 buildRowActionDefinition('DELETE', {
                     type: 'danger',
@@ -3277,6 +3821,17 @@ const filePageSize = ref(25);
                     recipientUserIds: shareForm.value.targetType === 'USER' ? shareForm.value.recipientUserIds : []
                 });
                 if (res.code === 200) {
+                    const recipientNames = shareForm.value.targetType === 'USER'
+                        ? (recipientList.value || [])
+                            .filter(item => (shareForm.value.recipientUserIds || []).includes(item.id))
+                            .map(item => item.nickname || item.username)
+                        : [];
+                    showShareBanner(shareBannerHelpers.buildShareSentBanner({
+                        targetType: shareForm.value.targetType,
+                        fileName: res.data?.fileName || shareForm.value.objectName.split('/').filter(Boolean).pop() || '当前项目',
+                        hasPassword: !!res.data?.hasPassword,
+                        recipientNames
+                    }), 'success');
                     if (shareForm.value.targetType === 'USER') {
                         ElementPlus.ElMessage.success('站内分享已发送给指定用户');
                     } else {
@@ -3342,18 +3897,26 @@ const filePageSize = ref(25);
         };
 
         const submitUpload = async () => {
-            const rawFiles = pendingUploadFiles.value
-                .map(item => item.raw)
-                .filter(Boolean);
-            if (!rawFiles.length) {
+            const uploadItems = pendingUploadFiles.value
+                .map(item => ({
+                    ...item,
+                    targetName: String(item.targetName || '').trim()
+                }))
+                .filter(item => item.raw);
+            if (!uploadItems.length) {
                 ElementPlus.ElMessage.warning('请选择需要上传的文件');
+                return;
+            }
+            const invalidItem = uploadItems.find(item => !item.targetName);
+            if (invalidItem) {
+                ElementPlus.ElMessage.warning('存在未填写目标文件名的上传项');
                 return;
             }
             pendingUploadFiles.value = [];
             if (uploadRef.value) {
                 uploadRef.value.clearFiles();
             }
-            await queueDialogUploadFiles(rawFiles);
+            await queueDialogUploadFiles(uploadItems);
         };
 
         const cancelUpload = async () => {
@@ -3394,29 +3957,63 @@ const filePageSize = ref(25);
         const loadShares = async () => {
             shareLoading.value = true;
             try {
-                const res = await api.get('/share/list');
+                const res = await api.get('/share/list', {
+                    params: sharePaginationHelpers.buildPagedShareParams(
+                        sharePage.value,
+                        sharePageSize.value,
+                        shareValidOnly.value
+                    )
+                });
                 if (res.code === 200) {
-                    shareList.value = (res.data || []).map(item => ({
-                        ...item,
-                        createTimeText: formatDateTime(item.createTime),
-                        expireTimeText: formatDateTime(item.expireTime),
-                        hasPasswordText: item.targetType === 'USER'
-                            ? '站内信'
-                            : (item.hasPassword && item.password ? '提取码：' + item.password : '公开访问'),
-                        shareTargetTypeText: formatShareTargetType(item),
-                        shareUrl: buildShareUrl(item, false),
-                        shareUrlWithPassword: buildShareUrl(item, true),
-                        shareNoticeText: buildShareCopyText(item, 'notice'),
-                        shareItems: [],
-                        shareItemsLoaded: false,
-                        shareItemsLoading: false
-                    }));
+                    const pageData = res.data || { items: [], total: 0 };
+                    shareTotal.value = pageData.total || 0;
+                    shareList.value = (pageData.items || []).map(item => {
+                        const contentItems = shareManagementHelpers.normalizeShareContentItems(item);
+                        const visibleContent = shareManagementHelpers.buildVisibleShareContent(contentItems, 3);
+                        return {
+                            ...item,
+                            createTimeText: formatDateTime(item.createTime),
+                            expireTimeText: formatDateTime(item.expireTime),
+                            hasPasswordText: item.targetType === 'USER'
+                                ? '站内信'
+                                : (item.hasPassword && item.password ? '提取码：' + item.password : '公开访问'),
+                            shareTargetTypeText: formatShareTargetType(item),
+                            shareUrl: buildShareUrl(item, false),
+                            shareUrlWithPassword: buildShareUrl(item, true),
+                            shareNoticeText: buildShareCopyText(item, 'notice'),
+                            shareItems: contentItems,
+                            visibleShareItems: visibleContent.visibleItems,
+                            hiddenShareItemCount: visibleContent.hiddenCount,
+                            hiddenShareItems: visibleContent.hiddenItems,
+                            shareItemsLoaded: !item.isFolder,
+                            shareItemsLoading: false,
+                            shareItemsError: false,
+                            shareItemsErrorMessage: ''
+                        };
+                    });
+                    shareList.value.forEach(share => loadShareItemsForManage(share));
                 }
             } catch (error) {
                 ElementPlus.ElMessage.error('加载分享列表失败');
             } finally {
                 shareLoading.value = false;
             }
+        };
+
+        const handleShareValidOnlyChange = () => {
+            sharePage.value = sharePaginationHelpers.resolvePageAfterFilterChange(sharePage.value);
+            loadShares();
+        };
+
+        const handleShareSizeChange = (val) => {
+            sharePageSize.value = val;
+            sharePage.value = 1;
+            loadShares();
+        };
+
+        const handleSharePageChange = (val) => {
+            sharePage.value = val;
+            loadShares();
         };
 
         const copyShareLink = (share, mode = 'notice') => {
@@ -3448,11 +4045,22 @@ const filePageSize = ref(25);
             if (!message) {
                 return message;
             }
+            const shareMessage = shareBannerHelpers.isShareMessage(message);
+            const contentItems = shareMessage
+                ? shareManagementHelpers.normalizeShareContentItems(message, message.shareItems || [])
+                : [];
+            const visibleContent = shareManagementHelpers.buildVisibleShareContent(contentItems, 3);
             return {
                 ...message,
+                isShareMessage: shareMessage,
                 createTimeText: formatDateTime(message.createTime),
                 readTimeText: formatDateTime(message.readTime),
-                subtitle: messageCenterHelpers.buildMessageSubtitle(message)
+                subtitle: messageCenterHelpers.buildMessageSubtitle(message),
+                shareItems: contentItems,
+                visibleShareItems: visibleContent.visibleItems,
+                hiddenShareItemCount: visibleContent.hiddenCount,
+                hiddenShareItems: visibleContent.hiddenItems,
+                shareItemsErrorMessage: shareMessage && message.shareItemsError ? '加载失败：' + message.shareItemsError : ''
             };
         };
 
@@ -3468,22 +4076,49 @@ const filePageSize = ref(25);
                 inboxList.value,
                 formatInboxMessage(mergedMessage)
             );
+            syncWorkbenchShareReminders();
+            if (!currentMessage && shareBannerHelpers.isShareMessage(mergedMessage) && !mergedMessage.read) {
+                showShareBanner(shareBannerHelpers.buildShareReceivedBanner(mergedMessage), 'info');
+            }
         };
 
         const loadInbox = async () => {
             inboxLoading.value = true;
             try {
                 const res = await api.get('/messages/inbox', {
-                    params: { page: 1, size: 100 }
+                    params: sharePaginationHelpers.buildPagedShareParams(
+                        inboxPage.value,
+                        inboxPageSize.value,
+                        inboxValidOnly.value
+                    )
                 });
                 if (res.code === 200) {
-                    inboxList.value = (res.data.items || []).map(item => formatInboxMessage(item));
+                    const pageData = res.data || { items: [], total: 0 };
+                    inboxTotal.value = pageData.total || 0;
+                    inboxList.value = (pageData.items || []).map(item => formatInboxMessage(item));
+                    syncWorkbenchShareReminders();
                 }
             } catch (error) {
                 ElementPlus.ElMessage.error('加载收件箱失败');
             } finally {
                 inboxLoading.value = false;
             }
+        };
+
+        const handleInboxValidOnlyChange = () => {
+            inboxPage.value = sharePaginationHelpers.resolvePageAfterFilterChange(inboxPage.value);
+            loadInbox();
+        };
+
+        const handleInboxSizeChange = (val) => {
+            inboxPageSize.value = val;
+            inboxPage.value = 1;
+            loadInbox();
+        };
+
+        const handleInboxPageChange = (val) => {
+            inboxPage.value = val;
+            loadInbox();
         };
 
         const openInboxShare = async (message) => {
@@ -3579,19 +4214,38 @@ const filePageSize = ref(25);
 
         const deleteShare = async (share) => {
             try {
-                await ElementPlus.ElMessageBox.confirm('确定要删除这个分享吗？', '提示', {
+                await ElementPlus.ElMessageBox.confirm('确定要删除这条分享记录吗？删除记录不会取消已发出的分享。', '提示', {
                     confirmButtonText: '确定',
                     cancelButtonText: '取消',
                     type: 'warning'
                 });
                 const res = await api.delete('/share/delete', { params: { shareCode: share.shareCode } });
                 if (res.code === 200) {
-                    ElementPlus.ElMessage.success('删除成功');
+                    ElementPlus.ElMessage.success('删除记录成功');
                     loadShares();
                 }
             } catch (error) {
                 if (error !== 'cancel') {
                     ElementPlus.ElMessage.error('删除失败: ' + (error.response?.data?.message || error.message));
+                }
+            }
+        };
+
+        const cancelShare = async (share) => {
+            try {
+                await ElementPlus.ElMessageBox.confirm('确定要取消这个分享吗？取消后接收人和分享链接都无法继续访问。', '提示', {
+                    confirmButtonText: '确定',
+                    cancelButtonText: '取消',
+                    type: 'warning'
+                });
+                const res = await api.post('/share/cancel', null, { params: { shareCode: share.shareCode } });
+                if (res.code === 200) {
+                    ElementPlus.ElMessage.success('取消分享成功');
+                    loadShares();
+                }
+            } catch (error) {
+                if (error !== 'cancel') {
+                    ElementPlus.ElMessage.error('取消分享失败: ' + (error.response?.data?.message || error.message));
                 }
             }
         };
@@ -3609,12 +4263,23 @@ const filePageSize = ref(25);
                     }
                 });
                 if (res.code === 200) {
-                    share.shareItems = res.data || [];
+                    const contentItems = shareManagementHelpers.normalizeShareContentItems(share, res.data || []);
+                    const visibleContent = shareManagementHelpers.buildVisibleShareContent(contentItems, 3);
+                    share.shareItems = contentItems;
+                    share.visibleShareItems = visibleContent.visibleItems;
+                    share.hiddenShareItemCount = visibleContent.hiddenCount;
+                    share.hiddenShareItems = visibleContent.hiddenItems;
                     share.shareItemsLoaded = true;
+                    share.shareItemsError = false;
+                    share.shareItemsErrorMessage = '';
                 }
             } catch (error) {
                 share.shareItems = [];
-                ElementPlus.ElMessage.error('加载分享内容失败: ' + (error.response?.data?.message || error.message));
+                share.visibleShareItems = [];
+                share.hiddenShareItemCount = 0;
+                share.hiddenShareItems = [];
+                share.shareItemsError = true;
+                share.shareItemsErrorMessage = shareManagementHelpers.formatShareItemsErrorMessage(error);
             } finally {
                 share.shareItemsLoading = false;
             }
@@ -4293,6 +4958,15 @@ const filePageSize = ref(25);
         };
 
         const handleDocumentKeydown = (e) => {
+            if (navigationOpen.value) {
+                if (e.key === 'Escape') { e.preventDefault(); closeNavigation(); return; }
+                if (e.key === 'Tab') {
+                    const elements = Array.from(document.querySelectorAll('#workspace-navigation button, #workspace-navigation [tabindex]:not([tabindex="-1"])')).filter(node => node.offsetParent !== null);
+                    const first = elements[0], last = elements[elements.length - 1];
+                    if (first && e.shiftKey && document.activeElement === first) { e.preventDefault(); last.focus(); }
+                    else if (last && !e.shiftKey && document.activeElement === last) { e.preventDefault(); first.focus(); }
+                }
+            }
             const isPathShortcut = (e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'l';
             if (!isPathShortcut || currentMenu.value !== 'files') {
                 return;
@@ -4301,17 +4975,41 @@ const filePageSize = ref(25);
             startPathEdit();
         };
 
+        const handleWindowError = (event) => {
+            recordClientDiagnostic('error', 'window-error', {
+                message: event.message,
+                source: event.filename,
+                line: event.lineno,
+                column: event.colno
+            });
+        };
+
+        const handleUnhandledRejection = (event) => {
+            const reason = event.reason || {};
+            recordClientDiagnostic('error', 'unhandled-rejection', {
+                message: reason.message || String(reason),
+                stack: reason.stack || ''
+            });
+        };
+
         // Lifecycle
+        const clientCertEnabled = computed(() => window.location.protocol === 'https:' && runtimeConfig.value.clientCertificateEnabled === true);
         onMounted(() => {
             loadRuntimeConfig();
             checkAuth();
             document.addEventListener('click', handleDocumentClick);
             document.addEventListener('keydown', handleDocumentKeydown);
+            window.addEventListener('resize', handleNavigationResize);
+            window.addEventListener('error', handleWindowError);
+            window.addEventListener('unhandledrejection', handleUnhandledRejection);
         });
 
         onUnmounted(() => {
             document.removeEventListener('click', handleDocumentClick);
             document.removeEventListener('keydown', handleDocumentKeydown);
+            window.removeEventListener('resize', handleNavigationResize);
+            window.removeEventListener('error', handleWindowError);
+            window.removeEventListener('unhandledrejection', handleUnhandledRejection);
             stopSyncingRetry();
             disconnectMessageSocket();
             clearBucketStatsPollTimer();
@@ -4319,6 +5017,9 @@ const filePageSize = ref(25);
 
         return {
             isLoggedIn,
+            navigationOpen,
+            toggleNavigation,
+            closeNavigation,
             token,
             userInfo,
             currentMenu,
@@ -4348,6 +5049,7 @@ const filePageSize = ref(25);
             selectedFiles,
             showUploadDialog,
             showTransferDialog,
+            showRenameDialog,
             uploadRef,
             uploadTasks,
             showFolderDialog,
@@ -4359,7 +5061,9 @@ const filePageSize = ref(25);
             showMinioKeyDialog,
             showHelpDialog,
             showVersionDialog,
+            showDiagnosticsDialog,
             showPreviewDialog,
+            clientDiagnosticsLogs,
             downloadTasks,
             downloadCenterVisible,
             downloadCenterMinimized,
@@ -4381,6 +5085,7 @@ const filePageSize = ref(25);
             copyPreviewText,
             closePreviewDialog,
             transferState,
+            renameState,
             transferSummary,
             transferTargetLabel,
             minioKeyForm,
@@ -4422,6 +5127,7 @@ const filePageSize = ref(25);
             fileConfig,
             fileRowActionOptions,
             pendingUploadFiles,
+            uploadBatchRenameRule,
             uploadDialogModeOptions,
             uploadTransportOptions,
             downloadTransportOptions,
@@ -4431,6 +5137,9 @@ const filePageSize = ref(25);
             permissionInfo,
             permissionList,
             isAdmin,
+            certificateApi: api,
+            certificateIssuanceEnabled: computed(() => runtimeConfig.value.certificateIssuanceEnabled === true),
+            copyText,
             isSuperAdmin,
             menuPermissionOptions,
             apiPermissionOptions,
@@ -4438,8 +5147,13 @@ const filePageSize = ref(25);
             bucketActionOptions,
             currentMenuAccessible,
             shouldShowRoleBucketPermissionEditor,
+            canOpenDiagnostics,
             currentViewTitle,
             currentViewDescription,
+            workbenchOverview,
+            workbenchLoading,
+            workbenchPreferenceSaving,
+            isCurrentDirectoryFavorite,
             bucketCount,
             folderCount,
             currentFileCount,
@@ -4470,9 +5184,12 @@ const filePageSize = ref(25);
             uploadHeaders,
             uploadData,
             handleLogin,
+            handleCertLogin, clientCertEnabled, showCertDialog, userCertificates,
             logout,
             handleCommand,
-            openLiteMode,
+            bindPassword,
+            handleBindCert,
+            handleRevokeCert,
             saveProfile,
             handleMenuSelect,
             loadBuckets,
@@ -4487,6 +5204,13 @@ const filePageSize = ref(25);
             refreshFiles,
             openUploadDialog,
             navigateToFolder,
+            openWorkbenchDirectory,
+            openWorkbenchShareReminder,
+            removeFavoriteDirectory,
+            toggleCurrentDirectoryFavorite,
+            updateWorkbenchPreference,
+            openRenameDialog,
+            submitRename,
             handleFileNameClick,
             canSelectFileRow,
             handleFileDragEnter,
@@ -4515,6 +5239,7 @@ const filePageSize = ref(25);
             createShare,
             handleSelectionChange,
             submitUpload,
+            applyUploadBatchRenameRule,
             handleUploadDialogChange,
             removePendingUploadFile,
             cancelUpload,
@@ -4526,8 +5251,23 @@ const filePageSize = ref(25);
             uploading,
             copyShareLink,
             deleteShare,
+            cancelShare,
+            sharePage,
+            sharePageSize,
+            shareTotal,
+            shareValidOnly,
+            handleShareValidOnlyChange,
+            handleShareSizeChange,
+            handleSharePageChange,
             handleShareExpand,
             loadInbox,
+            inboxPage,
+            inboxPageSize,
+            inboxTotal,
+            inboxValidOnly,
+            handleInboxValidOnlyChange,
+            handleInboxSizeChange,
+            handleInboxPageChange,
             openInboxShare,
             markInboxRead,
             deleteInboxMessage,
@@ -4568,6 +5308,8 @@ const filePageSize = ref(25);
             saveFileConfig,
             toggleTransportPriority,
             moveTransportPriority,
+            clearClientDiagnostics,
+            copyClientDiagnostics,
             loadShareConfig,
             saveShareConfig,
             openDownloadCenter,
@@ -4592,4 +5334,5 @@ app.component('folderadd', ElementPlusIconsVue.FolderAdd);
 app.component('copydocument', ElementPlusIconsVue.CopyDocument);
 
 app.use(ElementPlus, { locale: zhCnLocale });
+app.component('standard-cert-admin', StandardCertUi.component);
 app.mount('#app');

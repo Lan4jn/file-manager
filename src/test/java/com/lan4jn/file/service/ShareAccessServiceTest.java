@@ -8,6 +8,7 @@ import java.time.LocalDateTime;
 import java.util.List;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.when;
 
@@ -69,5 +70,32 @@ class ShareAccessServiceTest {
         List<FileInfo> items = shareAccessService.listSharedItems("SHARE002", null, "");
 
         assertEquals(List.of("z-folder", "alpha.txt"), items.stream().map(FileInfo::getFileName).toList());
+    }
+
+    @Test
+    void shouldExplainDeletedOrMovedContentWhenBatchRootFileIsMissing() {
+        FileService fileService = mock(FileService.class);
+        ConfigService configService = mock(ConfigService.class);
+        ShareLinkService shareLinkService = mock(ShareLinkService.class);
+        ShareSupport shareSupport = new ShareSupport();
+
+        ShareLink shareLink = new ShareLink();
+        shareLink.setShareCode("SHARE003");
+        shareLink.setObjectName(ShareSupport.BATCH_PREFIX + "[\"missing.txt\"]");
+        shareLink.setBucket("bucket-a");
+        shareLink.setIsFolder(true);
+        shareLink.setExpireTime(LocalDateTime.now().plusHours(1));
+
+        when(shareLinkService.resolveShare("SHARE003", null, false)).thenReturn(shareLink);
+        when(fileService.getFileInfo("missing.txt", "bucket-a"))
+                .thenThrow(new RuntimeException("获取文件信息失败: Object does not exist"));
+
+        ShareAccessService shareAccessService = new ShareAccessService(
+                fileService, configService, shareLinkService, shareSupport);
+
+        RuntimeException error = assertThrows(RuntimeException.class,
+                () -> shareAccessService.listSharedItems("SHARE003", null, ""));
+
+        assertEquals("分享内容已被删除或移动", error.getMessage());
     }
 }

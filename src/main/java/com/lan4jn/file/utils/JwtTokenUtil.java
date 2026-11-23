@@ -25,9 +25,14 @@ public class JwtTokenUtil {
     }
 
     public String generateToken(String username, Long userId, String roles) {
+        return generateToken(username, userId, roles, null);
+    }
+
+    public String generateToken(String username, Long userId, String roles, String bindingId) {
         Map<String, Object> claims = new HashMap<>();
         claims.put("userId", userId);
         claims.put("roles", roles);
+        if (bindingId != null) claims.put("bindingId", bindingId);
         return Jwts.builder()
                 .claims(claims)
                 .subject(username)
@@ -49,16 +54,20 @@ public class JwtTokenUtil {
         return getClaimsFromToken(token).get("roles", String.class);
     }
 
+    public String getBindingIdFromToken(String token) {
+        return getClaimsFromToken(token).get("bindingId", String.class);
+    }
+
     public boolean validateToken(String token) {
         try {
-            Claims claims = getClaimsFromToken(token);
+            getClaimsFromToken(token);
             return !isTokenExpired(token);
         } catch (Exception e) {
             return false;
         }
     }
 
-    private Claims getClaimsFromToken(String token) {
+    public Claims getClaimsFromToken(String token) {
         return Jwts.parser()
                 .verifyWith(getSigningKey())
                 .build()
@@ -72,4 +81,3 @@ public class JwtTokenUtil {
         return expiration.before(new Date());
     }
 }
-

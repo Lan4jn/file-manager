@@ -3,6 +3,7 @@ package com.lan4jn.file.service;
 import cn.hutool.core.util.IdUtil;
 import cn.hutool.core.util.StrUtil;
 import cn.hutool.json.JSONUtil;
+import com.lan4jn.file.common.PageResult;
 import com.lan4jn.file.dto.CreateShareRequest;
 import com.lan4jn.file.entity.User;
 import com.lan4jn.file.model.ShareAccessInfo;
@@ -14,12 +15,15 @@ import com.lan4jn.file.repository.UserRepository;
 import com.lan4jn.file.repository.UserShareMessageRepository;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.springframework.data.domain.Page;
+import org.springframework.data.domain.PageRequest;
 import org.springframework.transaction.support.TransactionSynchronization;
 import org.springframework.transaction.support.TransactionSynchronizationManager;
 
 import java.time.LocalDateTime;
 import java.util.ArrayList;
 import java.util.HashMap;
+import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
@@ -113,6 +117,8 @@ final class ShareLinkService {
         shareLink.setTargetType(targetType);
         shareLink.setIsFolder(isFolder);
         shareLink.setZipFileName(null);
+        shareLink.setCancelled(false);
+        shareLink.setHiddenByCreator(false);
 
         ShareLink saved = shareLinkRepository.save(shareLink);
         if (TARGET_TYPE_USER.equals(targetType)) {
@@ -157,6 +163,8 @@ final class ShareLinkService {
         shareLink.setTargetType(normalizedTargetType);
         shareLink.setIsFolder(true);
         shareLink.setZipFileName(null);
+        shareLink.setCancelled(false);
+        shareLink.setHiddenByCreator(false);
 
         ShareLink saved = shareLinkRepository.save(shareLink);
         if (TARGET_TYPE_USER.equals(normalizedTargetType)) {
@@ -188,7 +196,9 @@ final class ShareLinkService {
 
     boolean validateShareCode(String shareCode) {
         Optional<ShareLink> shareLink = shareLinkRepository.findByShareCode(shareCode);
-        return shareLink.isPresent() && !LocalDateTime.now().isAfter(shareLink.get().getExpireTime());
+        return shareLink.isPresent()
+                && !Boolean.TRUE.equals(shareLink.get().getCancelled())
+                && !LocalDateTime.now().isAfter(shareLink.get().getExpireTime());
     }
 
     void deleteShareLink(String shareCode, String createBy) {
@@ -197,13 +207,42 @@ final class ShareLinkService {
         if (!Objects.equals(shareLink.getCreateBy(), createBy)) {
             throw new RuntimeException("无权删除该分享");
         }
-        shareFileRecordRepository.deleteByShareCode(shareCode);
-        shareLinkRepository.delete(shareLink);
-        log.info("Share link deleted: {}", shareCode);
+        shareLink.setHiddenByCreator(true);
+        shareLinkRepository.save(shareLink);
+        log.info("Share record hidden: {}", shareCode);
+    }
+
+    void cancelShareLink(String shareCode, String createBy) {
+        ShareLink shareLink = shareLinkRepository.findByShareCode(shareCode)
+                .orElseThrow(() -> new RuntimeException("分享链接不存在"));
+        if (!Objects.equals(shareLink.getCreateBy(), createBy)) {
+            throw new RuntimeException("无权取消该分享");
+        }
+        shareLink.setCancelled(true);
+        shareLinkRepository.save(shareLink);
+        log.info("Share link cancelled: {}", shareCode);
     }
 
     List<ShareLink> getShareLinksByUser(String createBy) {
-        return shareLinkRepository.findByCreateByOrderByCreateTimeDesc(createBy);
+        List<ShareLink> shareLinks = shareLinkRepository.findVisibleByCreateByOrderByCreateTimeDesc(createBy);
+        for (ShareLink shareLink : shareLinks) {
+            enrichRecipientDisplayText(shareLink);
+        }
+        return shareLinks;
+    }
+
+    PageResult<ShareLink> getShareLinksByUser(String createBy, int page, int size, boolean validOnly) {
+        int normalizedPage = Math.max(page, 1);
+        int normalizedSize = Math.max(size, 1);
+        PageRequest pageRequest = PageRequest.of(normalizedPage - 1, normalizedSize);
+        Page<ShareLink> sharePage = validOnly
+                ? shareLinkRepository.findValidVisibleByCreateBy(createBy, LocalDateTime.now(), pageRequest)
+                : shareLinkRepository.findVisibleByCreateByOrderByCreateTimeDesc(createBy, pageRequest);
+        List<ShareLink> shareLinks = sharePage.getContent();
+        for (ShareLink shareLink : shareLinks) {
+            enrichRecipientDisplayText(shareLink);
+        }
+        return new PageResult<>(shareLinks, sharePage.getTotalElements(), normalizedPage, normalizedSize);
     }
 
     void cleanupExpiredShares() {
@@ -237,10 +276,38 @@ final class ShareLinkService {
     private ShareLink findValidShare(String shareCode) {
         ShareLink shareLink = shareLinkRepository.findByShareCode(shareCode)
                 .orElseThrow(() -> new RuntimeException("分享链接不存在"));
+        if (Boolean.TRUE.equals(shareLink.getCancelled())) {
+            throw new RuntimeException("分享已取消");
+        }
         if (LocalDateTime.now().isAfter(shareLink.getExpireTime())) {
             throw new RuntimeException("分享链接已过期");
         }
         return shareLink;
+    }
+
+    private void enrichRecipientDisplayText(ShareLink shareLink) {
+        if (userShareMessageRepository == null || userRepository == null || !TARGET_TYPE_USER.equals(shareLink.getTargetType())) {
+            shareLink.setRecipientDisplayText(null);
+            return;
+        }
+        List<UserShareMessage> messages = userShareMessageRepository.findByShareCode(shareLink.getShareCode());
+        LinkedHashSet<String> names = new LinkedHashSet<>();
+        for (UserShareMessage message : messages) {
+            if (message.getRecipientUserId() == null) {
+                continue;
+            }
+            userRepository.findById(message.getRecipientUserId())
+                    .map(this::formatRecipientName)
+                    .ifPresent(names::add);
+        }
+        shareLink.setRecipientDisplayText(String.join("、", names));
+    }
+
+    private String formatRecipientName(User user) {
+        if (user.getNickname() == null || user.getNickname().isBlank()) {
+            return user.getUsername();
+        }
+        return user.getNickname() + "(" + user.getUsername() + ")";
     }
 
     private String generateShareCode() {

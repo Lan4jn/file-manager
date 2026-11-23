@@ -57,11 +57,15 @@ public class WebSocketConfig implements WebSocketConfigurer {
             if (tokens == null || tokens.isEmpty()) {
                 return false;
             }
-            String username = messageWebSocketAuthService.resolveUsername(tokens.get(0));
+            String token = tokens.get(0);
+            String username = messageWebSocketAuthService.resolveUsername(token);
             if (username == null || username.trim().isEmpty()) {
                 return false;
             }
             attributes.put(ATTR_USERNAME, username);
+            if (messageWebSocketAuthService.isManagedCertificateSession(token)) {
+                attributes.put("CERT_MANAGED_TOKEN", token);
+            }
             return true;
         }
 

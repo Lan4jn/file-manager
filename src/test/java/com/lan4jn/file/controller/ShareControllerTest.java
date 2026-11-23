@@ -1,6 +1,7 @@
 package com.lan4jn.file.controller;
 
 import com.lan4jn.file.common.GlobalExceptionHandler;
+import com.lan4jn.file.common.PageResult;
 import com.lan4jn.file.common.Result;
 import com.lan4jn.file.model.FileInfo;
 import com.lan4jn.file.model.ShareAccessInfo;
@@ -100,6 +101,26 @@ class ShareControllerTest {
         mockMvc.perform(get("/api/share/items").param("shareCode", "SHARE001"))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.data[0].fileName").value("readme.txt"));
+    }
+
+    @Test
+    void shouldReturnPagedShareListWithValidOnly() throws Exception {
+        ShareLink shareLink = new ShareLink();
+        shareLink.setShareCode("ACTIVE01");
+        shareLink.setFileName("readme.txt");
+        when(shareService.getShareLinksByUser("admin", 2, 10, true))
+                .thenReturn(new PageResult<>(List.of(shareLink), 11, 2, 10));
+
+        mockMvc.perform(get("/api/share/list")
+                        .param("page", "2")
+                        .param("size", "10")
+                        .param("validOnly", "true")
+                        .principal(new UsernamePasswordAuthenticationToken("admin", "N/A")))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.total").value(11))
+                .andExpect(jsonPath("$.data.page").value(2))
+                .andExpect(jsonPath("$.data.size").value(10))
+                .andExpect(jsonPath("$.data.items[0].shareCode").value("ACTIVE01"));
     }
 
     @Test
@@ -266,5 +287,16 @@ class ShareControllerTest {
         ), new UsernamePasswordAuthenticationToken("admin", "N/A"));
 
         assertEquals("BATCH001", result.getData().getShareCode());
+    }
+
+    @Test
+    void shouldCancelShareLink() throws Exception {
+        mockMvc.perform(post("/api/share/cancel")
+                        .param("shareCode", "CODE1234")
+                        .principal(new UsernamePasswordAuthenticationToken("admin", "N/A")))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.code").value(200));
+
+        verify(shareService).cancelShareLink("CODE1234", "admin");
     }
 }

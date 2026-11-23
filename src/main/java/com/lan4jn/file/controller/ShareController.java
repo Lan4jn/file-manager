@@ -1,5 +1,6 @@
 package com.lan4jn.file.controller;
 
+import com.lan4jn.file.common.PageResult;
 import com.lan4jn.file.common.Result;
 import com.lan4jn.file.dto.CreateShareRequest;
 import com.lan4jn.file.model.FileInfo;
@@ -255,15 +256,27 @@ public class ShareController {
     public Result<Void> deleteShare(@RequestParam("shareCode") String shareCode, Authentication authentication) {
         permissionAssertService.assertApiPermission(PermissionCodes.API_SHARE_MANAGE);
         shareCode = RequestValidationUtils.requireText(shareCode, "shareCode");
-        log.info("Deleting share link: {}", shareCode);
+        log.info("Deleting share record: {}", shareCode);
         shareService.deleteShareLink(shareCode, authentication.getName());
         return Result.success();
     }
 
-    @GetMapping("/list")
-    public Result<List<ShareLink>> getShareLinks(Authentication authentication) {
+    @PostMapping("/cancel")
+    public Result<Void> cancelShare(@RequestParam("shareCode") String shareCode, Authentication authentication) {
         permissionAssertService.assertApiPermission(PermissionCodes.API_SHARE_MANAGE);
-        return Result.success(shareService.getShareLinksByUser(authentication.getName()));
+        shareCode = RequestValidationUtils.requireText(shareCode, "shareCode");
+        log.info("Cancelling share link: {}", shareCode);
+        shareService.cancelShareLink(shareCode, authentication.getName());
+        return Result.success();
+    }
+
+    @GetMapping("/list")
+    public Result<PageResult<ShareLink>> getShareLinks(Authentication authentication,
+                                                       @RequestParam(value = "page", required = false, defaultValue = "1") int page,
+                                                       @RequestParam(value = "size", required = false, defaultValue = "25") int size,
+                                                       @RequestParam(value = "validOnly", required = false, defaultValue = "false") boolean validOnly) {
+        permissionAssertService.assertApiPermission(PermissionCodes.API_SHARE_MANAGE);
+        return Result.success(shareService.getShareLinksByUser(authentication.getName(), page, size, validOnly));
     }
 
     private String resolveBucket(String bucket) {

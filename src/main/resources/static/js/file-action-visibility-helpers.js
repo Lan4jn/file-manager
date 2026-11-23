@@ -3,6 +3,7 @@
         DOWNLOAD: { code: 'DOWNLOAD', label: '下载', icon: 'Download' },
         SHARE: { code: 'SHARE', label: '分享', icon: 'Share' },
         PREVIEW: { code: 'PREVIEW', label: '预览', icon: 'View' },
+        RENAME: { code: 'RENAME', label: '重命名', icon: 'Edit' },
         DELETE: { code: 'DELETE', label: '删除', icon: 'Delete' },
         MOVE: { code: 'MOVE', label: '移动', icon: 'Rank' },
         COPY: { code: 'COPY', label: '复制', icon: 'DocumentCopy' }

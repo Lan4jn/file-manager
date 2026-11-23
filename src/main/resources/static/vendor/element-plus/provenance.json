@@ -1,0 +1,9 @@
+{
+  "name": "element-plus",
+  "version": "2.3.14",
+  "tarball": "https://registry.npmjs.org/element-plus/-/element-plus-2.3.14.tgz",
+  "integrity": "sha512-9yvxUaU4jXf2ZNPdmIxoj/f8BG8CDcGM6oHa9JIqxLjQlfY4bpzR1E5CjNimnOX3rxO93w1TQ0jTVt0RSxh9kA==",
+  "matchingVendorHeader": "Element Plus v2.3.14",
+  "localeMember": "dist/locale/zh-cn.js",
+  "licenseSource": "https://raw.githubusercontent.com/element-plus/element-plus/2.3.14/LICENSE"
+}

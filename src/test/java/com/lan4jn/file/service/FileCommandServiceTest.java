@@ -2,6 +2,7 @@ package com.lan4jn.file.service;
 
 import io.minio.MinioClient;
 import io.minio.Result;
+import io.minio.StatObjectResponse;
 import io.minio.messages.Item;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -13,6 +14,7 @@ import java.util.Set;
 
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
+import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.mockito.ArgumentMatchers.argThat;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.doNothing;
@@ -48,6 +50,94 @@ class FileCommandServiceTest {
 
         assertTrue(exception.getMessage().contains("exe"));
         verifyNoInteractions(minioClient);
+    }
+
+    @Test
+    void shouldRetryUploadFileConfirmationWhenObjectIsTemporarilyInvisible() throws Exception {
+        MultipartFile multipartFile = mock(MultipartFile.class);
+        StatObjectResponse stat = mock(StatObjectResponse.class);
+        when(multipartFile.getOriginalFilename()).thenReturn("large.zip");
+        when(multipartFile.getSize()).thenReturn(256L);
+        when(multipartFile.getContentType()).thenReturn("application/zip");
+        when(multipartFile.getInputStream()).thenReturn(new java.io.ByteArrayInputStream(new byte[0]));
+        when(support.prepareUpload("large.zip", 256L, "docs", "", "bucket-a"))
+                .thenReturn(new FileDomainSupport.PreparedUpload("bucket-a", "docs/large.zip", "large.zip", 256L));
+        when(stat.size()).thenReturn(256L);
+        when(stat.contentType()).thenReturn("application/zip");
+        when(minioClient.statObject(any()))
+                .thenThrow(new RuntimeException("The specified key does not exist"))
+                .thenThrow(new RuntimeException("对象不存在"))
+                .thenReturn(stat);
+        when(support.buildUploadResponse(
+                "docs/large.zip",
+                "large.zip",
+                256L,
+                "application/zip",
+                "bucket-a",
+                "http://public",
+                stat
+        )).thenReturn(new com.lan4jn.file.dto.UploadResponse());
+
+        fileCommandService.uploadFile(multipartFile, "docs", "", "bucket-a", "http://public");
+
+        verify(minioClient, org.mockito.Mockito.times(3)).statObject(any());
+    }
+
+    @Test
+    void shouldReturnApplicationUploadResponseWhenConfirmationNeverSeesObject() throws Exception {
+        MultipartFile multipartFile = mock(MultipartFile.class);
+        com.lan4jn.file.dto.UploadResponse uploadResponse = new com.lan4jn.file.dto.UploadResponse();
+        uploadResponse.setObjectName("docs/large.iso");
+        uploadResponse.setFileName("large.iso");
+        uploadResponse.setSize(512L);
+        uploadResponse.setContentType("application/octet-stream");
+        when(multipartFile.getOriginalFilename()).thenReturn("large.iso");
+        when(multipartFile.getSize()).thenReturn(512L);
+        when(multipartFile.getContentType()).thenReturn("application/octet-stream");
+        when(multipartFile.getInputStream()).thenReturn(new java.io.ByteArrayInputStream(new byte[0]));
+        when(support.prepareUpload("large.iso", 512L, "docs", "", "bucket-a"))
+                .thenReturn(new FileDomainSupport.PreparedUpload("bucket-a", "docs/large.iso", "large.iso", 512L));
+        when(minioClient.statObject(any())).thenThrow(new RuntimeException("Object does not exist"));
+        when(support.buildUploadResponse(
+                "docs/large.iso",
+                "large.iso",
+                512L,
+                "application/octet-stream",
+                "bucket-a",
+                "http://public",
+                null
+        )).thenReturn(uploadResponse);
+
+        com.lan4jn.file.dto.UploadResponse result = fileCommandService.uploadFile(
+                multipartFile, "docs", "", "bucket-a", "http://public");
+
+        assertEquals("docs/large.iso", result.getObjectName());
+        verify(minioClient, org.mockito.Mockito.times(10)).statObject(any());
+    }
+
+    @Test
+    void shouldRetryCompleteDirectUploadWhenObjectIsTemporarilyInvisible() throws Exception {
+        StatObjectResponse stat = mock(StatObjectResponse.class);
+        when(stat.size()).thenReturn(128L);
+        when(stat.contentType()).thenReturn("application/gzip");
+        when(minioClient.statObject(any()))
+                .thenThrow(new RuntimeException("Object does not exist"))
+                .thenThrow(new RuntimeException("Object does not exist"))
+                .thenReturn(stat);
+        when(support.buildUploadResponse(
+                "docs/app.tar.gz",
+                "app.tar.gz",
+                128L,
+                "application/gzip",
+                "bucket-a",
+                "http://public",
+                stat
+        )).thenReturn(new com.lan4jn.file.dto.UploadResponse());
+
+        fileCommandService.completeDirectUpload(
+                "bucket-a", "docs/app.tar.gz", "app.tar.gz", "application/gzip", 128L, "http://public");
+
+        verify(minioClient, org.mockito.Mockito.times(3)).statObject(any());
     }
 
     @Test
@@ -109,6 +199,51 @@ class FileCommandServiceTest {
         ArgumentCaptor<io.minio.CopyObjectArgs> copyCaptor = ArgumentCaptor.forClass(io.minio.CopyObjectArgs.class);
         verify(minioClient, atLeastOnce()).copyObject(copyCaptor.capture());
         assertTrue(copyCaptor.getAllValues().stream().anyMatch(args -> "a.txt".equals(args.object())));
+    }
+
+    @Test
+    void shouldRenameFileWithinSameFolder() throws Exception {
+        when(support.resolveBucket("", "bucket-a")).thenReturn("bucket-a");
+        when(support.objectExists("bucket-a", "docs/renamed.txt")).thenReturn(false);
+
+        String target = fileCommandService.rename("docs/source.txt", "renamed.txt", "", "bucket-a", "OVERWRITE");
+
+        assertEquals("docs/renamed.txt", target);
+        verify(minioClient).copyObject(argThat(args -> "docs/renamed.txt".equals(args.object())));
+    }
+
+    @Test
+    void shouldAutoRenameWhenRenameConflictPolicyRequested() throws Exception {
+        when(support.resolveBucket("", "bucket-a")).thenReturn("bucket-a");
+        when(support.objectExists("bucket-a", "docs/renamed.txt")).thenReturn(true);
+        when(support.objectExists("bucket-a", "docs/renamed_2.txt")).thenReturn(false);
+
+        String target = fileCommandService.rename("docs/source.txt", "renamed.txt", "", "bucket-a", "RENAME");
+
+        assertEquals("docs/renamed_2.txt", target);
+        verify(minioClient).copyObject(argThat(args -> "docs/renamed_2.txt".equals(args.object())));
+    }
+
+    @Test
+    void shouldRejectRenameWhenTargetNameContainsPathSeparator() {
+        RuntimeException exception = assertThrows(RuntimeException.class,
+                () -> fileCommandService.rename("docs/source.txt", "bad/name.txt", "", "bucket-a", "OVERWRITE"));
+
+        assertTrue(exception.getMessage().contains("名称不合法"));
+    }
+
+    @Test
+    void shouldRenameFolderWithinSameParent() throws Exception {
+        Result<Item> nestedFileResult = result(item("docs/source/readme.txt", false));
+        when(support.resolveBucket("", "bucket-a")).thenReturn("bucket-a");
+        when(minioClient.listObjects(any())).thenReturn(List.of(nestedFileResult));
+        when(support.objectExists("bucket-a", "docs/source/")).thenReturn(true);
+        when(support.objectExists("bucket-a", "docs/renamed/")).thenReturn(false);
+
+        String target = fileCommandService.rename("docs/source/", "renamed", "", "bucket-a", "OVERWRITE");
+
+        assertEquals("docs/renamed/", target);
+        verify(minioClient).copyObject(argThat(args -> "docs/renamed/readme.txt".equals(args.object())));
     }
 
     @SuppressWarnings("unchecked")

@@ -1,0 +1,41 @@
+{
+  "fonts": [
+    {
+      "name": "@fontsource-variable/host-grotesk",
+      "version": "5.3.0",
+      "tarball": "https://registry.npmjs.org/@fontsource-variable/host-grotesk/-/host-grotesk-5.3.0.tgz",
+      "integrity": "sha512-WvdqilphrdjYLeCHXny9gkdpIZgzyeHpgRWB8T4LSKs5nVnCs6pYYeCeMiRshxcuB6djqL6CSdF1Hq0BvMNCwA==",
+      "member": "package/files/host-grotesk-latin-wght-normal.woff2",
+      "sha256": "ce9c9db8a488852eb7e4a52f51fd8ce0c93ef61a8d3bfa054b509ec92958dcfe"
+    },
+    {
+      "name": "@fontsource-variable/jetbrains-mono",
+      "version": "5.3.0",
+      "tarball": "https://registry.npmjs.org/@fontsource-variable/jetbrains-mono/-/jetbrains-mono-5.3.0.tgz",
+      "integrity": "sha512-F32xpS2NsGYoQi2ADSkKTgpJj7ozajsGgDJ8woTnqjmIB+dxDIqImjl4pXZVEExu8UFZ2ndhmX18EBS/hdz3Lw==",
+      "member": "package/files/jetbrains-mono-latin-wght-normal.woff2",
+      "sha256": "18be452724bfdc236c074ca94a249a7f41a86752c7d04ab258ce9ed5651f6a7e"
+    }
+  ],
+  "taste": [
+    {
+      "name": "assets/motion/motion.css",
+      "source": "installed design-taste-frontend 2.5.1",
+      "sha256": "aab949eff518c7f799d8d7c34032d8c94cb49d9cef178eebb19a5af0d1d44551",
+      "modified": false
+    },
+    {
+      "name": "assets/motion/motion.js",
+      "source": "installed design-taste-frontend 2.5.1",
+      "sha256": "1534b78ad7ab20b436b7e10f76630146511ad7dab289a8c0868cddea63010f3f",
+      "modified": false
+    }
+  ],
+  "preview": {
+    "file": "login-preview.png",
+    "source": "Project login template rendered by Taste shoot.mjs; empty account form and product capabilities",
+    "sha256": "3b50b3fe2abd06cb043e429181269d048df59f134daf4328557faece127f0651",
+    "width": 1440,
+    "height": 900
+  }
+}

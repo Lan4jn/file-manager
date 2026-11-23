@@ -13,7 +13,7 @@
 
     <groupId>com.lan4jn</groupId>
     <artifactId>file-manager</artifactId>
-    <version>1.7.3-build120</version>
+    <version>1.9-build145</version>
     <packaging>jar</packaging>
 
     <name>file-manager</name>
@@ -27,6 +27,8 @@
         <minio.version>8.5.12</minio.version>
         <hutool.version>5.8.26</hutool.version>
         <jjwt.version>0.12.3</jjwt.version>
+        <dm.jdbc.version>8.1.3.140</dm.jdbc.version>
+        <dm.hibernate.dialect.version>8.1.4.93</dm.hibernate.dialect.version>
     </properties>
 
     <dependencies>
@@ -69,6 +71,11 @@
                     <artifactId>spring-boot-starter-logging</artifactId>
                 </exclusion>
             </exclusions>
+        </dependency>
+
+        <dependency>
+            <groupId>org.springframework.boot</groupId>
+            <artifactId>spring-boot-starter-aop</artifactId>
         </dependency>
 
         <!-- SQLite -->
@@ -140,6 +147,26 @@
             <scope>test</scope>
         </dependency>
     </dependencies>
+
+    <profiles>
+        <profile>
+            <id>dm</id>
+            <dependencies>
+                <dependency>
+                    <groupId>com.dameng</groupId>
+                    <artifactId>DmJdbcDriver18</artifactId>
+                    <version>${dm.jdbc.version}</version>
+                    <scope>runtime</scope>
+                </dependency>
+                <dependency>
+                    <groupId>com.dameng</groupId>
+                    <artifactId>DmDialect-for-hibernate6.4</artifactId>
+                    <version>${dm.hibernate.dialect.version}</version>
+                    <scope>runtime</scope>
+                </dependency>
+            </dependencies>
+        </profile>
+    </profiles>
 
     <build>
         <resources>

@@ -10,6 +10,7 @@ import java.util.LinkedHashSet;
 import java.util.Map;
 
 import static org.junit.jupiter.api.Assertions.assertDoesNotThrow;
+import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.when;
@@ -65,7 +66,13 @@ class PermissionAssertServiceTest {
 
         SecurityContextHolder.getContext().setAuthentication(new TestingAuthenticationToken("alice", null));
 
-        assertThrows(SecurityException.class, () -> assertService.assertBucketPermission("bucket-a", "DOWNLOAD"));
+        SecurityException exception = assertThrows(
+                SecurityException.class,
+                () -> assertService.assertBucketPermission("bucket-a", "DOWNLOAD")
+        );
+        assertTrue(exception.getMessage().contains("bucket=bucket-a"));
+        assertTrue(exception.getMessage().contains("当前桶权限=[READ]"));
+        assertTrue(exception.getMessage().contains("未回退全局权限"));
         assertDoesNotThrow(() -> assertService.assertBucketPermission("bucket-a", "READ"));
         assertDoesNotThrow(() -> assertService.assertBucketPermission("bucket-b", "DOWNLOAD"));
     }

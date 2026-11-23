@@ -5,16 +5,20 @@ import com.lan4jn.file.dto.CreateShareRequest;
 import com.lan4jn.file.dto.ShareRecipientDTO;
 import com.lan4jn.file.entity.Role;
 import com.lan4jn.file.entity.User;
+import com.lan4jn.file.model.FileInfo;
 import com.lan4jn.file.model.ShareLink;
 import com.lan4jn.file.model.UserShareMessage;
 import com.lan4jn.file.repository.UserRepository;
 import com.lan4jn.file.repository.UserShareMessageRepository;
 import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.data.domain.Page;
+import org.springframework.data.domain.PageRequest;
 import org.springframework.stereotype.Service;
 
 import java.time.LocalDateTime;
 import java.util.ArrayList;
 import java.util.Comparator;
+import java.util.Collections;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
@@ -53,14 +57,27 @@ public class UserShareMessageService {
     }
 
     public PageResult<UserShareMessage> listInbox(String username, int page, int size) {
+        return listInbox(username, page, size, false);
+    }
+
+    public PageResult<UserShareMessage> listInbox(String username, int page, int size, boolean validOnly) {
         User user = requireUser(username);
-        List<UserShareMessage> messages = userShareMessageRepository
-                .findByRecipientUserIdAndDeletedFalseOrderByCreateTimeDesc(user.getId());
         int normalizedPage = page <= 0 ? 1 : page;
         int normalizedSize = size <= 0 ? 20 : size;
+        if (validOnly) {
+            Page<UserShareMessage> messagePage = userShareMessageRepository.findValidShareMessagesByRecipientUserId(
+                    user.getId(), LocalDateTime.now(), PageRequest.of(normalizedPage - 1, normalizedSize));
+            List<UserShareMessage> pageContent = messagePage.getContent();
+            enrichShareContent(pageContent);
+            return new PageResult<>(pageContent, messagePage.getTotalElements(), normalizedPage, normalizedSize);
+        }
+        List<UserShareMessage> messages = userShareMessageRepository
+                .findByRecipientUserIdAndDeletedFalseOrderByCreateTimeDesc(user.getId());
         int fromIndex = Math.min((normalizedPage - 1) * normalizedSize, messages.size());
         int toIndex = Math.min(fromIndex + normalizedSize, messages.size());
-        return new PageResult<>(messages.subList(fromIndex, toIndex), messages.size(), normalizedPage, normalizedSize);
+        List<UserShareMessage> pageItems = messages.subList(fromIndex, toIndex);
+        enrichShareContent(pageItems);
+        return new PageResult<>(pageItems, messages.size(), normalizedPage, normalizedSize);
     }
 
     public List<ShareRecipientDTO> listRecipients(String username) {
@@ -193,6 +210,47 @@ public class UserShareMessageService {
             }
         }
         return null;
+    }
+
+    private void enrichShareContent(List<UserShareMessage> messages) {
+        for (UserShareMessage message : messages) {
+            if (!isShareMessage(message)) {
+                continue;
+            }
+            String targetShareCode = resolveLinkedShareCode(message);
+            if (targetShareCode == null || targetShareCode.trim().isEmpty()) {
+                continue;
+            }
+            try {
+                ShareLink shareLink = shareService.peekShareInfo(targetShareCode, null);
+                applyShareSummary(message, shareLink);
+                message.setShareItems(resolveShareItems(targetShareCode, shareLink));
+                message.setShareItemsError(null);
+            } catch (RuntimeException e) {
+                message.setShareItems(Collections.emptyList());
+                message.setShareItemsError(e.getMessage());
+            }
+        }
+    }
+
+    private void applyShareSummary(UserShareMessage message, ShareLink shareLink) {
+        message.setBucket(shareLink.getBucket());
+        message.setObjectName(shareLink.getObjectName());
+        message.setFileName(shareLink.getFileName());
+        message.setIsFolder(shareLink.getIsFolder());
+        message.setExpireTime(shareLink.getExpireTime());
+        message.setCancelled(shareLink.getCancelled());
+    }
+
+    private List<FileInfo> resolveShareItems(String shareCode, ShareLink shareLink) {
+        if (Boolean.TRUE.equals(shareLink.getIsFolder()) || isBatchShare(shareLink)) {
+            return shareService.listSharedItems(shareCode, null, "");
+        }
+        FileInfo fileInfo = new FileInfo();
+        fileInfo.setObjectName(shareLink.getObjectName());
+        fileInfo.setFileName(shareLink.getFileName());
+        fileInfo.setIsFolder(false);
+        return List.of(fileInfo);
     }
 
     private void markMessageRead(UserShareMessage message, String username) {

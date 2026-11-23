@@ -2,8 +2,10 @@ package com.lan4jn.file.config;
 
 import com.lan4jn.file.entity.Permission;
 import com.lan4jn.file.entity.Role;
+import com.lan4jn.file.entity.RoleBucketPermission;
 import com.lan4jn.file.entity.User;
 import com.lan4jn.file.repository.PermissionRepository;
+import com.lan4jn.file.repository.RoleBucketPermissionRepository;
 import com.lan4jn.file.repository.RoleRepository;
 import com.lan4jn.file.repository.UserRepository;
 import com.lan4jn.file.rbac.PermissionCodes;
@@ -21,15 +23,18 @@ public class DataInitializer implements CommandLineRunner {
     private final UserRepository userRepository;
     private final RoleRepository roleRepository;
     private final PermissionRepository permissionRepository;
+    private final RoleBucketPermissionRepository roleBucketPermissionRepository;
     private final PasswordEncoder passwordEncoder;
 
     public DataInitializer(UserRepository userRepository,
                            RoleRepository roleRepository,
                            PermissionRepository permissionRepository,
+                           RoleBucketPermissionRepository roleBucketPermissionRepository,
                            PasswordEncoder passwordEncoder) {
         this.userRepository = userRepository;
         this.roleRepository = roleRepository;
         this.permissionRepository = permissionRepository;
+        this.roleBucketPermissionRepository = roleBucketPermissionRepository;
         this.passwordEncoder = passwordEncoder;
     }
 
@@ -88,6 +93,9 @@ public class DataInitializer implements CommandLineRunner {
             roleRepository.save(userRole);
         }
 
+        grantDefaultBucketPermissionIfMissing(adminRole);
+        grantDefaultBucketPermissionIfMissing(userRole);
+
         if (!userRepository.existsByUsername("admin")) {
             User admin = new User();
             admin.setUsername("admin");
@@ -125,5 +133,16 @@ public class DataInitializer implements CommandLineRunner {
             return true;
         }
         return permissionChanged[0];
+    }
+
+    private void grantDefaultBucketPermissionIfMissing(Role role) {
+        if (role.getId() == null || roleBucketPermissionRepository.existsByRoleId(role.getId())) {
+            return;
+        }
+        RoleBucketPermission permission = new RoleBucketPermission();
+        permission.setRole(role);
+        permission.setBucketName("*");
+        permission.setAction("*");
+        roleBucketPermissionRepository.save(permission);
     }
 }

@@ -1,14 +1,20 @@
 package com.lan4jn.file.service;
 
+import com.lan4jn.file.common.PageResult;
+import com.fasterxml.jackson.databind.JsonNode;
+import com.fasterxml.jackson.databind.ObjectMapper;
 import com.lan4jn.file.dto.CreateShareRequest;
 import com.lan4jn.file.entity.Role;
 import com.lan4jn.file.entity.User;
+import com.lan4jn.file.model.FileInfo;
 import com.lan4jn.file.model.ShareLink;
 import com.lan4jn.file.model.UserShareMessage;
 import com.lan4jn.file.repository.UserRepository;
 import com.lan4jn.file.repository.UserShareMessageRepository;
 import org.junit.jupiter.api.Test;
 import org.mockito.ArgumentCaptor;
+import org.springframework.data.domain.PageImpl;
+import org.springframework.data.domain.PageRequest;
 
 import java.time.LocalDateTime;
 import java.util.ArrayList;
@@ -59,6 +65,87 @@ class UserShareMessageServiceTest {
 
         assertSame(expectedLink, actualLink);
         verify(shareService).peekShareInfo("SHARE-001", null);
+    }
+
+    @Test
+    void shouldListOnlyValidShareMessagesWhenValidOnlyEnabled() {
+        UserRepository userRepository = mock(UserRepository.class);
+        UserShareMessageRepository messageRepository = mock(UserShareMessageRepository.class);
+        ShareService shareService = mock(ShareService.class);
+
+        User user = new User();
+        user.setId(42L);
+        user.setUsername("recipient");
+
+        UserShareMessage message = new UserShareMessage();
+        message.setId(7L);
+        message.setRecipientUserId(42L);
+        message.setMessageType("SHARE");
+        message.setShareCode("ACTIVE01");
+
+        when(userRepository.findByUsername("recipient")).thenReturn(Optional.of(user));
+        when(messageRepository.findValidShareMessagesByRecipientUserId(
+                eq(42L),
+                any(LocalDateTime.class),
+                eq(PageRequest.of(0, 25))
+        )).thenReturn(new PageImpl<>(List.of(message), PageRequest.of(0, 25), 1));
+
+        UserShareMessageService service = new UserShareMessageService(
+                userRepository, messageRepository, shareService);
+
+        PageResult<UserShareMessage> result = service.listInbox("recipient", 1, 25, true);
+
+        assertEquals(1L, result.getTotal());
+        assertEquals(1, result.getPage());
+        assertEquals(25, result.getSize());
+        assertEquals("ACTIVE01", result.getItems().get(0).getShareCode());
+    }
+
+    @Test
+    void shouldIncludeShareContentWhenListingInbox() {
+        UserRepository userRepository = mock(UserRepository.class);
+        UserShareMessageRepository messageRepository = mock(UserShareMessageRepository.class);
+        ShareService shareService = mock(ShareService.class);
+
+        User user = new User();
+        user.setId(42L);
+        user.setUsername("recipient");
+
+        UserShareMessage message = new UserShareMessage();
+        message.setId(16L);
+        message.setRecipientUserId(42L);
+        message.setMessageType("SHARE");
+        message.setShareCode("SHARE-016");
+
+        ShareLink shareLink = new ShareLink();
+        shareLink.setShareCode("SHARE-016");
+        shareLink.setBucket("bucket-a");
+        shareLink.setObjectName("docs/");
+        shareLink.setFileName("docs");
+        shareLink.setIsFolder(true);
+
+        FileInfo fileInfo = new FileInfo();
+        fileInfo.setObjectName("docs/report.pdf");
+        fileInfo.setFileName("report.pdf");
+        fileInfo.setIsFolder(false);
+
+        when(userRepository.findByUsername("recipient")).thenReturn(Optional.of(user));
+        when(messageRepository.findByRecipientUserIdAndDeletedFalseOrderByCreateTimeDesc(42L))
+                .thenReturn(List.of(message));
+        when(shareService.peekShareInfo("SHARE-016", null)).thenReturn(shareLink);
+        when(shareService.listSharedItems("SHARE-016", null, "")).thenReturn(List.of(fileInfo));
+
+        UserShareMessageService service = new UserShareMessageService(
+                userRepository, messageRepository, shareService);
+
+        PageResult<UserShareMessage> result = service.listInbox("recipient", 1, 20);
+        JsonNode messageJson = new ObjectMapper().valueToTree(result.getItems().get(0));
+
+        assertEquals("bucket-a", messageJson.path("bucket").asText());
+        assertEquals("docs/", messageJson.path("objectName").asText());
+        assertEquals("docs", messageJson.path("fileName").asText());
+        assertEquals(true, messageJson.path("isFolder").asBoolean());
+        assertEquals("report.pdf", messageJson.path("shareItems").get(0).path("fileName").asText());
     }
 
     @Test

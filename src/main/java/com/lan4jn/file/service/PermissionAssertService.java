@@ -36,7 +36,7 @@ public class PermissionAssertService {
             return;
         }
         log.warn("Permission denied for user {} on API permission {}", snapshot.username(), permissionCode);
-        throw new SecurityException("无权限访问该接口");
+        throw new SecurityException("缺少接口权限: " + permissionCode);
     }
 
     public void assertBucketPermission(String bucketName, String action) {
@@ -56,8 +56,23 @@ public class PermissionAssertService {
 
         if (!allowed) {
             log.warn("Bucket permission denied for user {} on bucket {} action {}", snapshot.username(), bucketName, action);
-            throw new SecurityException("无权限访问该存储桶");
+            throw new SecurityException(buildBucketPermissionDeniedMessage(bucketName, action, actions, globalActions));
         }
+    }
+
+    private String buildBucketPermissionDeniedMessage(String bucketName,
+                                                      String action,
+                                                      Set<String> actions,
+                                                      Set<String> globalActions) {
+        if (!actions.isEmpty()) {
+            return "缺少桶权限: bucket=" + bucketName
+                    + ", action=" + action
+                    + ", 当前桶权限=" + actions
+                    + "；该桶存在专属权限配置，未回退全局权限 " + globalActions;
+        }
+        return "缺少桶权限: bucket=" + bucketName
+                + ", action=" + action
+                + ", 当前桶权限=[], 全局桶权限=" + globalActions;
     }
 
     public boolean hasMenuPermission(String permissionCode) {

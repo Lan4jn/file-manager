@@ -175,7 +175,7 @@ class TransferControllerTest {
     }
 
     @Test
-    void shouldReturnApplicationDownloadUrlWhenModeIsApplication() throws Exception {
+    void shouldReturnProxyStreamUrlWhenModeIsApplication() throws Exception {
         when(configService.getDownloadTransportMode()).thenReturn("APPLICATION");
         when(fileService.getFileInfo("docs/readme.txt", "bucket-a"))
                 .thenReturn(fileInfo("docs/readme.txt", "readme.txt", 12L));
@@ -187,12 +187,12 @@ class TransferControllerTest {
                                 """))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.data.mode").value("APPLICATION"))
-                .andExpect(jsonPath("$.data.downloadUrl", containsString("/api/file/download")))
-                .andExpect(jsonPath("$.data.downloadUrl", containsString("objectName=docs%2Freadme.txt")));
+                .andExpect(jsonPath("$.data.downloadUrl", containsString("/api/transfer/download/stream/")))
+                .andExpect(jsonPath("$.data.fallbackUrl", containsString("/api/transfer/download/stream/")));
     }
 
     @Test
-    void shouldReturnApplicationDownloadUrlWhenHybridAndSmallFile() throws Exception {
+    void shouldReturnProxyStreamUrlWhenHybridAndSmallFile() throws Exception {
         when(configService.getDownloadTransportMode()).thenReturn("HYBRID");
         when(configService.getDownloadProxyThresholdBytes()).thenReturn(1024L);
         when(fileService.getFileInfo("docs/readme.txt", "bucket-a"))
@@ -205,7 +205,7 @@ class TransferControllerTest {
                                 """))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.data.mode").value("APPLICATION"))
-                .andExpect(jsonPath("$.data.downloadUrl", containsString("/api/file/download")));
+                .andExpect(jsonPath("$.data.downloadUrl", containsString("/api/transfer/download/stream/")));
     }
 
     @Test
@@ -255,13 +255,32 @@ class TransferControllerTest {
         mockMvc.perform(post("/api/transfer/upload/session")
                         .contentType(MediaType.APPLICATION_JSON)
                         .content("""
-                                {"fileName":"report.pdf","size":128,"contentType":"application/pdf","folder":"docs","bucket":"bucket-a"}
+                                {"fileName":"report.pdf","size":128,"contentType":"application/pdf","folder":"docs","bucket":"bucket-a","uploadTraceId":"trace-001"}
                                 """))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.data.mode").value("DIRECT"))
+                .andExpect(jsonPath("$.data.uploadTraceId").value("trace-001"))
                 .andExpect(jsonPath("$.data.uploadUrl").value("http://minio/upload-url"))
                 .andExpect(jsonPath("$.data.uploadToken").isNotEmpty())
                 .andExpect(jsonPath("$.data.objectName").value("docs/report.pdf"));
+    }
+
+    @Test
+    void shouldUseTargetFileNameWhenCreatingUploadSession() throws Exception {
+        when(configService.getUploadTransportMode()).thenReturn("DIRECT");
+        when(fileService.prepareDirectUpload("renamed-report.pdf", 128L, "docs", "bucket-a"))
+                .thenReturn(new FileDomainSupport.PreparedUpload("bucket-a", "docs/renamed-report.pdf", "renamed-report.pdf", 128L));
+        when(fileService.getPresignedUploadUrl("docs/renamed-report.pdf", "bucket-a"))
+                .thenReturn("http://minio/upload-url");
+
+        mockMvc.perform(post("/api/transfer/upload/session")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("""
+                                {"fileName":"report.pdf","originalFileName":"report.pdf","targetFileName":"renamed-report.pdf","size":128,"contentType":"application/pdf","folder":"docs","bucket":"bucket-a"}
+                                """))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.fileName").value("renamed-report.pdf"))
+                .andExpect(jsonPath("$.data.objectName").value("docs/renamed-report.pdf"));
     }
 
     @Test
@@ -273,13 +292,13 @@ class TransferControllerTest {
         uploadResponse.setSize(128L);
         uploadResponse.setContentType("application/pdf");
         String uploadToken = transferSessionService.issueUploadToken(
-                "alice", "bucket-a", "docs/report.pdf", "report.pdf", "application/pdf", 128L);
-        when(fileService.completeDirectUpload("bucket-a", "docs/report.pdf", "report.pdf", "application/pdf", 128L))
+                "alice", "bucket-a", "docs/report.pdf", "report.pdf", "application/pdf", 128L, "token-trace");
+        when(fileService.completeDirectUpload("bucket-a", "docs/report.pdf", "report.pdf", "application/pdf", 128L, "request-trace"))
                 .thenReturn(uploadResponse);
 
         mockMvc.perform(post("/api/transfer/upload/complete")
                         .contentType(MediaType.APPLICATION_JSON)
-                        .content("{\"uploadToken\":\"" + uploadToken + "\"}"))
+                        .content("{\"uploadToken\":\"" + uploadToken + "\",\"uploadTraceId\":\"request-trace\"}"))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.data.objectName").value("docs/report.pdf"))
                 .andExpect(jsonPath("$.data.fileName").value("report.pdf"));

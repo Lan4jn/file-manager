@@ -48,7 +48,7 @@ public class TransferController {
 
     @PostMapping("/upload/complete")
     public Result<UploadResponse> completeUpload(@RequestBody TransferUploadCompleteRequest request) {
-        return Result.success(transferProxyService.completeUpload(request.getUploadToken()));
+        return Result.success(transferProxyService.completeUpload(request.getUploadToken(), request.getUploadTraceId()));
     }
 
     @GetMapping("/download/stream/{token}")

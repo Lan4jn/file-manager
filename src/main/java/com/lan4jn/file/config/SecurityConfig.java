@@ -69,7 +69,6 @@ public class SecurityConfig {
                 .authorizeHttpRequests(auth -> auth
                         .requestMatchers("/").permitAll()
                         .requestMatchers("/index.html").permitAll()
-                        .requestMatchers("/lite.html").permitAll()
                         .requestMatchers("/share.html").permitAll()
                         .requestMatchers("/favicon.ico").permitAll()
                         .requestMatchers("/favicon.svg").permitAll()
@@ -79,8 +78,8 @@ public class SecurityConfig {
                         .requestMatchers("/img/**").permitAll()
                         .requestMatchers("/share/**").permitAll()
                         .requestMatchers("/full").permitAll()
-                        .requestMatchers("/lite").permitAll()
-                        .requestMatchers("/api/auth/**").permitAll()
+                        .requestMatchers(org.springframework.http.HttpMethod.POST, "/api/auth/login", "/api/auth/register", "/api/auth/certificate-login").permitAll()
+                        .requestMatchers(org.springframework.http.HttpMethod.GET, "/api/auth/login-challenge", "/api/auth/runtime-config").permitAll()
                         .requestMatchers("/ws/messages").permitAll()
                         .requestMatchers("/api/share/info").permitAll()
                         .requestMatchers("/api/share/access-info").permitAll()

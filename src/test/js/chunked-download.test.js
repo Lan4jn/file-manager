@@ -20,9 +20,14 @@ test('should pause and resume chunked download from the next pending chunk', asy
 
     global.fetch = async (url, options) => {
         requestCount += 1;
+        const start = (requestCount - 1) * 4;
+        const end = start + 3;
         return {
             ok: true,
             status: 206,
+            headers: {
+                get: (name) => name === 'Content-Range' ? 'bytes ' + start + '-' + end + '/12' : null
+            },
             arrayBuffer: async () => new Uint8Array([requestCount, requestCount, requestCount, requestCount]).buffer
         };
     };
@@ -71,6 +76,9 @@ test('should cancel chunked download before saving file', async () => {
         return {
             ok: true,
             status: 206,
+            headers: {
+                get: (name) => name === 'Content-Range' ? 'bytes 0-3/12' : null
+            },
             arrayBuffer: async () => new Uint8Array([1, 2, 3, 4]).buffer
         };
     };

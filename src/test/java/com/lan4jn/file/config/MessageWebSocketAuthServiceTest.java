@@ -1,6 +1,8 @@
 package com.lan4jn.file.config;
 
 import com.lan4jn.file.utils.JwtTokenUtil;
+import com.lan4jn.file.service.BearerIdentityService;
+import org.springframework.test.util.ReflectionTestUtils;
 import org.junit.jupiter.api.Test;
 import org.springframework.security.core.authority.SimpleGrantedAuthority;
 import org.springframework.security.core.userdetails.User;
@@ -18,28 +20,30 @@ class MessageWebSocketAuthServiceTest {
 
     @Test
     void shouldRejectDisabledUserEvenWhenTokenIsValid() {
-        JwtTokenUtil jwtTokenUtil = mock(JwtTokenUtil.class);
+        JwtTokenUtil jwtTokenUtil = new JwtTokenUtil();
+        ReflectionTestUtils.setField(jwtTokenUtil, "secret", "test-only-signing-key-that-is-longer-than-thirty-two-bytes");
+        ReflectionTestUtils.setField(jwtTokenUtil, "expiration", 60000L);
         UserDetailsService userDetailsService = mock(UserDetailsService.class);
-        MessageWebSocketAuthService service = new MessageWebSocketAuthService(jwtTokenUtil, userDetailsService);
+        MessageWebSocketAuthService service = new MessageWebSocketAuthService(new BearerIdentityService(jwtTokenUtil, userDetailsService, null, null, null, false));
 
-        when(jwtTokenUtil.validateToken("token-1")).thenReturn(true);
-        when(jwtTokenUtil.getUsernameFromToken("token-1")).thenReturn("bob");
+        String token = jwtTokenUtil.generateToken("bob", 1L, "");
         when(userDetailsService.loadUserByUsername("bob")).thenReturn(buildUser("bob", false));
 
-        assertNull(service.resolveUsername("token-1"));
+        assertNull(service.resolveUsername(token));
     }
 
     @Test
     void shouldReturnUsernameForEnabledUserWithValidToken() {
-        JwtTokenUtil jwtTokenUtil = mock(JwtTokenUtil.class);
+        JwtTokenUtil jwtTokenUtil = new JwtTokenUtil();
+        ReflectionTestUtils.setField(jwtTokenUtil, "secret", "test-only-signing-key-that-is-longer-than-thirty-two-bytes");
+        ReflectionTestUtils.setField(jwtTokenUtil, "expiration", 60000L);
         UserDetailsService userDetailsService = mock(UserDetailsService.class);
-        MessageWebSocketAuthService service = new MessageWebSocketAuthService(jwtTokenUtil, userDetailsService);
+        MessageWebSocketAuthService service = new MessageWebSocketAuthService(new BearerIdentityService(jwtTokenUtil, userDetailsService, null, null, null, false));
 
-        when(jwtTokenUtil.validateToken("token-2")).thenReturn(true);
-        when(jwtTokenUtil.getUsernameFromToken("token-2")).thenReturn("alice");
+        String token = jwtTokenUtil.generateToken("alice", 1L, "");
         when(userDetailsService.loadUserByUsername("alice")).thenReturn(buildUser("alice", true));
 
-        assertEquals("alice", service.resolveUsername("token-2"));
+        assertEquals("alice", service.resolveUsername(token));
     }
 
     private UserDetails buildUser(String username, boolean enabled) {

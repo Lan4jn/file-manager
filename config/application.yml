@@ -16,6 +16,16 @@ server:
     key-store-password: changeit
     key-store-type: PKCS12
     key-alias: file-manager
+    enabled-protocols:
+      - TLSv1.3
+      - TLSv1.2
+    ciphers:
+      - TLS_AES_256_GCM_SHA384
+      - TLS_AES_128_GCM_SHA256
+      - TLS_CHACHA20_POLY1305_SHA256
+      - TLS_ECDHE_RSA_WITH_AES_256_GCM_SHA384
+      - TLS_ECDHE_RSA_WITH_AES_128_GCM_SHA256
+      - TLS_ECDHE_RSA_WITH_CHACHA20_POLY1305_SHA256
 
 spring:
   servlet:
@@ -56,12 +66,9 @@ app:
     force-https: true
     # 可选的纯 HTTP 端口，设为 -1 表示关闭 HTTP 监听
     http-port: 18080
+  datasource-mirror:
+    enabled: false
 
 logging:
   level:
     com.lan4jn.file: info
-  config: ./config/log4j2.xml
-
-ui:
-  # full = 完整版界面，lite = 轻量版界面
-  mode: full

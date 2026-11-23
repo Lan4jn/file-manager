@@ -23,7 +23,7 @@
 - 角色管理、菜单权限、接口权限、桶级权限
 - 审计日志查询与审计权限隔离
 - 文件上传大小、分享策略等系统配置
-- 完整版 / 轻量版双界面模式
+- 统一的文件管理工作台
 
 ## 技术栈
 
@@ -93,8 +93,6 @@ jwt:
   secret: replace-with-a-strong-jwt-secret-at-least-32-characters-long
   expiration: 86400000
 
-ui:
-  mode: full
 ```
 
 说明：
@@ -102,7 +100,6 @@ ui:
 - `minio.endpoint` 是后端 SDK 直连 MinIO 的地址
 - `minio.public-url` 是前端访问、分享展示使用的地址
 - `jwt.secret` 生产环境必须替换成高强度密钥
-- `ui.mode` 可选 `full` 或 `lite`
 - `ENV_FILE` 用于决定叠加哪份环境 YAML
 
 ### 3. 本地启动

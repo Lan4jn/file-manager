@@ -20,6 +20,7 @@ import io.minio.MinioClient;
 import org.junit.jupiter.api.Test;
 import org.mockito.Mockito;
 import org.springframework.http.ResponseEntity;
+import org.springframework.security.core.Authentication;
 import org.springframework.web.bind.annotation.DeleteMapping;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PostMapping;
@@ -55,7 +56,7 @@ class SplitContractTest {
     @Test
     void shouldKeepControllerResponseContractsStable() throws Exception {
         assertEquals(Result.class, FileController.class.getMethod("listBuckets", String.class, String.class).getReturnType());
-        assertEquals(Result.class, FileController.class.getMethod("list", String.class, String.class, String.class, String.class, boolean.class, int.class, int.class).getReturnType());
+        assertEquals(Result.class, FileController.class.getMethod("list", String.class, String.class, String.class, String.class, boolean.class, int.class, int.class, Authentication.class).getReturnType());
         assertEquals(ResponseEntity.class, FileController.class.getMethod("download", String.class, String.class, String.class).getReturnType());
         assertEquals(Result.class, ShareController.class.getMethod("getShareAccessInfo", String.class).getReturnType());
         assertEquals(ResponseEntity.class, ShareController.class.getMethod("downloadByShareCode", String.class, String.class, String.class).getReturnType());

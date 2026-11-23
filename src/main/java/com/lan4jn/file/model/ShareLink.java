@@ -26,6 +26,11 @@ public class ShareLink {
     private String targetType;
     private Boolean isFolder;  // 鏄惁鏄洰褰曞垎浜?
     private String zipFileName;  // 鍘嬬缉鍖呮枃浠跺悕
+    private Boolean cancelled;
+    private Boolean hiddenByCreator;
+
+    @Transient
+    private String recipientDisplayText;
 
     public String getShareCode() {
         return shareCode;
@@ -132,5 +137,29 @@ public class ShareLink {
 
     public void setZipFileName(String zipFileName) {
         this.zipFileName = zipFileName;
+    }
+
+    public Boolean getCancelled() {
+        return cancelled;
+    }
+
+    public void setCancelled(Boolean cancelled) {
+        this.cancelled = cancelled;
+    }
+
+    public Boolean getHiddenByCreator() {
+        return hiddenByCreator;
+    }
+
+    public void setHiddenByCreator(Boolean hiddenByCreator) {
+        this.hiddenByCreator = hiddenByCreator;
+    }
+
+    public String getRecipientDisplayText() {
+        return recipientDisplayText;
+    }
+
+    public void setRecipientDisplayText(String recipientDisplayText) {
+        this.recipientDisplayText = recipientDisplayText;
     }
 }

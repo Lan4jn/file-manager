@@ -1,0 +1,19 @@
+# SQLite 为主库、达梦为镜像库的示例配置。业务读写始终使用 spring.datasource 主库。
+
+app:
+  datasource-mirror:
+    enabled: true
+    sync-on-startup: true
+    sync-after-commit: true
+    debounce-ms: 2000
+    minimum-interval-ms: 5000
+    reconcile-interval-ms: 60000
+    batch-size: 500
+    replicas:
+      - name: dm-primary-mirror
+        enabled: true
+        driver-class-name: dm.jdbc.driver.DmDriver
+        url: ${DM_MIRROR_URL:jdbc:dm://127.0.0.1:5236}
+        username: ${DM_MIRROR_USERNAME:FILE_MANAGER_MIRROR}
+        password: ${DM_MIRROR_PASSWORD:replace-me}
+        maximum-pool-size: 3

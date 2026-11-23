@@ -18,7 +18,6 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.security.core.Authentication;
 import org.springframework.security.core.context.SecurityContextHolder;
-import org.springframework.security.crypto.bcrypt.BCrypt;
 import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.web.bind.annotation.*;
 
@@ -189,12 +188,24 @@ public class AuthController {
         return Result.success();
     }
 
+    @org.springframework.beans.factory.annotation.Value("${app.security.client-certificate.enabled:false}")
+    private boolean clientCertificateEnabled;
+
+    @org.springframework.beans.factory.annotation.Autowired(required = false)
+    private com.lan4jn.file.service.IssuerBridgeSettings issuerBridgeSettings;
+
+    public void setIssuerBridgeSettings(com.lan4jn.file.service.IssuerBridgeSettings issuerBridgeSettings) {
+        this.issuerBridgeSettings = issuerBridgeSettings;
+    }
+
     @GetMapping("/runtime-config")
     public Result<Map<String, Object>> getRuntimeConfig() {
         Map<String, Object> data = new HashMap<>();
         data.put("httpPort", httpPort);
         data.put("httpsPort", httpsPort);
         data.put("forceHttps", forceHttps);
+        data.put("clientCertificateEnabled", clientCertificateEnabled);
+        data.put("certificateIssuanceEnabled", issuerBridgeSettings != null && issuerBridgeSettings.isEnabled());
         data.put("appVersion", appInfoService.getCurrentVersion());
         data.put("fileRowHiddenActions", configService.getFileRowHiddenActions());
         return Result.success(data);
@@ -234,28 +245,14 @@ public class AuthController {
             String expectedProof = sha512(user.getPassword() + ":" + nonce);
             return expectedProof.equalsIgnoreCase(passwordProof);
         }
-        return password != null && !password.isBlank() && matchesStoredPassword(password, user.getPassword());
+        return password != null && !password.isBlank() && StoredPassword.matches(password, user.getPassword(), passwordEncoder);
     }
 
     private String resolvePasswordScheme(User user) {
         if (user == null || user.getPassword() == null || user.getPassword().isBlank()) {
             return PASSWORD_SCHEME_SHA512;
         }
-        return isBcryptHash(user.getPassword()) ? PASSWORD_SCHEME_BCRYPT : PASSWORD_SCHEME_SHA512;
-    }
-
-    private boolean matchesStoredPassword(String rawPassword, String storedPassword) {
-        if (storedPassword == null || storedPassword.isBlank()) {
-            return false;
-        }
-        if (isBcryptHash(storedPassword)) {
-            return BCrypt.checkpw(rawPassword, storedPassword);
-        }
-        return passwordEncoder.matches(rawPassword, storedPassword);
-    }
-
-    private boolean isBcryptHash(String password) {
-        return password != null && (password.startsWith("$2a$") || password.startsWith("$2b$") || password.startsWith("$2y$"));
+        return StoredPassword.isBcrypt(user.getPassword()) ? PASSWORD_SCHEME_BCRYPT : PASSWORD_SCHEME_SHA512;
     }
 
     private String sha512(String value) {

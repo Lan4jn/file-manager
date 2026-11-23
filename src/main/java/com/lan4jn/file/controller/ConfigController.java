@@ -16,9 +16,6 @@ public class ConfigController {
 
     private final ConfigService configService;
 
-    @Value("${ui.mode:full}")
-    private String uiMode;
-
     @Value("${server.port:8080}")
     private int serverPort;
 
@@ -29,7 +26,7 @@ public class ConfigController {
     @GetMapping("/ui")
     public Result<Map<String, Object>> getUiConfig() {
         Map<String, Object> config = new HashMap<>();
-        config.put("mode", uiMode);
+        config.put("mode", "full");
         config.put("port", serverPort);
         config.put("uploadTransportMode", configService.getUploadTransportMode());
         config.put("downloadTransportMode", configService.getDownloadTransportMode());

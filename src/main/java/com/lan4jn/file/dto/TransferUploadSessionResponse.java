@@ -12,6 +12,7 @@ public class TransferUploadSessionResponse {
     private String bucket;
     private String fileName;
     private String contentType;
+    private String uploadTraceId;
     private Map<String, String> headers;
 
     public TransportMode getMode() {
@@ -68,6 +69,14 @@ public class TransferUploadSessionResponse {
 
     public void setContentType(String contentType) {
         this.contentType = contentType;
+    }
+
+    public String getUploadTraceId() {
+        return uploadTraceId;
+    }
+
+    public void setUploadTraceId(String uploadTraceId) {
+        this.uploadTraceId = uploadTraceId;
     }
 
     public Map<String, String> getHeaders() {

@@ -20,6 +20,7 @@ import java.nio.charset.StandardCharsets;
 import java.time.LocalDateTime;
 import java.time.ZoneId;
 import java.time.ZonedDateTime;
+import java.util.Locale;
 import java.util.Arrays;
 import java.util.Collections;
 import java.util.LinkedHashMap;
@@ -80,7 +81,7 @@ public final class FileDomainSupport {
         response.setSize(size);
         response.setContentType(contentType);
         response.setUrl(buildPublicObjectUrl(publicUrl, bucket, objectName));
-        response.setEtag(stat.etag());
+        response.setEtag(stat == null ? null : stat.etag());
         return response;
     }
 
@@ -178,20 +179,37 @@ public final class FileDomainSupport {
 
     InputStream getFileStream(String objectName, String bucket, String defaultBucket, Long offset, Long length) {
         String resolvedBucket = resolveBucket(bucket, defaultBucket);
-        try {
-            GetObjectArgs.Builder builder = GetObjectArgs.builder()
-                    .bucket(resolvedBucket)
-                    .object(objectName);
-            if (offset != null) {
-                builder.offset(offset);
+        RuntimeException lastError = null;
+        for (int attempt = 1; attempt <= 3; attempt++) {
+            try {
+                GetObjectArgs.Builder builder = GetObjectArgs.builder()
+                        .bucket(resolvedBucket)
+                        .object(objectName);
+                if (offset != null) {
+                    builder.offset(offset);
+                }
+                if (length != null) {
+                    builder.length(length);
+                }
+                return minioClient.getObject(builder.build());
+            } catch (Exception e) {
+                lastError = new RuntimeException("获取文件失败: " + e.getMessage(), e);
+                if (attempt >= 3 || !isTransientGetObjectFailure(e)) {
+                    throw lastError;
+                }
             }
-            if (length != null) {
-                builder.length(length);
-            }
-            return minioClient.getObject(builder.build());
-        } catch (Exception e) {
-            throw new RuntimeException("获取文件失败: " + e.getMessage(), e);
         }
+        throw lastError == null ? new RuntimeException("获取文件失败") : lastError;
+    }
+
+    private boolean isTransientGetObjectFailure(Exception exception) {
+        String message = exception == null ? "" : String.valueOf(exception.getMessage()).toLowerCase(Locale.ROOT);
+        return message.contains("timeout exceeded")
+                || message.contains("timed out")
+                || message.contains("reduce your request rate")
+                || message.contains("connection reset")
+                || message.contains("connection refused")
+                || message.contains("broken pipe");
     }
 
     String generateObjectName(String folder, String originalFilename, String bucket) {
@@ -319,6 +337,14 @@ public final class FileDomainSupport {
             throw new IllegalArgumentException("fileName不能为空");
         }
         return filename.trim();
+    }
+
+    String normalizeEntryName(String name) {
+        String normalized = normalizeFileName(name);
+        if (normalized.contains("/") || normalized.contains("\\")) {
+            throw new IllegalArgumentException("名称不合法，不能包含路径分隔符");
+        }
+        return normalized;
     }
 
     String getFileExtension(String filename) {

@@ -1,0 +1,146 @@
+{
+  "packages": [
+    {
+      "name": "@fontsource-variable/geist",
+      "version": "5.3.0",
+      "source": "https://registry.npmjs.org/@fontsource-variable/geist/-/geist-5.3.0.tgz",
+      "integrity": "sha512-j0m+vLQuG5XAYoHtGCVu0spvlGreR3EzpECUVzkFmI1mTVnAO38l/NEPDCFgZ177JxzYJCLSmTQibIiYPilGrA=="
+    },
+    {
+      "name": "@phosphor-icons/core",
+      "version": "2.1.1",
+      "source": "https://registry.npmjs.org/@phosphor-icons/core/-/core-2.1.1.tgz",
+      "integrity": "sha512-v4ARvrip4qBCImOE5rmPUylOEK4iiED9ZyKjcvzuezqMaiRASCHKcRIuvvxL/twvLpkfnEODCOJp5dM4eZilxQ=="
+    }
+  ],
+  "icons": {
+    "Avatar": {
+      "path": "assets/regular/users.svg",
+      "sha256": "b3385e4c6aa03f7e16d1b03887c2cdff9900f5a7edbd5ea5176055938ccfb908"
+    },
+    "Back": {
+      "path": "assets/regular/arrow-left.svg",
+      "sha256": "3c2001cf957d182fc54927e4b286cc8cf66dd97830f441ca2650d42a63a9006a"
+    },
+    "Box": {
+      "path": "assets/regular/archive.svg",
+      "sha256": "bde81c0c44e80a7b8bf97f29ec11488c1b48998f2f74b2eb29e13ef8c1975e75"
+    },
+    "CircleCheck": {
+      "path": "assets/regular/check-circle.svg",
+      "sha256": "e02a080c3d1a758de5c5fd41abd913dec4cffbc70fe1e9637dbf7ce35f377055"
+    },
+    "Close": {
+      "path": "assets/regular/x.svg",
+      "sha256": "7397b15e1fa66eaf6ff9b59fe91d483cb5c3bcf75b2fe052097ab6f0593b513a"
+    },
+    "CopyDocument": {
+      "path": "assets/regular/files.svg",
+      "sha256": "bb4cec5fc4ae78d9bfc38378db6d991a4f9b89e0e58db97a95a083b68a4c5a9e"
+    },
+    "DocumentCopy": {
+      "path": "assets/regular/copy.svg",
+      "sha256": "5a892fc6a72866e60c67db2088a87653cf44b57b1a5d183b36e950cdc5dd66b3"
+    },
+    "Delete": {
+      "path": "assets/regular/trash.svg",
+      "sha256": "e6a830c0409f9e101e3695c981eef98427d39fd01f502b9cbd6900930b01f19c"
+    },
+    "Document": {
+      "path": "assets/regular/file-text.svg",
+      "sha256": "9a580a038cce9f6dd223597864abe1b5c5c03bf8176d2f7171574598468b16f7"
+    },
+    "Download": {
+      "path": "assets/regular/download-simple.svg",
+      "sha256": "c48678aa09b44ba4974954690ee6cc846379c448a7214f8c802604c2a1562014"
+    },
+    "Edit": {
+      "path": "assets/regular/pencil-simple.svg",
+      "sha256": "999530da442f44d8cf0054364373d16150f3e082c2ac294a4988a9c3a4295c28"
+    },
+    "Folder": {
+      "path": "assets/regular/folder.svg",
+      "sha256": "4a882bcd4a91ae0a01887024f08d358932f183b6b171e87a3e48c5910364d507"
+    },
+    "Key": {
+      "path": "assets/regular/key.svg",
+      "sha256": "61694102f24a2eb4ce68f337fb6bf81090aef219328cb10dc2bd3f3c9e2ea266"
+    },
+    "Lock": {
+      "path": "assets/regular/lock-simple.svg",
+      "sha256": "b99d3713ac86cb610eb66974d69de2aa1223c4f6387fb1053e3d375e62f5dc1c"
+    },
+    "Monitor": {
+      "path": "assets/regular/squares-four.svg",
+      "sha256": "f70d6b20e08e028ab5b1714077681910a2431092cf7a23b82366ddaec554ab87"
+    },
+    "Plus": {
+      "path": "assets/regular/plus.svg",
+      "sha256": "d688feb9dd2e41c1721d6906a05a2a42e18cd774762fe706d72b2bdfd91cddc4"
+    },
+    "Rank": {
+      "path": "assets/regular/arrows-out-cardinal.svg",
+      "sha256": "094c06956480ef125fccfbd11936508b78f068547a028fc4d416962edbde9417"
+    },
+    "Refresh": {
+      "path": "assets/regular/arrows-clockwise.svg",
+      "sha256": "2e80fbc9c5c37553934c9ebbd6324bf7fabe9a4b4d7c2445d99edfce55cc22df"
+    },
+    "Setting": {
+      "path": "assets/regular/gear-six.svg",
+      "sha256": "2bb05ec80cc37505a3f21c74989dbb297ab8442a668f5ffbd6a8f7c1d5794c7b"
+    },
+    "Share": {
+      "path": "assets/regular/share-network.svg",
+      "sha256": "e6923db3591f797c89c36671aad3e20effd7b06e6eb400b2a7ffb6daaed0474a"
+    },
+    "Star": {
+      "path": "assets/regular/star.svg",
+      "sha256": "165cd96e51d60442fb9c7aa89592fa6ef28f22d18368c85771be302c2e977101"
+    },
+    "Top": {
+      "path": "assets/regular/arrow-up.svg",
+      "sha256": "361aa9f9c52a759bf598faf6ed38ccd426f949f541d662c65b5b5d868fa76980"
+    },
+    "Upload": {
+      "path": "assets/regular/upload-simple.svg",
+      "sha256": "d2b22b75affd718a4a24d71ee71586b277cf48ddb7d52b7d7d0a85b47f8b12d1"
+    },
+    "User": {
+      "path": "assets/regular/user.svg",
+      "sha256": "787434f7fef95f20e137d309d3c6b8b471548c55c9dfc137ae10625d70959d11"
+    },
+    "ArrowDown": {
+      "path": "assets/regular/caret-down.svg",
+      "sha256": "53f0cf2d0b144ac3cb07e353e0cd0853ffb3ed432d741460ce288edfcb0924b1"
+    },
+    "QuestionFilled": {
+      "path": "assets/regular/question.svg",
+      "sha256": "fd9a87cfce2abaa9113058be90e5281da58f665e2185974b80c7425d5c7fe2d6"
+    },
+    "FolderAdd": {
+      "path": "assets/regular/folder-plus.svg",
+      "sha256": "576f2e68f6adf880e3334363b1d3baa2bd07ef41b7ae04a77cbe4eea240e62df"
+    },
+    "View": {
+      "path": "assets/regular/eye.svg",
+      "sha256": "91d39f20bf95e0f36c07bd79b83a85fe6ff4ca20e2759c4afee7419ef80403fe"
+    },
+    "ChatCircle": {
+      "path": "assets/regular/chat-circle.svg",
+      "sha256": "09e36aa820a39bbc8cffe705ad84c836d1e5733f83dc1d2212a965fdacdf4a67"
+    },
+    "Pause": {
+      "path": "assets/regular/pause.svg",
+      "sha256": "7a9a8fe311234262b85c6e332f77db4ba9a59b6ca4292c41d327977cf61a2fc9"
+    },
+    "Play": {
+      "path": "assets/regular/play.svg",
+      "sha256": "885b3ed2095889c4ff063dac35dc424cb9f6c00273ab44e2f90dc9dadbee661a"
+    },
+    "DotsThreeVertical": {
+      "path": "assets/regular/dots-three-vertical.svg",
+      "sha256": "85fdecd2193efcd7e80a83607b66d2680fef8f3d1e93380c26f9851b24edbd01"
+    }
+  }
+}

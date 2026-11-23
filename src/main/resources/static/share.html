@@ -1,9 +1,24 @@
 <!DOCTYPE html>
-<html lang="zh-CN">
+<html lang="zh-CN" data-type="software" data-motion data-radius="soft">
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>分享空间</title>
+    <title>文件分享 · 文件管理器</title>
+    <meta name="page-type" content="software">
+    <meta name="site-kind" content="software">
+    <meta name="theme-color" content="#edf3f5">
+    <meta property="og:type" content="website">
+    <meta property="og:title" content="文件分享">
+    <meta property="og:description" content="文件目录、上传下载与权限分享">
+    <meta property="og:image" content="./vendor/taste/login-preview.png">
+    <meta property="og:image:width" content="1440">
+    <meta property="og:image:height" content="900">
+    <meta property="og:image:alt" content="文件管理器登录与功能示意">
+    <meta name="twitter:card" content="summary_large_image">
+    <script>document.documentElement.classList.add('m-enter');setTimeout(()=>document.documentElement.classList.add('m-enter-done'),700)</script>
+    <meta name="description" content="验证并访问分享给你的文件与目录">
+    <meta name="robots" content="noindex, nofollow">
+    <link rel="icon" type="image/svg+xml" href="./favicon.svg">
     <style>
         :root {
             --bg-1: #f3eadc;
@@ -264,17 +279,21 @@
             }
         }
     </style>
+    <link rel="stylesheet" href="./vendor/taste/motion/motion.css">
+    <link rel="stylesheet" href="./css/workspace-theme.css?v=build143">
+    <link rel="stylesheet" href="./css/workspace-blueprint.css?v=build143">
 </head>
-<body>
-<div class="shell">
-    <div class="hero">
-        <div class="eyebrow">Shared Space</div>
+<body class="workspace-share">
+<a class="skip-link" href="#share-main">跳至分享内容</a>
+<main class="shell" id="share-main">
+    <div class="hero" data-enter>
+        <header class="share-brand"><span class="title-3">文件管理器</span><a href="./">返回工作台</a></header>
         <div class="hero-head">
             <div>
-                <h1 id="title">正在加载分享内容</h1>
+                <h1 id="title" data-enter-whole>正在加载分享内容</h1>
                 <div class="meta" id="meta"></div>
                 <div class="hint" id="hint"></div>
-                <div class="error" id="error"></div>
+                <div class="error" id="error" role="alert" aria-live="polite"></div>
             </div>
             <div class="stats">
                 <div class="badge" id="typeBadge">分享</div>
@@ -282,10 +301,12 @@
             </div>
         </div>
 
-        <div id="verifyBlock" class="verify hidden">
-            <input id="password" type="text" placeholder="请输入提取码">
+        <section id="verifyBlock" class="verify hidden" aria-labelledby="verifyHeading">
+            <h2 id="verifyHeading">验证提取码</h2>
+            <label for="password">提取码</label>
+            <input id="password" aria-label="提取码" autocomplete="off" type="text" placeholder="请输入提取码">
             <button id="verifyBtn">验证并进入</button>
-        </div>
+        </section>
 
         <div id="singleActions" class="verify hidden">
             <button id="downloadBtn">下载文件</button>
@@ -298,7 +319,7 @@
                     <div class="panel-title">共享文件</div>
                     <div class="crumb" id="crumb">根目录</div>
                 </div>
-                <div style="display: flex; gap: 10px; flex-wrap: wrap;">
+                <div style="display: flex; gap: 8px; flex-wrap: wrap;">
                     <button id="downloadAllBtn">全部下载</button>
                     <button id="backBtn" class="secondary hidden">返回上级</button>
                 </div>
@@ -318,7 +339,7 @@
             <div class="list" id="shareDownloadTaskList"></div>
         </div>
     </div>
-</div>
+</main>
 
 <button id="shareDownloadToggle" class="secondary hidden share-download-toggle" type="button">下载任务</button>
 
@@ -585,8 +606,8 @@
 
         function extractMessage(error) {
             return error && error.response && error.response.data
-                ? (error.response.data.message || '请求失败')
-                : (error.message || '请求失败');
+                ? (error.response.data.message || '分享内容加载失败，请稍后重试')
+                : (error && error.message ? error.message : '分享内容加载失败，请稍后重试');
         }
 
         function openDownloadCenter() {
@@ -872,7 +893,11 @@
                 },
                 wait: createAbortablePollWait(abortController),
                 openDownload: function (url) {
-                    window.TransferUiHelpers.createNativeDownload(url);
+                    return window.TransferUiHelpers.runArchiveDownload(
+                        url,
+                        (shareInfo.fileName || '分享内容') + '.zip',
+                        window.TransferUiHelpers.createNativeDownload
+                    );
                 }
             }).then(function (result) {
                 updateDownloadTask(taskId, {
@@ -960,5 +985,6 @@
         }
     })();
 </script>
+<script type="module" src="./js/workspace-motion.js?v=build142"></script>
 </body>
 </html>

@@ -1,20 +1,45 @@
-﻿<!DOCTYPE html>
-<html lang="zh-CN">
+<!DOCTYPE html>
+<html lang="zh-CN" data-type="software" data-motion data-radius="soft">
 <head>
     <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
+    <meta name="page-type" content="software">
+    <meta name="site-kind" content="software">
+    <meta name="theme-color" content="#edf3f5">
+    <meta property="og:type" content="website">
+    <meta property="og:title" content="文件管理器">
+    <meta property="og:description" content="文件目录、上传下载与权限分享">
+    <meta property="og:image" content="./vendor/taste/login-preview.png">
+    <meta property="og:image:width" content="1440">
+    <meta property="og:image:height" content="900">
+    <meta property="og:image:alt" content="文件管理器登录与功能示意">
+    <meta name="twitter:card" content="summary_large_image">
+    <script>document.documentElement.classList.add('m-enter');setTimeout(()=>document.documentElement.classList.add('m-enter-done'),700)</script>
     <title>文件管理器</title>
+    <meta name="description" content="MinIO 文件与目录管理、上传下载和文件分享">
+    <meta name="robots" content="noindex, nofollow">
     <link rel="icon" type="image/svg+xml" href="./favicon.svg?v=20260324">
     <link rel="alternate icon" type="image/x-icon" href="./favicon.ico?v=20260324">
     <link rel="stylesheet" href="./css/element-plus.css">
     <link rel="stylesheet" href="./css/app.css">
+    <link rel="stylesheet" href="./vendor/taste/motion/motion.css">
+    <link rel="stylesheet" href="./css/workspace-theme.css?v=build143">
+    <link rel="stylesheet" href="./css/workspace-blueprint.css?v=build143">
+    <link rel="stylesheet" href="./css/workspace-blueprint-layout.css?v=build143">
 </head>
-<body>
+<body class="workspace-app">
     <div id="app">
+        <a v-if="isLoggedIn" class="skip-link" href="#main-content">跳至主要内容</a>
         <!-- Login Page -->
-        <div v-if="!isLoggedIn" class="login-container">
-            <div class="login-shell">
-                <section class="login-hero">
+        <main v-if="!isLoggedIn" class="login-container">
+            <section class="login-entry hero" data-enter>
+            <div class="login-shell wrap">
+                <div class="login-content">
+                <section class="login-hero" aria-labelledby="login-title">
+                    <div class="login-brand">
+                        <span class="brand-mark" aria-hidden="true">M</span>
+                        <div><h1 class="heading-5" id="login-title" data-enter-whole>文件管理器</h1><p class="caption-5">Drive Powered by MinIO</p></div>
+                    </div>
                     <el-alert
                         v-if="showHttpsNotice"
                         class="https-notice"
@@ -27,46 +52,30 @@
                             <a :href="httpsSuggestionUrl" class="https-notice-link">点此跳转</a>
                         </template>
                     </el-alert>
-                    <div class="brand-badge">Drive Powered by MinIO</div>
-                    <h1>MINIO管理工作台</h1>
-                    <p>把对象存储、文件目录、分享外链和权限控制放进一个统一界面。</p>
-                    <div class="hero-grid">
-                        <article class="hero-card">
-                            <span>多桶管理</span>
-                            <strong>统一入口</strong>
-                        </article>
-                        <article class="hero-card">
-                            <span>文件协作</span>
-                            <strong>即传即管</strong>
-                        </article>
-                        <article class="hero-card">
-                            <span>外链分发</span>
-                            <strong>安全分享</strong>
-                        </article>
-                    </div>
                 </section>
                 <el-card class="login-card">
                     <div class="login-card-header">
                         <div>
-                            <p class="eyebrow">Secure Access</p>
-                            <h2>登录文件管理器</h2>
+                            <h2 class="heading-6" id="login-form-title">账号登录</h2>
+                            <p class="body-6 login-intro">登录后访问你有权限的存储空间</p>
                         </div>
                         <div class="login-card-actions">
                             <span class="version-chip">{{ displayVersionLabel }}</span>
-                            <button type="button" class="mode-switch-button" @click="openLiteMode">切换到轻量版</button>
                         </div>
                     </div>
-                    <el-form :model="loginForm" @submit.prevent="handleLogin">
-                        <el-form-item>
+                    <el-form aria-labelledby="login-form-title" :model="loginForm" label-position="top" @submit.prevent="handleLogin">
+                        <el-form-item label="用户名" for="login-username">
                             <el-input
+                                id="login-username" autocomplete="username" aria-label="用户名"
                                 v-model="loginForm.username"
                                 placeholder="用户名"
                                 prefix-icon="User"
                                 @keydown.enter.prevent="handleLogin"
                             ></el-input>
                         </el-form-item>
-                        <el-form-item>
+                        <el-form-item label="密码" for="login-password">
                             <el-input
+                                id="login-password" autocomplete="current-password" aria-label="密码"
                                 v-model="loginForm.password"
                                 type="password"
                                 placeholder="密码"
@@ -77,14 +86,34 @@
                         </el-form-item>
                         <el-form-item>
                             <el-button type="primary" native-type="submit" class="login-submit" :loading="loginLoading">进入工作台</el-button>
+                            <el-button v-if="clientCertEnabled" class="certificate-login" native-type="button" :loading="loginLoading" @click="handleCertLogin">使用客户端证书登录</el-button>
                         </el-form-item>
                     </el-form>
                 </el-card>
+                </div>
+                <aside class="login-path-guide" aria-labelledby="login-path-title" data-enter-media>
+                    <h2 id="login-path-title">从存储桶找到文件</h2>
+                    <p>按目录浏览文件，上传、下载，或通过账号和链接分享。</p>
+                    <figure class="login-path-example">
+                        <figcaption>存储路径层级</figcaption>
+                        <ol class="login-path-tree">
+                            <li>
+                                <span><el-icon aria-hidden="true"><Box /></el-icon>存储桶</span>
+                                <ol><li>
+                                    <span><el-icon aria-hidden="true"><Folder /></el-icon>目录</span>
+                                    <ol><li><span><el-icon aria-hidden="true"><Folder /></el-icon>子目录</span></li></ol>
+                                </li></ol>
+                            </li>
+                        </ol>
+                        <code>存储桶 / 目录 / 子目录</code>
+                    </figure>
+                </aside>
             </div>
-        </div>
+            </section>
+        </main>
 
         <!-- Main App -->
-        <div v-else class="main-container">
+        <div v-else class="main-container" :data-page="currentMenu">
             <div class="app-backdrop"></div>
             <el-alert
                 v-if="showHttpsNotice"
@@ -99,16 +128,22 @@
                 </template>
             </el-alert>
             <!-- Header -->
-            <div class="header">
+            <header class="header">
                 <div class="header-left">
+                    <button type="button" class="workspace-nav-toggle" :class="{ 'is-open': navigationOpen }" @click="toggleNavigation" :aria-expanded="navigationOpen" aria-controls="workspace-navigation" aria-label="打开或关闭导航">
+                        <span class="nav-toggle-glyph" aria-hidden="true"><i></i><i></i></span>
+                    </button>
+                    <span class="workspace-page-icon" aria-hidden="true"><el-icon><component :is="({workbench: 'Monitor', buckets: 'Box', files: 'Folder', shares: 'Share', 'audit-logs': 'Document', users: 'User', roles: 'Avatar', config: 'Setting', 'minio-keys': 'Key'})[currentMenu] || 'Folder'" /></el-icon></span>
                     <div class="header-title-row">
                         <h2>{{ currentViewTitle }}</h2>
                         <p class="header-context">{{ currentViewDescription }}</p>
                     </div>
                 </div>
                 <div class="header-right">
-                    <button class="mode-switch-button" type="button" @click="openLiteMode">切换到轻量版</button>
                     <button class="ghost-action" @click="showVersionDialog = true">{{ displayVersionLabel }}</button>
+                    <button v-if="canOpenDiagnostics" class="ghost-action" type="button" @click="showDiagnosticsDialog = true">
+                        前端诊断
+                    </button>
                     <el-button class="help-text-button" @click="showHelpDialog = true">系统帮助</el-button>
                     <el-dropdown @command="handleCommand">
                         <span class="user-info">
@@ -122,29 +157,27 @@
                         <template #dropdown>
                             <el-dropdown-menu>
                                 <el-dropdown-item command="profile">个人信息</el-dropdown-item>
+                                <el-dropdown-item v-if="clientCertEnabled" command="cert-mgmt">客户端证书管理</el-dropdown-item>
                                 <el-dropdown-item command="logout">退出登录</el-dropdown-item>
                             </el-dropdown-menu>
                         </template>
                     </el-dropdown>
                 </div>
-            </div>
+            </header>
+            <button v-if="navigationOpen" class="workspace-nav-backdrop" type="button" aria-label="关闭导航" @click="closeNavigation"></button>
 
             <!-- Main Content -->
-            <div class="content">
+            <div class="content workspace-shell">
                 <!-- Sidebar -->
-                <div class="sidebar">
+                <aside class="sidebar" id="workspace-navigation" :class="{ 'is-open': navigationOpen }" aria-label="主导航">
+                    <button type="button" class="workspace-nav-close" aria-label="关闭导航" @click="closeNavigation"><el-icon><Close /></el-icon></button>
                     <div class="sidebar-top">
                         <div class="sidebar-brand">
                             <div class="brand-mark">M</div>
                             <div>
-                                <strong>Drive Powered by MinIO</strong>
-                                <p>对象存储工作台</p>
+                                <strong class="title-3">文件管理器</strong>
+                                <p class="caption-5">Drive Powered by MinIO</p>
                             </div>
-                        </div>
-                        <div class="sidebar-card">
-                            <span>存储桶</span>
-                            <strong>{{ bucketCount }}</strong>
-                            <small>{{ currentPathLabel }}</small>
                         </div>
                     </div>
                     <el-menu :default-active="currentMenu" @select="handleMenuSelect">
@@ -154,6 +187,10 @@
                                 <span>存储桶管理</span>
                             </el-menu-item>
                         </el-tooltip>
+                        <el-menu-item index="workbench">
+                            <el-icon><Monitor /></el-icon>
+                            <span>工作台</span>
+                        </el-menu-item>
                         <el-tooltip v-if="canAccessMenu('files')" content="浏览、上传、下载、删除文件，支持文件夹操作" placement="right" effect="light" :show-after="700">
                             <el-menu-item index="files">
                                 <el-icon><Folder /></el-icon>
@@ -202,19 +239,113 @@
                             </el-menu-item>
                         </el-tooltip>
                     </el-menu>
-                </div>
+                    <div class="sidebar-footer"><div class="sidebar-card">
+                            <span>存储桶</span>
+                            <strong>{{ bucketCount }}</strong>
+                            <small>{{ currentPathLabel }}</small>
+                        </div></div>
+                </aside>
 
                 <!-- Main Content Area -->
-                <div class="main-content">
+                <main class="main-content" id="main-content" tabindex="-1" :inert="navigationOpen || undefined">
                     <div v-if="!currentMenuAccessible" class="page-content">
                         <el-empty description="当前账号无权访问该功能"></el-empty>
                     </div>
 
+                    <div v-if="currentMenu === 'workbench' && currentMenuAccessible" class="page-content page-content--workbench">
+                        <div class="page-header page-header--workbench">
+                            <div>
+                                <h3 class="heading-5">工作台</h3>
+                                <p>继续最近的目录操作，或打开收藏目录</p>
+                            </div>
+                            <el-checkbox
+                                :model-value="workbenchOverview.defaultWorkbench"
+                                :disabled="workbenchPreferenceSaving"
+                                @change="updateWorkbenchPreference"
+                            >
+                                下次登录默认显示工作台
+                            </el-checkbox>
+                        </div>
+                        <div class="workbench-grid">
+                            <div class="workbench-directories">
+                                <section class="workbench-panel">
+                                    <div class="workbench-panel__header">
+                                        <div>
+                                            <h4>最近访问目录</h4>
+                                            <p>最近成功打开过的目录</p>
+                                        </div>
+                                    </div>
+                                    <div v-if="workbenchLoading" class="workbench-empty">加载中...</div>
+                                    <div v-else-if="!workbenchOverview.recentDirectories.length" class="workbench-empty">还没有目录访问记录</div>
+                                    <button
+                                        v-for="item in workbenchOverview.recentDirectories"
+                                        :key="'recent-' + item.bucketName + '-' + item.directoryPath"
+                                        type="button"
+                                        class="workbench-directory"
+                                        @click="openWorkbenchDirectory(item)"
+                                    >
+                                        <strong>{{ item.directoryName || item.directoryPath || '目录' }}</strong>
+                                        <span>{{ item.bucketName }} / {{ item.directoryPath }}</span>
+                                    </button>
+                                </section>
+                                <section class="workbench-panel">
+                                    <div class="workbench-panel__header">
+                                        <div>
+                                            <h4>收藏目录</h4>
+                                            <p>常用目录快捷入口</p>
+                                        </div>
+                                    </div>
+                                    <div v-if="workbenchLoading" class="workbench-empty">加载中...</div>
+                                    <div v-else-if="!workbenchOverview.favoriteDirectories.length" class="workbench-empty">还没有收藏目录</div>
+                                    <div
+                                        v-for="item in workbenchOverview.favoriteDirectories"
+                                        :key="'favorite-' + item.bucketName + '-' + item.directoryPath"
+                                        class="workbench-favorite"
+                                    >
+                                        <button type="button" class="workbench-directory workbench-directory__content" @click="openWorkbenchDirectory(item)">
+                                            <strong>{{ item.directoryName || item.directoryPath || '目录' }}</strong>
+                                            <span>{{ item.bucketName }} / {{ item.directoryPath }}</span>
+                                        </button>
+                                        <button type="button" class="workbench-directory__remove" @click.stop="removeFavoriteDirectory(item)">取消收藏</button>
+                                    </div>
+                                </section>
+                            </div>
+                            <section class="workbench-panel workbench-reminders">
+                                <div class="workbench-panel__header">
+                                    <div>
+                                        <h4>提醒摘要</h4>
+                                        <p>最近收到的分享提醒</p>
+                                    </div>
+                                    <el-badge
+                                        v-if="inboxUnreadCount > 0"
+                                        :value="inboxUnreadCount"
+                                        type="danger"
+                                    />
+                                </div>
+                                <div v-if="workbenchLoading" class="workbench-empty">加载中...</div>
+                                <div v-else-if="!workbenchOverview.shareReminders.length" class="workbench-empty">最近没有新的分享提醒</div>
+                                <button
+                                    v-for="(item, index) in workbenchOverview.shareReminders"
+                                    :key="'reminder-' + index"
+                                    type="button"
+                                    class="workbench-reminder"
+                                    @click="openWorkbenchShareReminder(item)"
+                                >
+                                    <div class="workbench-reminder__main">
+                                        <strong>{{ item.title }}</strong>
+                                        <span>{{ item.content }}</span>
+                                    </div>
+                                    <span class="workbench-reminder__content">{{ item.shareContentText || '分享内容待加载' }}</span>
+                                </button>
+                            </section>
+                        </div>
+                    </div>
+
                     <!-- Bucket Management -->
-                    <div v-if="currentMenu === 'buckets' && currentMenuAccessible" class="page-content">
+                    <div v-if="currentMenu === 'buckets' && currentMenuAccessible" class="page-content page-content--buckets">
                         <div class="page-header">
                             <h3>存储桶管理</h3>
-                            <div style="display: flex; gap: 8px;">
+                            <div class="bucket-toolbar-actions">
                                 <el-button v-if="hasApiPermission('API_BUCKET_MANAGE')" :loading="bucketStatsRefreshing" @click="refreshBucketStats">
                                     <el-icon><Refresh /></el-icon>
                                     刷新桶统计
@@ -235,8 +366,8 @@
                                     <el-tag v-if="row.compatible === false" size="small" type="warning" effect="plain" style="margin-left: 8px;">不兼容</el-tag>
                                 </template>
                             </el-table-column>
-                            <el-table-column prop="creationDate" label="创建时间" width="180" sortable="custom"></el-table-column>
-                            <el-table-column prop="objectCount" label="文件数量" width="120" sortable="custom">
+                            <el-table-column prop="creationDate" label="创建时间" width="162" sortable="custom"></el-table-column>
+                            <el-table-column prop="objectCount" label="文件数量" width="90" sortable="custom">
                                 <template #default="{ row }">
                                     <span v-if="row.statsStatus === 'NOT_CALCULATED'">未统计</span>
                                     <span v-else-if="row.statsStatus === 'PENDING' || row.statsStatus === 'RUNNING'">统计中</span>
@@ -246,7 +377,7 @@
                                     <span v-else>{{ row.objectCount ?? 0 }}</span>
                                 </template>
                             </el-table-column>
-                            <el-table-column prop="totalSize" label="总大小" width="120" sortable="custom">
+                            <el-table-column prop="totalSize" label="总大小" width="116" sortable="custom">
                                 <template #default="{ row }">
                                     <span v-if="row.statsStatus === 'NOT_CALCULATED'">未统计</span>
                                     <span v-else-if="row.statsStatus === 'PENDING' || row.statsStatus === 'RUNNING'">统计中</span>
@@ -256,12 +387,12 @@
                                     <span v-else>{{ formatSize(row.totalSize) }}</span>
                                 </template>
                             </el-table-column>
-                            <el-table-column prop="statsUpdatedAt" label="统计时间" width="180">
+                            <el-table-column prop="statsUpdatedAt" label="统计时间" width="162">
                                 <template #default="{ row }">
                                     {{ formatDateTime(row.statsUpdatedAt) }}
                                 </template>
                             </el-table-column>
-                            <el-table-column label="操作" width="150">
+                            <el-table-column label="操作" width="184">
                                 <template #default="{ row }">
                                     <el-button size="small" type="primary" @click="selectBucket(row)">管理文件</el-button>
                                     <el-button v-if="hasApiPermission('API_BUCKET_MANAGE')" size="small" type="danger" @click="deleteBucket(row)">删除</el-button>
@@ -272,8 +403,8 @@
 
                     <!-- File Manager -->
                     <div v-if="currentMenu === 'files' && currentMenuAccessible" class="page-content page-content--files">
-                        <div class="drive-overview drive-overview--compact">
-                            <article class="overview-card">
+                        <div class="drive-overview drive-overview--compact drive-context">
+                            <article class="overview-card drive-context__item">
                                 <span>当前存储桶</span>
                                 <el-select v-model="currentBucket" @change="onBucketSelect" class="bucket-select-full" popper-class="bucket-select-popper">
                                     <el-option
@@ -285,15 +416,15 @@
                                     ></el-option>
                                 </el-select>
                             </article>
-                            <article class="overview-card">
+                            <article class="overview-card drive-context__item">
                                 <span>目录数量</span>
                                 <strong>{{ folderCount }}</strong>
                             </article>
-                            <article class="overview-card">
+                            <article class="overview-card drive-context__item">
                                 <span>文件数量</span>
                                 <strong>{{ currentFileCount }}</strong>
                             </article>
-                            <article class="overview-card">
+                            <article class="overview-card drive-context__item">
                                 <span>已展示容量</span>
                                 <div class="capacity-info">
                                     <strong>{{ formatSize(currentPageSize) }}</strong>
@@ -303,47 +434,25 @@
                         </div>
 
                         <div class="path-strip">
-                            <div class="explorer-nav">
-                                <div class="nav-buttons">
-                                    <el-tooltip content="后退" placement="top">
-                                        <el-button class="nav-btn" size="small" :disabled="!canGoBack" @click="goBack">
-                                            <span class="nav-symbol" aria-hidden="true">&larr;</span>
-                                        </el-button>
-                                    </el-tooltip>
-                                    <el-tooltip content="前进" placement="top">
-                                        <el-button class="nav-btn" size="small" :disabled="!canGoForward" @click="goForward">
-                                            <span class="nav-symbol" aria-hidden="true">&rarr;</span>
-                                        </el-button>
-                                    </el-tooltip>
-                                    <el-tooltip content="向上" placement="top">
-                                        <el-button class="nav-btn" size="small" @click="goUp">
-                                            <el-icon><Top /></el-icon>
-                                        </el-button>
-                                    </el-tooltip>
-                                    <el-tooltip content="刷新" placement="top">
-                                        <el-button class="nav-btn" size="small" @click="refreshFiles">
-                                            <el-icon><Refresh /></el-icon>
-                                        </el-button>
-                                    </el-tooltip>
-                                </div>
+                            <div class="explorer-nav" role="group" aria-label="目录地址和文件操作"
+                                 @vue:mounted="({ el }) => el.ownerDocument.defaultView.WorkspaceFileToolbar.mount(el)"
+                                 @vue:before-unmount="({ el }) => el.ownerDocument.defaultView.WorkspaceFileToolbar.unmount(el)">
                                 <div class="path-input-wrapper" @click="startPathEdit">
                                     <!-- 路径节点展示模式 -->
                                     <div class="path-display" v-if="!isPathEditing" @click="startPathEdit">
                                         <div class="path-nodes">
                                             <template v-for="(node, index) in breadcrumb" :key="index">
-                                                <span class="path-node" :class="{ 'is-bucket': node.isBucket, 'is-folder': node.isFolder }" @click.stop="navigateToNode(node)">
+                                                <span class="path-node" :class="{ 'is-bucket': node.isBucket, 'is-folder': node.isFolder }" role="button" tabindex="0" @keydown.enter.stop.prevent="navigateToNode(node)" @keydown.space.stop.prevent="navigateToNode(node)" @click.stop="navigateToNode(node)">
                                                     {{ node.name }}
                                                 </span>
                                                 <span class="path-separator" v-if="index < breadcrumb.length - 1">/</span>
                                             </template>
                                             <span v-if="breadcrumb.length === 0" class="path-placeholder">点击这里输入路径</span>
-                                            <button
-                                                type="button"
-                                                class="path-edit-hotspot"
-                                                aria-label="编辑地址栏"
-                                                @click.stop="startPathEdit"
-                                            ></button>
-                                        </div>
+                                            </div>
+                                        <button type="button" class="path-edit-hotspot" aria-label="编辑地址栏"
+                                                title="编辑地址栏" @click.stop="startPathEdit">
+                                            <el-icon aria-hidden="true"><Edit /></el-icon>
+                                        </button>
                                     </div>
                                     <!-- 编辑模式 -->
                                     <input
@@ -358,49 +467,93 @@
                                         placeholder="输入路径后回车，如 /bucket/folder1/"
                                     />
                                 </div>
-                                <div class="action-buttons">
-                                    <el-tooltip content="上传文件" placement="top">
-                                        <el-button v-if="hasApiPermission('API_FILE_OPERATE') && hasBucketPermission(currentBucket, 'UPLOAD')" type="primary" size="small" @click="openUploadDialog">
-                                            <el-icon><Upload /></el-icon>
-                                            上传
-                                        </el-button>
-                                    </el-tooltip>
-                                    <el-tooltip content="新建文件夹" placement="top">
-                                        <el-button v-if="hasApiPermission('API_FILE_OPERATE') && hasBucketPermission(currentBucket, 'CREATE_FOLDER')" size="small" @click="showFolderDialog = true">
-                                            <el-icon><folder-add /></el-icon>
-                                            新建
-                                        </el-button>
-                                    </el-tooltip>
-                                    <el-tooltip content="批量分享" placement="top">
-                                        <el-button v-if="hasApiPermission('API_SHARE_MANAGE') && hasBucketPermission(currentBucket, 'SHARE')" type="success" size="small" @click="batchShare">
-                                            <el-icon><Share /></el-icon>
-                                            分享
-                                        </el-button>
-                                    </el-tooltip>
-                                    <el-tooltip content="批量下载" placement="top">
-                                        <el-button v-if="hasApiPermission('API_FILE_OPERATE') && hasBucketPermission(currentBucket, 'BATCH')" type="warning" size="small" @click="batchDownload">
-                                            <el-icon><Download /></el-icon>
-                                            下载
-                                        </el-button>
-                                    </el-tooltip>
-                                    <el-tooltip content="批量移动" placement="top">
-                                        <el-button v-if="hasApiPermission('API_FILE_OPERATE') && hasBucketPermission(currentBucket, 'BATCH')" size="small" @click="batchMove">
-                                            <el-icon><Rank /></el-icon>
-                                            移动
-                                        </el-button>
-                                    </el-tooltip>
-                                    <el-tooltip content="批量复制" placement="top">
-                                        <el-button v-if="hasApiPermission('API_FILE_OPERATE') && hasBucketPermission(currentBucket, 'BATCH')" size="small" @click="batchCopy">
-                                            <el-icon><CopyDocument /></el-icon>
-                                            复制
-                                        </el-button>
-                                    </el-tooltip>
-                                    <el-tooltip content="批量删除" placement="top">
-                                        <el-button v-if="hasApiPermission('API_FILE_OPERATE') && hasBucketPermission(currentBucket, 'BATCH')" type="danger" size="small" @click="batchDelete">
-                                            <el-icon><Delete /></el-icon>
-                                            删除
-                                        </el-button>
-                                    </el-tooltip>
+                                <el-tooltip content="上传文件" placement="top">
+                                    <el-button v-if="hasApiPermission('API_FILE_OPERATE') && hasBucketPermission(currentBucket, 'UPLOAD')" type="primary" size="small" class="file-toolbar-upload" @click="openUploadDialog">
+                                        <el-icon><Upload /></el-icon>
+                                        上传
+                                    </el-button>
+                                </el-tooltip>
+                                <details class="file-toolbar-more">
+                                    <summary aria-label="更多文件操作" aria-controls="file-toolbar-overflow">
+                                        <el-icon aria-hidden="true"><dots-three-vertical /></el-icon>更多
+                                    </summary>
+                                </details>
+                                <div id="file-toolbar-overflow" class="file-toolbar-overflow">
+                                    <div class="nav-buttons">
+                                        <el-tooltip content="后退" placement="top">
+                                            <el-button class="nav-btn" size="small" :disabled="!canGoBack" @click="goBack" aria-label="后退">
+                                                <el-icon><Back /></el-icon>
+                                                <span class="file-toolbar-nav-label">后退</span>
+                                            </el-button>
+                                        </el-tooltip>
+                                        <el-tooltip content="前进" placement="top">
+                                            <el-button class="nav-btn" size="small" :disabled="!canGoForward" @click="goForward" aria-label="前进">
+                                                <el-icon class="nav-forward"><Back /></el-icon>
+                                                <span class="file-toolbar-nav-label">前进</span>
+                                            </el-button>
+                                        </el-tooltip>
+                                        <el-tooltip content="向上" placement="top">
+                                            <el-button class="nav-btn" size="small" @click="goUp" aria-label="向上">
+                                                <el-icon><Top /></el-icon>
+                                                <span class="file-toolbar-nav-label">向上</span>
+                                            </el-button>
+                                        </el-tooltip>
+                                        <el-tooltip content="刷新" placement="top">
+                                            <el-button class="nav-btn" size="small" @click="refreshFiles" aria-label="刷新">
+                                                <el-icon><Refresh /></el-icon>
+                                                <span class="file-toolbar-nav-label">刷新</span>
+                                            </el-button>
+                                        </el-tooltip>
+                                    </div>
+                                    <div class="action-buttons">
+                                        <el-tooltip content="新建文件夹" placement="top">
+                                            <el-button v-if="hasApiPermission('API_FILE_OPERATE') && hasBucketPermission(currentBucket, 'CREATE_FOLDER')" size="small" @click="showFolderDialog = true">
+                                                <el-icon><folder-add /></el-icon>
+                                                新建
+                                            </el-button>
+                                        </el-tooltip>
+                                        <el-tooltip :content="isCurrentDirectoryFavorite ? '取消收藏当前目录' : '收藏当前目录'" placement="top">
+                                            <el-button
+                                                v-if="currentFolder"
+                                                size="small"
+                                                :type="isCurrentDirectoryFavorite ? 'warning' : 'default'"
+                                                @click="toggleCurrentDirectoryFavorite"
+                                            >
+                                                <el-icon><Star /></el-icon>
+                                                {{ isCurrentDirectoryFavorite ? '已收藏' : '收藏目录' }}
+                                            </el-button>
+                                        </el-tooltip>
+                                        <el-tooltip content="批量分享" placement="top">
+                                            <el-button v-if="hasApiPermission('API_SHARE_MANAGE') && hasBucketPermission(currentBucket, 'SHARE')" type="success" size="small" @click="batchShare">
+                                                <el-icon><Share /></el-icon>
+                                                分享
+                                            </el-button>
+                                        </el-tooltip>
+                                        <el-tooltip content="批量下载" placement="top">
+                                            <el-button v-if="hasApiPermission('API_FILE_OPERATE') && hasBucketPermission(currentBucket, 'BATCH')" type="warning" size="small" @click="batchDownload">
+                                                <el-icon><Download /></el-icon>
+                                                下载
+                                            </el-button>
+                                        </el-tooltip>
+                                        <el-tooltip content="批量移动" placement="top">
+                                            <el-button v-if="hasApiPermission('API_FILE_OPERATE') && hasBucketPermission(currentBucket, 'BATCH')" size="small" @click="batchMove">
+                                                <el-icon><Rank /></el-icon>
+                                                移动
+                                            </el-button>
+                                        </el-tooltip>
+                                        <el-tooltip content="批量复制" placement="top">
+                                            <el-button v-if="hasApiPermission('API_FILE_OPERATE') && hasBucketPermission(currentBucket, 'BATCH')" size="small" @click="batchCopy">
+                                                <el-icon><CopyDocument /></el-icon>
+                                                复制
+                                            </el-button>
+                                        </el-tooltip>
+                                        <el-tooltip content="批量删除" placement="top">
+                                            <el-button v-if="hasApiPermission('API_FILE_OPERATE') && hasBucketPermission(currentBucket, 'BATCH')" type="danger" size="small" @click="batchDelete">
+                                                <el-icon><Delete /></el-icon>
+                                                删除
+                                            </el-button>
+                                        </el-tooltip>
+                                    </div>
                                 </div>
                             </div>
                         </div>
@@ -414,11 +567,11 @@
                                 @drop.prevent="handleFileDrop"
                         >
                             <div v-if="fileDropActive" class="file-drop-zone__hint">释放鼠标即可上传到当前目录</div>
-                            <el-table :data="fileList" v-loading="fileLoading" @selection-change="handleSelectionChange" @sort-change="handleFileSortChange">
-                                <el-table-column type="selection" width="55" :selectable="canSelectFileRow"></el-table-column>
-                                <el-table-column prop="fileName" label="名称" sortable="custom">
+                            <el-table class="blueprint-file-table" :data="fileList" v-loading="fileLoading" @selection-change="handleSelectionChange" @sort-change="handleFileSortChange">
+                                <el-table-column type="selection" width="44" :selectable="canSelectFileRow"></el-table-column>
+                                <el-table-column prop="fileName" label="名称" min-width="240" sortable="custom">
                                     <template #default="{ row }">
-                                        <div class="file-name" :class="{ 'file-name--disabled': row.syncing }" @click="handleFileNameClick(row)">
+                                        <div class="file-name" :data-kind="row.isFolder ? 'folder' : 'file'" :class="{ 'file-name--disabled': row.syncing }" role="button" :tabindex="row.syncing ? -1 : 0" :aria-disabled="!!row.syncing" @keydown.enter.prevent="handleFileNameClick(row)" @keydown.space.prevent="handleFileNameClick(row)" @click="handleFileNameClick(row)">
                                             <el-icon v-if="row.isFolder"><Folder /></el-icon>
                                             <el-icon v-else><Document /></el-icon>
                                             <span class="file-name__text">{{ row.fileName }}</span>
@@ -426,19 +579,19 @@
                                         </div>
                                     </template>
                                 </el-table-column>
-                                <el-table-column prop="size" label="大小" width="120" sortable="custom">
+                                <el-table-column prop="size" label="大小" width="96" class-name="file-row-number" sortable="custom">
                                     <template #default="{ row }">
                                         <span v-if="!row.isFolder">{{ formatSize(row.size) }}</span>
                                         <span v-else>-</span>
                                     </template>
                                 </el-table-column>
-                                <el-table-column prop="uploadTime" label="修改时间" width="180" sortable="custom">
+                                <el-table-column prop="uploadTime" label="修改时间" width="162" class-name="file-row-number" sortable="custom">
                                     <template #default="{ row }">
                                         <span v-if="row.syncing">同步中</span>
                                         <span v-else>{{ row.uploadTime || '-' }}</span>
                                     </template>
                                 </el-table-column>
-                                <el-table-column label="操作" width="340">
+                                <el-table-column label="操作" width="208">
                                     <template #default="{ row }">
                                         <div class="file-row-actions">
                                             <template v-for="action in getFileRowActions(row).primary" :key="action.code">
@@ -447,6 +600,7 @@
                                                         size="small"
                                                         :type="action.type || 'default'"
                                                         class="file-row-action-button"
+                                                        :aria-label="action.label"
                                                         :disabled="row.syncing || action.disabled"
                                                         @click="action.onClick"
                                                     >
@@ -456,33 +610,35 @@
                                                     </el-button>
                                                 </el-tooltip>
                                             </template>
+                                            <el-dropdown v-if="getFileRowActions(row).hasMore" trigger="click" :disabled="row.syncing">
+                                                <button
+                                                    type="button"
+                                                    class="file-row-more-trigger"
+                                                    :class="{ 'is-disabled': row.syncing }"
+                                                    :disabled="row.syncing"
+                                                    aria-label="更多操作"
+                                                >
+                                                    <el-icon class="file-row-more-icon"><dots-three-vertical /></el-icon>
+                                                </button>
+                                                <template #dropdown>
+                                                    <el-dropdown-menu>
+                                                        <el-dropdown-item
+                                                            v-for="action in getFileRowActions(row).more"
+                                                            :key="action.code"
+                                                            :disabled="row.syncing || action.disabled"
+                                                            @click="action.onClick"
+                                                        >
+                                                            <span class="file-row-menu-item" :class="{ 'is-danger': action.type === 'danger' }">
+                                                                <el-icon v-if="action.iconComponent" class="file-row-menu-item__icon">
+                                                                    <component :is="action.iconComponent" />
+                                                                </el-icon>
+                                                                <span>{{ action.label }}</span>
+                                                            </span>
+                                                        </el-dropdown-item>
+                                                    </el-dropdown-menu>
+                                                </template>
+                                            </el-dropdown>
                                         </div>
-                                        <el-dropdown v-if="getFileRowActions(row).hasMore" trigger="click" :disabled="row.syncing">
-                                            <span
-                                                class="file-row-more-trigger"
-                                                :class="{ 'is-disabled': row.syncing }"
-                                                aria-label="更多操作"
-                                            >
-                                                <span class="file-row-more-icon">⋮</span>
-                                            </span>
-                                            <template #dropdown>
-                                                <el-dropdown-menu>
-                                                    <el-dropdown-item
-                                                        v-for="action in getFileRowActions(row).more"
-                                                        :key="action.code"
-                                                        :disabled="row.syncing || action.disabled"
-                                                        @click="action.onClick"
-                                                    >
-                                                        <span class="file-row-menu-item" :class="{ 'is-danger': action.type === 'danger' }">
-                                                            <el-icon v-if="action.iconComponent" class="file-row-menu-item__icon">
-                                                                <component :is="action.iconComponent" />
-                                                            </el-icon>
-                                                            <span>{{ action.label }}</span>
-                                                        </span>
-                                                    </el-dropdown-item>
-                                                </el-dropdown-menu>
-                                            </template>
-                                        </el-dropdown>
                                         <span v-if="row.syncing" class="file-action-hint">同步完成后可操作</span>
                                     </template>
                                 </el-table-column>
@@ -504,7 +660,7 @@
                     </div>
 
                     <!-- Shares -->
-                    <div v-if="currentMenu === 'shares' && currentMenuAccessible" class="page-content">
+                    <div v-if="currentMenu === 'shares' && currentMenuAccessible" class="page-content page-content--shares">
                         <div class="page-header">
                             <h3>我的分享</h3>
                             <el-tooltip content="查看和管理您创建的所有分享链接" placement="top" effect="light">
@@ -513,42 +669,59 @@
                         </div>
                         <el-tabs v-model="shareTab">
                             <el-tab-pane label="我的分享" name="my-shares">
+                                <div style="display: flex; justify-content: flex-end; margin-bottom: 12px;">
+                                    <el-checkbox v-model="shareValidOnly" @change="handleShareValidOnlyChange">仅显示有效分享</el-checkbox>
+                                </div>
                                 <el-table :data="shareList" v-loading="shareLoading" @expand-change="handleShareExpand">
                                     <el-table-column type="expand" width="54">
                                         <template #default="{ row }">
-                                            <div style="padding: 8px 16px; display: grid; grid-template-columns: 360px 1fr; gap: 24px; align-items: start;">
+                                            <div style="padding: 8px 16px; line-height: 1.9;">
                                                 <div style="line-height: 1.9;">
                                                     <div><strong>分享方式：</strong>{{ row.shareTargetTypeText }}</div>
+                                                    <div v-if="row.targetType === 'USER'"><strong>接收用户：</strong>{{ row.recipientDisplayText || '未找到接收用户' }}</div>
                                                     <div v-if="row.targetType !== 'USER'"><strong>分享链接：</strong>{{ row.shareUrl }}</div>
                                                     <div v-if="row.targetType !== 'USER' && row.password"><strong>提取码：</strong>{{ row.password }}</div>
                                                     <div><strong>分享时间：</strong>{{ row.createTimeText }}</div>
                                                     <div><strong>过期时间：</strong>{{ row.expireTimeText }}</div>
                                                     <div><strong>访问方式：</strong>{{ row.hasPasswordText }}</div>
                                                     <div><strong>浏览次数：</strong>{{ row.viewCount || 0 }}</div>
-                                                </div>
-                                                <div>
-                                                    <div style="font-weight: 600; margin-bottom: 10px;">分享内容</div>
-                                                    <div v-if="!row.isFolder" style="color: #606266;">单文件分享，无额外目录结构。</div>
-                                                    <div v-else-if="row.shareItemsLoading" style="color: #909399;">正在加载分享内容...</div>
-                                                    <div v-else-if="!row.shareItems.length" style="color: #909399;">当前分享没有可展示的根目录内容。</div>
-                                                    <div v-else style="display: flex; flex-wrap: wrap; gap: 10px;">
-                                                        <el-tag
-                                                            v-for="item in row.shareItems"
-                                                            :key="item.objectName"
-                                                            :type="item.isFolder ? 'warning' : 'info'"
-                                                            effect="plain"
-                                                            size="large"
-                                                        >
-                                                            {{ item.isFolder ? '目录' : '文件' }} / {{ item.fileName }}
-                                                        </el-tag>
-                                                    </div>
+                                                    <div><strong>分享状态：</strong>{{ row.cancelled ? '已取消' : '有效' }}</div>
                                                 </div>
                                             </div>
                                         </template>
                                     </el-table-column>
                                     <el-table-column prop="fileName" label="文件名"></el-table-column>
-                                    <el-table-column prop="shareTargetTypeText" label="分享方式" width="120"></el-table-column>
+                                    <el-table-column prop="shareTargetTypeText" label="分享方式" width="220"></el-table-column>
                                     <el-table-column prop="shareCode" label="分享码"></el-table-column>
+                                    <el-table-column label="分享内容" min-width="260">
+                                        <template #default="{ row }">
+                                            <div v-if="row.shareItemsLoading" style="color: #909399;">正在加载...</div>
+                                            <div v-else-if="row.shareItemsError" style="color: #f56c6c;" :title="row.shareItemsErrorMessage || '加载失败：分享内容加载失败，请稍后重试'">
+                                                {{ row.shareItemsErrorMessage || '加载失败：分享内容加载失败，请稍后重试' }}
+                                            </div>
+                                            <div v-else style="display: flex; flex-wrap: wrap; gap: 8px;">
+                                                <el-tooltip
+                                                    v-for="item in row.visibleShareItems"
+                                                    :key="item.objectName"
+                                                    :content="item.tooltip"
+                                                    placement="top"
+                                                    effect="light"
+                                                >
+                                                    <el-tag :type="item.isFolder ? 'warning' : 'info'" effect="plain" size="large">
+                                                        {{ item.isFolder ? '目录' : '文件' }} / {{ item.fileName }}
+                                                    </el-tag>
+                                                </el-tooltip>
+                                                <el-tooltip
+                                                    v-if="row.hiddenShareItemCount > 0"
+                                                    :content="row.hiddenShareItems.map(item => item.tooltip).join('\n')"
+                                                    placement="top"
+                                                    effect="light"
+                                                >
+                                                    <el-tag type="warning" effect="plain" size="large">+{{ row.hiddenShareItemCount }}</el-tag>
+                                                </el-tooltip>
+                                            </div>
+                                        </template>
+                                    </el-table-column>
                                     <el-table-column prop="createTimeText" label="分享时间" width="180"></el-table-column>
                                     <el-table-column prop="expireTimeText" label="过期时间" width="180"></el-table-column>
                                     <el-table-column prop="hasPasswordText" label="访问方式" width="140"></el-table-column>
@@ -567,14 +740,30 @@
                                                 </template>
                                             </el-dropdown>
                                             <el-tag v-else type="info" effect="plain">站内信投递</el-tag>
-                                            <el-tooltip content="删除分享链接" placement="top" effect="light">
+                                            <el-tooltip content="删除分享记录" placement="top" effect="light">
                                                 <el-button v-if="hasApiPermission('API_SHARE_MANAGE')" size="small" type="danger" @click="deleteShare(row)">
                                                     <el-icon><Delete /></el-icon>
+                                                </el-button>
+                                            </el-tooltip>
+                                            <el-tooltip content="取消分享" placement="top" effect="light">
+                                                <el-button v-if="hasApiPermission('API_SHARE_MANAGE') && !row.cancelled" size="small" type="warning" @click="cancelShare(row)">
+                                                    取消分享
                                                 </el-button>
                                             </el-tooltip>
                                         </template>
                                     </el-table-column>
                                 </el-table>
+                                <div class="pagination-container">
+                                    <el-pagination
+                                        v-model:current-page="sharePage"
+                                        v-model:page-size="sharePageSize"
+                                        :page-sizes="[25, 50, 100, 200]"
+                                        :total="shareTotal"
+                                        layout="total, sizes, prev, pager, next, jumper"
+                                        @size-change="handleShareSizeChange"
+                                        @current-change="handleSharePageChange"
+                                    />
+                                </div>
                             </el-tab-pane>
                             <el-tab-pane name="inbox">
                                 <template #label>
@@ -583,9 +772,42 @@
                                         <el-badge v-if="inboxUnreadCount > 0" :value="inboxUnreadCount" type="danger" />
                                     </span>
                                 </template>
+                                <div style="display: flex; justify-content: flex-end; margin-bottom: 12px;">
+                                    <el-checkbox v-model="inboxValidOnly" @change="handleInboxValidOnlyChange">仅显示有效分享</el-checkbox>
+                                </div>
                                 <el-table :data="inboxList" v-loading="inboxLoading">
                                     <el-table-column prop="title" label="标题"></el-table-column>
                                     <el-table-column prop="senderUsername" label="分享人" width="140"></el-table-column>
+                                    <el-table-column label="分享内容" min-width="260">
+                                        <template #default="{ row }">
+                                            <span v-if="!row.isShareMessage" style="color: #909399;">-</span>
+                                            <div v-else-if="row.shareItemsErrorMessage" style="color: #f56c6c;" :title="row.shareItemsErrorMessage">
+                                                {{ row.shareItemsErrorMessage }}
+                                            </div>
+                                            <div v-else style="display: flex; flex-wrap: wrap; gap: 8px;">
+                                                <el-tooltip
+                                                    v-for="item in row.visibleShareItems"
+                                                    :key="item.objectName"
+                                                    :content="item.tooltip"
+                                                    placement="top"
+                                                    effect="light"
+                                                >
+                                                    <el-tag :type="item.isFolder ? 'warning' : 'info'" effect="plain" size="large">
+                                                        {{ item.isFolder ? '目录' : '文件' }} / {{ item.fileName }}
+                                                    </el-tag>
+                                                </el-tooltip>
+                                                <el-tooltip
+                                                    v-if="row.hiddenShareItemCount > 0"
+                                                    :content="row.hiddenShareItems.map(item => item.tooltip).join('\n')"
+                                                    placement="top"
+                                                    effect="light"
+                                                >
+                                                    <el-tag type="warning" effect="plain" size="large">+{{ row.hiddenShareItemCount }}</el-tag>
+                                                </el-tooltip>
+                                                <el-tag v-if="!row.visibleShareItems || row.visibleShareItems.length === 0" type="info" effect="plain">暂无内容</el-tag>
+                                            </div>
+                                        </template>
+                                    </el-table-column>
                                     <el-table-column prop="createTimeText" label="接收时间" width="180"></el-table-column>
                                     <el-table-column prop="read" label="状态" width="100">
                                         <template #default="{ row }">
@@ -595,18 +817,29 @@
                                     <el-table-column prop="readTimeText" label="阅读时间" width="180"></el-table-column>
                                     <el-table-column label="操作" width="220">
                                         <template #default="{ row }">
-                                            <el-button size="small" type="primary" @click="openInboxShare(row)">打开分享</el-button>
+                                            <el-button v-if="row.isShareMessage" size="small" type="primary" @click="openInboxShare(row)">打开分享</el-button>
                                             <el-button v-if="!row.read" size="small" @click="markInboxRead(row)">标记已读</el-button>
                                             <el-button size="small" type="danger" @click="deleteInboxMessage(row)">删除</el-button>
                                         </template>
                                     </el-table-column>
                                 </el-table>
+                                <div class="pagination-container">
+                                    <el-pagination
+                                        v-model:current-page="inboxPage"
+                                        v-model:page-size="inboxPageSize"
+                                        :page-sizes="[25, 50, 100, 200]"
+                                        :total="inboxTotal"
+                                        layout="total, sizes, prev, pager, next, jumper"
+                                        @size-change="handleInboxSizeChange"
+                                        @current-change="handleInboxPageChange"
+                                    />
+                                </div>
                             </el-tab-pane>
                         </el-tabs>
                     </div>
 
                     <!-- Audit Logs -->
-                    <div v-if="currentMenu === 'audit-logs' && currentMenuAccessible" class="page-content">
+                    <div v-if="currentMenu === 'audit-logs' && currentMenuAccessible" class="page-content page-content--audit">
                         <div class="page-header">
                             <h3>审计日志</h3>
                         </div>
@@ -666,7 +899,7 @@
                     </div>
 
                     <!-- User Management -->
-                    <div v-if="currentMenu === 'users' && currentMenuAccessible" class="page-content">
+                    <div v-if="currentMenu === 'users' && currentMenuAccessible" class="page-content page-content--users">
                         <div class="page-header">
                             <h3>用户管理</h3>
                             <el-button v-if="hasApiPermission('API_USER_MANAGE')" type="primary" @click="openCreateUserDialog">
@@ -722,7 +955,7 @@
                     </div>
 
                     <!-- Role Management -->
-                    <div v-if="currentMenu === 'roles' && currentMenuAccessible" class="page-content">
+                    <div v-if="currentMenu === 'roles' && currentMenuAccessible" class="page-content page-content--roles">
                         <div class="page-header">
                             <h3>角色管理</h3>
                             <el-button v-if="hasApiPermission('API_ROLE_MANAGE')" type="primary" @click="openCreateRoleDialog">
@@ -756,10 +989,17 @@
                     </div>
 
                     <!-- Config -->
-                    <div v-if="currentMenu === 'config' && currentMenuAccessible" class="page-content">
+                    <div v-if="currentMenu === 'config' && currentMenuAccessible" class="page-content page-content--settings">
                         <div class="page-header">
                             <h3>系统配置</h3>
+                            <standard-cert-admin v-if="isSuperAdmin" :api="certificateApi" :copy-text="copyText" :enabled="certificateIssuanceEnabled"></standard-cert-admin>
                         </div>
+                        <nav class="settings-section-nav" aria-label="设置分区">
+                            <a href="#settings-file"><el-icon aria-hidden="true"><Folder /></el-icon>文件规则</a>
+                            <a href="#settings-share"><el-icon aria-hidden="true"><Share /></el-icon>分享设置</a>
+                            <a href="#settings-download"><el-icon aria-hidden="true"><Download /></el-icon>下载设置</a>
+                        </nav>
+                        <h4 id="settings-file">文件规则</h4>
                         <el-form label-width="120px" style="max-width: 600px">
                             <el-form-item label="允许的文件类型">
                                 <el-tooltip content="用户只能上传指定扩展名的文件，多个用逗号分隔" placement="top" effect="light">
@@ -772,14 +1012,14 @@
                                     <el-icon class="form-help"><question-filled /></el-icon>
                                 </el-tooltip>
                                 <el-input-number v-model="fileConfig.maxFileSizeMB" :min="-1" :max="102400"></el-input-number>
-                                <span style="margin-left: 10px">MB (-1表示无限制)</span>
+                                <span style="margin-left: 12px">MB (-1表示无限制)</span>
                             </el-form-item>
                             <el-form-item label="前端分块下载阈值">
                                 <el-tooltip content="单个文件达到该大小后，前端将使用下载任务中心和分块下载模式" placement="top" effect="light">
                                     <el-icon class="form-help"><question-filled /></el-icon>
                                 </el-tooltip>
                                 <el-input-number v-model="fileConfig.frontendDownloadThresholdMB" :min="1" :max="102400"></el-input-number>
-                                <span style="margin-left: 10px">MB</span>
+                                <span style="margin-left: 12px">MB</span>
                             </el-form-item>
                             <el-form-item label="上传窗口模式">
                                 <el-select v-model="fileConfig.uploadDialogMode" style="width: 220px">
@@ -893,35 +1133,35 @@
                             </el-form-item>
                         </el-form>
                         <el-divider></el-divider>
-                        <h4>分享设置</h4>
+                        <h4 id="settings-share">分享设置</h4>
                         <el-form label-width="160px" style="max-width: 600px">
                             <el-form-item label="批量分享/目录分享大小限制">
                                 <el-tooltip content="批量分享和目录分享时，压缩包的最大大小限制" placement="top" effect="light">
                                     <el-icon class="form-help"><question-filled /></el-icon>
                                 </el-tooltip>
                                 <el-input-number v-model="shareConfig.batchShareMaxSizeGB" :min="1" :max="100"></el-input-number>
-                                <span style="margin-left: 10px">GB</span>
+                                <span style="margin-left: 12px">GB</span>
                             </el-form-item>
                             <el-form-item label="分享链接有效期">
                                 <el-tooltip content="分享链接的默认有效期" placement="top" effect="light">
                                     <el-icon class="form-help"><question-filled /></el-icon>
                                 </el-tooltip>
                                 <el-input-number v-model="shareConfig.expireHours" :min="1" :max="8760"></el-input-number>
-                                <span style="margin-left: 10px">小时</span>
+                                <span style="margin-left: 12px">小时</span>
                             </el-form-item>
                             <el-form-item>
                                 <el-button v-if="isSuperAdmin" type="primary" @click="saveShareConfig">保存分享设置</el-button>
                             </el-form-item>
                         </el-form>
                         <el-divider></el-divider>
-                        <h4>下载设置</h4>
+                        <h4 id="settings-download">下载设置</h4>
                         <el-form label-width="160px" style="max-width: 600px">
                             <el-form-item label="批量下载大小限制">
                                 <el-tooltip content="批量下载时，压缩包的最大大小限制" placement="top" effect="light">
                                     <el-icon class="form-help"><question-filled /></el-icon>
                                 </el-tooltip>
                                 <el-input-number v-model="shareConfig.batchDownloadMaxSizeGB" :min="1" :max="100"></el-input-number>
-                                <span style="margin-left: 10px">GB</span>
+                                <span style="margin-left: 12px">GB</span>
                             </el-form-item>
                             <el-form-item>
                                 <el-button v-if="isSuperAdmin" type="primary" @click="saveShareConfig">保存下载设置</el-button>
@@ -930,7 +1170,7 @@
                     </div>
 
                     <!-- MinIO API Keys -->
-                    <div v-if="currentMenu === 'minio-keys' && currentMenuAccessible" class="page-content">
+                    <div v-if="currentMenu === 'minio-keys' && currentMenuAccessible" class="page-content page-content--keys">
                         <div class="page-header">
                             <h3>MinIO密钥管理</h3>
                             <div class="header-actions">
@@ -977,7 +1217,7 @@
                             </el-table-column>
                         </el-table>
                     </div>
-                </div>
+                </main>
             </div>
 
         </div>
@@ -1002,7 +1242,7 @@
                 </el-form-item>
                 <el-form-item label="有效期(天)">
                     <el-input-number v-model="minioKeyForm.expireDays" :min="0" :max="3650"></el-input-number>
-                    <span style="margin-left: 10px">0表示永不过期</span>
+                    <span style="margin-left: 12px">0表示永不过期</span>
                 </el-form-item>
             </el-form>
             <template #footer>
@@ -1013,10 +1253,10 @@
 
         <!-- Upload Dialog -->
         <el-dialog v-model="showUploadDialog" title="上传文件" width="500px" :close-on-click-modal="false" :close-on-press-escape="false" :show-close="!uploading">
-            <el-alert type="info" :closable="false" style="margin-bottom: 15px">
+            <el-alert type="info" :closable="false" style="margin-bottom: 16px">
                 上传到: <strong>{{ currentBucket }}</strong><span v-if="currentFolder"> / <strong>{{ currentFolder }}</strong></span>
             </el-alert>
-            <el-alert type="info" :closable="false" style="margin-bottom: 15px">
+            <el-alert type="info" :closable="false" style="margin-bottom: 16px">
                 <el-tooltip :content="fileConfig.allowedExtensionsText || '无限制'" placement="top" effect="light">
                     <span style="cursor: pointer; text-decoration: underline;">查看支持的文件类型</span>
                 </el-tooltip>
@@ -1055,11 +1295,19 @@
             </div>
             <div v-if="fileConfig.uploadDialogMode === 'MANUAL' && pendingUploadFiles.length" class="upload-task-panel">
                 <div class="upload-task-panel__title">待上传文件</div>
+                <div class="upload-rename-toolbar">
+                    <el-input v-model="uploadBatchRenameRule.prefix" size="small" placeholder="统一前缀"></el-input>
+                    <el-input v-model="uploadBatchRenameRule.suffix" size="small" placeholder="统一后缀"></el-input>
+                    <el-input v-model="uploadBatchRenameRule.findText" size="small" placeholder="查找"></el-input>
+                    <el-input v-model="uploadBatchRenameRule.replaceText" size="small" placeholder="替换为"></el-input>
+                    <el-button size="small" @click="applyUploadBatchRenameRule">批量改名</el-button>
+                </div>
                 <div v-for="file in pendingUploadFiles" :key="file.id" class="upload-pending-list__item">
                     <div class="upload-pending-list__meta">
                         <span class="upload-pending-list__name">{{ file.name }}</span>
                         <span class="upload-pending-list__size">{{ formatSize(file.size || 0) }}</span>
                     </div>
+                    <el-input v-model="file.targetName" size="small" placeholder="上传后的文件名"></el-input>
                     <el-button text @click="removePendingUploadFile(file.id)">移除</el-button>
                 </div>
             </div>
@@ -1091,10 +1339,10 @@
         </el-dialog>
 
         <el-dialog v-model="showTransferDialog" :title="transferState.operation === 'MOVE' ? '移动文件' : '复制文件'" width="560px">
-            <el-alert type="info" :closable="false" style="margin-bottom: 15px">
+            <el-alert type="info" :closable="false" style="margin-bottom: 16px">
                 {{ transferSummary }}
             </el-alert>
-            <el-descriptions :column="1" border size="small" style="margin-bottom: 15px">
+            <el-descriptions :column="1" border size="small" style="margin-bottom: 16px">
                 <el-descriptions-item label="当前存储桶">{{ currentBucket }}</el-descriptions-item>
                 <el-descriptions-item label="目标目录">{{ transferTargetLabel }}</el-descriptions-item>
             </el-descriptions>
@@ -1147,6 +1395,14 @@
             <template #footer>
                 <el-button @click="showFolderDialog = false">取消</el-button>
                 <el-button type="primary" @click="createFolder">创建</el-button>
+            </template>
+        </el-dialog>
+
+        <el-dialog v-model="showRenameDialog" :title="renameState.isFolder ? '重命名目录' : '重命名文件'" width="420px">
+            <el-input v-model="renameState.targetName" placeholder="请输入新的名称"></el-input>
+            <template #footer>
+                <el-button @click="showRenameDialog = false">取消</el-button>
+                <el-button type="primary" @click="submitRename">确定</el-button>
             </template>
         </el-dialog>
 
@@ -1638,7 +1894,7 @@
             </transition>
             <button class="message-center-trigger" type="button" @click="messageCenterVisible = !messageCenterVisible">
                 <el-badge :value="inboxUnreadCount" :hidden="!inboxUnreadCount">
-                    <span class="message-center-trigger__icon">信</span>
+                    <el-icon class="message-center-trigger__icon"><chat-circle /></el-icon>
                 </el-badge>
                 <span class="message-center-trigger__text">消息中心</span>
             </button>
@@ -1745,6 +2001,41 @@
             </template>
         </el-dialog>
 
+        <el-dialog v-model="showDiagnosticsDialog" width="920px" class="diagnostics-dialog">
+            <template #header>
+                <div class="dialog-title-stack">
+                    <span class="dialog-kicker">Client Diagnostics</span>
+                    <strong>前端诊断</strong>
+                </div>
+            </template>
+            <div class="diagnostics-panel">
+                <div class="diagnostics-panel__toolbar">
+                    <div>
+                        <strong>最近 {{ clientDiagnosticsLogs.length }} 条事件</strong>
+                        <p>记录 HTTP 失败、下载会话、直连回退等浏览器侧事件，刷新页面后清空。</p>
+                    </div>
+                    <div class="diagnostics-panel__actions">
+                        <el-button size="small" @click="copyClientDiagnostics">复制日志</el-button>
+                        <el-button size="small" type="danger" plain @click="clearClientDiagnostics">清空</el-button>
+                    </div>
+                </div>
+                <div v-if="!clientDiagnosticsLogs.length" class="diagnostics-panel__empty">暂无前端诊断日志</div>
+                <div v-else class="diagnostics-log-list">
+                    <article v-for="log in clientDiagnosticsLogs" :key="log.id" class="diagnostics-log-item" :class="'diagnostics-log-item--' + log.level">
+                        <header>
+                            <span>{{ log.level }}</span>
+                            <strong>{{ log.event }}</strong>
+                            <small>{{ log.time }}</small>
+                        </header>
+                        <pre>{{ log.detail }}</pre>
+                    </article>
+                </div>
+            </div>
+            <template #footer>
+                <el-button @click="showDiagnosticsDialog = false">关闭</el-button>
+            </template>
+        </el-dialog>
+
         <div v-if="downloadCenterVisible" class="download-task-center">
             <div class="download-task-center__backdrop"></div>
             <div class="download-task-center__dialog">
@@ -1765,30 +2056,30 @@
                                     v-if="task.type === 'single-file' && task.status === 'running'"
                                     type="button"
                                     class="download-task-center__action"
-                                    title="暂停下载"
+                                    title="暂停下载" aria-label="暂停下载"
                                     @click.stop="pauseDownloadTask(task)"
-                                >⏸</button>
+                                ><el-icon><Pause /></el-icon></button>
                                 <button
                                     v-if="task.type === 'single-file' && task.status === 'paused'"
                                     type="button"
                                     class="download-task-center__action"
-                                    title="继续下载"
+                                    title="继续下载" aria-label="继续下载"
                                     @click.stop="resumeDownloadTask(task)"
-                                >▶</button>
+                                ><el-icon><Play /></el-icon></button>
                                 <button
                                     v-if="task.status === 'running' || task.status === 'paused'"
                                     type="button"
                                     class="download-task-center__action download-task-center__action--danger"
-                                    title="取消下载"
+                                    title="取消下载" aria-label="取消下载"
                                     @click.stop="cancelDownloadTask(task)"
-                                >✕</button>
+                                ><el-icon><Close /></el-icon></button>
                                 <button
                                     v-if="task.status === 'completed' || task.status === 'failed' || task.status === 'cancelled'"
                                     type="button"
                                     class="download-task-center__action"
-                                    title="重新下载"
+                                    title="重新下载" aria-label="重新下载"
                                     @click.stop="retryDownloadTask(task)"
-                                >↻</button>
+                                ><el-icon><Refresh /></el-icon></button>
                             </div>
                         </div>
                         <div class="download-task-center__meta">
@@ -1813,6 +2104,12 @@
         >
             {{ '下载任务 ' + activeDownloadTaskCount + (failedDownloadTaskCount > 0 ? ' / 失败 ' + failedDownloadTaskCount : '') }}
         </button>
+        <el-dialog v-if="isLoggedIn && clientCertEnabled" v-model="showCertDialog" title="客户端证书管理" @closed="bindPassword = ''">
+            <p>绑定这次 HTTPS 连接所用的客户端证书。每台设备使用独立证书。</p>
+            <el-form label-position="top" @submit.prevent="handleBindCert"><el-form-item label="当前账户密码" for="cert-current-password"><el-input id="cert-current-password" v-model="bindPassword" type="password" autocomplete="current-password" show-password /></el-form-item>
+                <el-button type="primary" native-type="submit" :disabled="!bindPassword">绑定本机证书</el-button></el-form>
+            <el-table :data="userCertificates" empty-text="还没有绑定的证书"><el-table-column prop="fingerprint" label="证书指纹（SHA-256）" min-width="180" /><el-table-column label="有效期至"><template #default="{row}">{{ row.expiresAt ? new Date(row.expiresAt).toLocaleDateString() : '—' }}</template></el-table-column><el-table-column label="操作" width="85"><template #default="{row}"><el-button type="danger" plain size="small" @click="handleRevokeCert(row.id)">撤销</el-button></template></el-table-column></el-table>
+        </el-dialog>
     </div>
 
     <script src="./js/vue.global.js"></script>
@@ -1820,10 +2117,11 @@
         console.log('Vue loaded:', typeof Vue);
     </script>
     <script src="./js/element-plus.full.js"></script>
+    <script src="./vendor/element-plus/zh-cn.js"></script>
     <script>
         console.log('ElementPlus loaded:', typeof ElementPlus);
     </script>
-    <script src="./js/element-icons.js"></script>
+    <script src="./js/workspace-icons.js"></script>
     <script>
         console.log('ElementPlusIconsVue loaded:', typeof ElementPlusIconsVue);
     </script>
@@ -1843,8 +2141,17 @@
     <script src="./js/upload-dialog-helpers.js"></script>
     <script src="./js/file-action-visibility-helpers.js"></script>
     <script src="./js/file-transfer-helpers.js"></script>
+    <script src="./js/workbench-helpers.js"></script>
+    <script src="./js/share-banner-helpers.js"></script>
+    <script src="./js/share-management-helpers.js"></script>
+    <script src="./js/share-pagination-helpers.js"></script>
+    <script src="./js/rename-helpers.js"></script>
     <script src="./js/url-helpers.js"></script>
     <script src="./js/message-center-helpers.js"></script>
-    <script src="./js/app.js"></script>
+    <script src="./js/workspace-file-toolbar.js?v=build143"></script>
+    <script src="./js/standard-cert-ui.js?v=build145"></script>
+    <script src="./js/client-certificate-ui.js?v=build144"></script>
+    <script src="./js/app.js?v=build145"></script>
+    <script type="module" src="./js/workspace-motion.js?v=build143"></script>
 </body>
 </html>
