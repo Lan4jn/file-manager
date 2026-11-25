@@ -198,17 +198,39 @@ public class TransferProxyService {
     }
 
     public ResponseEntity<InputStreamResource> buildArchiveDownloadResponse(Long taskId, String shareCode, String password) {
+        return buildArchiveDownloadResponse(taskId, shareCode, password, null);
+    }
+
+    public ResponseEntity<InputStreamResource> buildArchiveDownloadResponse(
+            Long taskId, String shareCode, String password, String rangeHeader) {
+        String resolvedShareCode = nullableText(shareCode);
+        String resolvedPassword = nullableText(password);
         String operatorUsername = null;
-        if (shareCode == null || shareCode.trim().isEmpty()) {
+        if (resolvedShareCode == null) {
             permissionAssertService.assertApiPermission(PermissionCodes.API_FILE_OPERATE);
             operatorUsername = requireCurrentUsername();
         }
-        TransferArchiveTaskService.ArchiveDownload archiveDownload =
-                transferArchiveTaskService.openArchiveDownload(taskId, operatorUsername, nullableText(shareCode), nullableText(password));
+
+        TransferArchiveTaskService.ArchiveDownload archiveDownload;
+        try {
+            archiveDownload = nullableText(rangeHeader) == null
+                    ? transferArchiveTaskService.openArchiveDownload(taskId, operatorUsername, resolvedShareCode, resolvedPassword)
+                    : transferArchiveTaskService.openArchiveDownload(taskId, operatorUsername, resolvedShareCode, resolvedPassword, rangeHeader);
+        } catch (TransferArchiveTaskService.UnsatisfiableArchiveRangeException ex) {
+            return ResponseEntity.status(HttpStatus.REQUESTED_RANGE_NOT_SATISFIABLE)
+                    .header(HttpHeaders.ACCEPT_RANGES, "bytes")
+                    .header(HttpHeaders.CONTENT_RANGE, "bytes */" + ex.getTotalSize())
+                    .build();
+        }
+
         ContentDisposition contentDisposition = ContentDisposition.attachment()
                 .filename(archiveDownload.fileName(), StandardCharsets.UTF_8)
                 .build();
-        ResponseEntity.BodyBuilder responseBuilder = ResponseEntity.ok()
+        HttpRangeUtils.ByteRange range = archiveDownload.range();
+        ResponseEntity.BodyBuilder responseBuilder = (range == null
+                ? ResponseEntity.ok()
+                : ResponseEntity.status(HttpStatus.PARTIAL_CONTENT).header(HttpHeaders.CONTENT_RANGE, range.toContentRange()))
+                .header(HttpHeaders.ACCEPT_RANGES, "bytes")
                 .header(HttpHeaders.CONTENT_DISPOSITION, contentDisposition.toString())
                 .contentType(MediaType.parseMediaType("application/zip"));
         if (archiveDownload.contentLength() != null) {

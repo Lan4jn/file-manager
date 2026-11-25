@@ -1,4 +1,65 @@
 const { createApp, ref, computed, onMounted, onUnmounted, nextTick, watch, h } = Vue;
+const themeHelpers = window.FileManagerTheme || {
+    initTheme: (win, doc) => {
+        let stored = null;
+        try {
+            stored = win?.localStorage?.getItem('fm-theme');
+        } catch (e) {}
+        const next = stored === 'dark' ? 'dark' : 'light';
+        if (doc?.documentElement) {
+            doc.documentElement.dataset.theme = next;
+            doc.documentElement.classList.toggle('dark', next === 'dark');
+        }
+        return next;
+    },
+    toggleTheme: (current, storage, doc) => {
+        const next = current === 'dark' ? 'light' : 'dark';
+        try {
+            storage?.setItem('fm-theme', next);
+        } catch (e) {}
+        if (doc?.documentElement) {
+            doc.documentElement.dataset.theme = next;
+            doc.documentElement.classList.toggle('dark', next === 'dark');
+        }
+        return next;
+    },
+    getSafeStorage: (win) => {
+        try {
+            return win?.localStorage || null;
+        } catch (e) {
+            return null;
+        }
+    }
+};
+const getStoredToken = () => {
+    try {
+        return (window.localStorage && window.localStorage.getItem('token')) || '';
+    } catch (e) {
+        return '';
+    }
+};
+const persistStoredToken = (tokenValue) => {
+    try {
+        if (window.localStorage) {
+            window.localStorage.setItem('token', tokenValue);
+            return true;
+        }
+    } catch (e) {
+        // Storage unavailable or quota exceeded
+    }
+    return false;
+};
+const clearStoredToken = () => {
+    try {
+        if (window.localStorage) {
+            window.localStorage.removeItem('token');
+            return true;
+        }
+    } catch (e) {
+        return false;
+    }
+    return true;
+};
 const permissionUiHelpers = window.PermissionUiHelpers || {
     shouldLoadRolesForUserDialog: (permissionCodes) => Array.isArray(permissionCodes)
         && permissionCodes.includes('API_ROLE_MANAGE'),
@@ -287,9 +348,17 @@ const app = createApp({
     setup() {
         // State
         const isLoggedIn = ref(false);
-        const token = ref(localStorage.getItem('token') || '');
+        const token = ref(getStoredToken());
+        if (transferUiHelpers && typeof transferUiHelpers.setTokenProvider === 'function') {
+            transferUiHelpers.setTokenProvider(() => token.value);
+        }
         const userInfo = ref({});
         const currentMenu = ref('buckets');
+        const currentTheme = ref(themeHelpers.initTheme(window, document));
+        const toggleTheme = () => {
+            const storage = themeHelpers.getSafeStorage ? themeHelpers.getSafeStorage(window) : null;
+            currentTheme.value = themeHelpers.toggleTheme(currentTheme.value, storage, document);
+        };
         const navigationOpen = ref(false);
         const closeNavigation = () => {
             if (!navigationOpen.value) return;
@@ -303,7 +372,9 @@ const app = createApp({
         const toggleNavigation = () => {
             if (navigationOpen.value) return closeNavigation();
             navigationOpen.value = true;
-            nextTick(() => document.querySelector('.workspace-nav-close')?.focus());
+            nextTick(() => requestAnimationFrame(() => {
+                if (navigationOpen.value) document.querySelector('.workspace-nav-close')?.focus({ preventScroll: true });
+            }));
         };
         const loginForm = ref({ username: '', password: '' });
         const loginLoading = ref(false);
@@ -326,6 +397,8 @@ const app = createApp({
         // File management
         const fileList = ref([]);
         const fileLoading = ref(false);
+        let fileListRequest = 0;
+        let visibleFileListRequest = 0;
         const currentFolder = ref('');
         const breadcrumb = ref([]);
         const selectedFiles = ref([]);
@@ -395,6 +468,15 @@ const filePageSize = ref(25);
         const downloadTasks = ref([]);
         const downloadCenterVisible = ref(false);
         const downloadCenterMinimized = ref(false);
+        const transferCenterVisible = ref(false);
+        const transferCenterMinimized = ref(false);
+        const transferCenterTab = ref('all');
+        const transferUploadTasks = ref([]);
+        // 控制器持有 File，不放进响应式任务，也不保留已完成项的控制器。
+        const multipartControllers = new Map();
+        const multipartTargetKeys = new Set();
+        let transferSession = 0;
+
         const messageCenterVisible = ref(false);
         const messageCenterTab = ref('messages');
         const showForwardDialog = ref(false);
@@ -671,12 +753,27 @@ const filePageSize = ref(25);
             }
         };
 
+        const isCurrentTransferSession = (session) => session === transferSession && (!!token.value || isLoggedIn.value);
+
+        const requireTransferSession = (session) => {
+            if (!isCurrentTransferSession(session)) {
+                const error = new Error('传输的登录会话已失效');
+                error.name = 'AbortError';
+                throw error;
+            }
+        };
+
         api.interceptors.request.use(config => {
+            if (config.transferSession !== undefined) {
+                requireTransferSession(config.transferSession);
+            }
             if (token.value) {
                 config.headers.Authorization = 'Bearer ' + token.value;
             }
             return config;
         });
+
+        const isStaleTransferRequest = (config) => config?.transferSession !== undefined && config.transferSession !== transferSession;
 
         api.interceptors.response.use(
             response => {
@@ -691,6 +788,7 @@ const filePageSize = ref(25);
                 return response.data;
             },
             error => {
+                if (isStaleTransferRequest(error.config)) return Promise.reject(error);
                 recordClientDiagnostic('error', 'http-error', {
                     url: error.config && error.config.url,
                     method: error.config && error.config.method,
@@ -788,6 +886,50 @@ const filePageSize = ref(25);
         const activeDownloadTaskCount = computed(() => downloadTasks.value.filter(task => task.status === 'running').length);
         const failedDownloadTaskCount = computed(() => downloadTasks.value.filter(task => task.status === 'failed').length);
         const primaryDownloadTask = computed(() => downloadTasks.value.find(task => task.status === 'running') || downloadTasks.value[0] || null);
+        const normalizeTransferTask = (task, direction) => {
+            const { status, controller } = task;
+            const upload = direction === 'upload';
+            return {
+                id: direction + ':' + task.id,
+                direction,
+                name: task.name,
+                status,
+                step: task.step,
+                transferredBytes: (upload ? task.uploadedBytes : task.downloadedBytes) || 0,
+                totalBytes: task.totalBytes || 0,
+                speedBytesPerSecond: task.speedBytesPerSecond || 0,
+                progress: task.progress || 0,
+                completedParts: task.completedParts || 0,
+                totalParts: task.totalParts || 0,
+                resumed: !!task.resumed,
+                error: task.error || '',
+                canPause: status === 'running' && (upload || !!controller?.pause),
+                canResume: status === 'paused' && (upload || !!controller?.resume),
+                canRetry: status === 'failed' && (upload ? !task.controllerUnavailable : !!task.retryHandler),
+                canCancel: (upload && status === 'cancelled' && !!task.cleanupFailed)
+                    || ((status === 'running' || status === 'paused' || status === 'failed')
+                        && (upload ? !task.controllerUnavailable : !!controller?.cancel || (status === 'running' && !!task.abortController)))
+            };
+        };
+        const unifiedTransferTasks = computed(() => [
+            ...transferUploadTasks.value.map(task => normalizeTransferTask(task, 'upload')),
+            ...downloadTasks.value.map(task => normalizeTransferTask(task, 'download'))
+        ]);
+        const activeTransferCount = computed(() => unifiedTransferTasks.value.filter(task => task.status === 'running').length);
+        const completedTransferCount = computed(() => unifiedTransferTasks.value.filter(task => task.status === 'completed').length);
+        const filteredTransferTasks = computed(() => transferCenterTab.value === 'all'
+            ? unifiedTransferTasks.value
+            : unifiedTransferTasks.value.filter(task => task.direction === transferCenterTab.value));
+        const transferTabCounts = computed(() => ({
+            all: unifiedTransferTasks.value.length,
+            upload: transferUploadTasks.value.length,
+            download: downloadTasks.value.length
+        }));
+        const clearCompletedTransfers = () => {
+            transferUploadTasks.value = transferUploadTasks.value.filter(task => task.status !== 'completed');
+            downloadTasks.value = downloadTasks.value.filter(task => task.status !== 'completed');
+        };
+
         const previewHintGroups = [
             { label: '图片', extensions: ['png', 'jpg', 'jpeg', 'gif', 'webp', 'bmp', 'svg'] },
             { label: '文档', extensions: ['pdf', 'txt', 'md', 'log', 'csv'] },
@@ -907,8 +1049,11 @@ const filePageSize = ref(25);
             };
         };
 
+        const downloadTerminalPatch = { controller: null, abortController: null, resumeHandler: null, retryHandler: null, runKey: null, error: '', speedBytesPerSecond: 0 };
+
         const completeDownloadTask = (taskId, patch = {}) => {
             updateDownloadTask(taskId, {
+                ...downloadTerminalPatch,
                 status: 'completed',
                 progress: 100,
                 ...patch
@@ -917,33 +1062,39 @@ const filePageSize = ref(25);
 
         const markDelegatedDownloadTask = (taskId, patch = {}) => {
             updateDownloadTask(taskId, {
+                ...downloadTerminalPatch,
                 status: 'delegated',
                 progress: 100,
-                speedBytesPerSecond: 0,
                 ...patch
             });
         };
 
-        const markPausedDownloadTask = (taskId) => {
+        const markPausedDownloadTask = (taskId, state = {}) => {
             updateDownloadTask(taskId, {
+                downloadedBytes: state.downloadedBytes ?? getDownloadTask(taskId)?.downloadedBytes ?? 0,
+                progress: state.progress ?? getDownloadTask(taskId)?.progress ?? 0,
                 status: 'paused',
                 step: '已暂停',
+                error: '',
                 speedBytesPerSecond: 0
             });
         };
 
         const markCancelledDownloadTask = (taskId) => {
             updateDownloadTask(taskId, {
+                ...downloadTerminalPatch,
                 status: 'cancelled',
-                step: '已取消',
-                speedBytesPerSecond: 0,
-                error: ''
+                step: '已取消'
             });
         };
 
         const failDownloadTask = (taskId, errorMessage) => {
+            if (!getDownloadTask(taskId)) return;
             updateDownloadTask(taskId, {
                 status: 'failed',
+                step: '下载失败',
+                speedBytesPerSecond: 0,
+                abortController: null,
                 error: errorMessage || '下载失败'
             });
             openDownloadCenter();
@@ -1057,8 +1208,10 @@ const filePageSize = ref(25);
             if (syncingRetryTimer || syncingFileKeys.value.size === 0 || !token.value) {
                 return;
             }
+            const session = transferSession;
             syncingRetryTimer = setTimeout(async () => {
                 syncingRetryTimer = null;
+                if (!isCurrentTransferSession(session)) return;
                 const metaEntries = Object.values(syncingFileMeta.value || {});
                 if (!metaEntries.length) {
                     return;
@@ -1069,10 +1222,13 @@ const filePageSize = ref(25);
                             params: {
                                 objectName: meta.objectName,
                                 bucket: meta.bucket
-                            }
+                            },
+                            transferSession: session
                         });
+                        if (!isCurrentTransferSession(session)) return;
                         clearSyncingFile(meta.bucket, meta.objectName);
                     } catch (error) {
+                        if (!isCurrentTransferSession(session)) return;
                         const key = fileListUiHelpers.buildFileSyncKey(meta.bucket, meta.objectName);
                         const currentMeta = syncingFileMeta.value[key];
                         if (currentMeta) {
@@ -1086,6 +1242,7 @@ const filePageSize = ref(25);
                         }
                     }
                 }));
+                if (!isCurrentTransferSession(session)) return;
                 if (currentMenu.value === 'files') {
                     await loadFiles();
                 }
@@ -1198,7 +1355,8 @@ const filePageSize = ref(25);
             }, detail));
         };
 
-        const uploadFileRequest = async ({ file, onProgress, onXhr, targetFileName }) => {
+        const uploadFileRequest = async ({ file, onProgress, onXhr, targetFileName, bucket, folder, session: ownerSession }) => {
+            requireTransferSession(ownerSession);
             const uploadTraceId = createUploadTraceId();
             const resolvedTargetFileName = targetFileName || file.name;
             logUploadTrace(uploadTraceId, 'session:start', {
@@ -1206,8 +1364,8 @@ const filePageSize = ref(25);
                 targetFileName: resolvedTargetFileName,
                 size: file.size,
                 contentType: file.type || 'application/octet-stream',
-                folder: currentFolder.value,
-                bucket: currentBucket.value
+                folder,
+                bucket
             });
             const sessionRes = await api.post(transferUiHelpers.resolveUploadSessionUrl(), {
                 fileName: resolvedTargetFileName,
@@ -1215,10 +1373,11 @@ const filePageSize = ref(25);
                 targetFileName: resolvedTargetFileName,
                 size: file.size,
                 contentType: file.type || 'application/octet-stream',
-                folder: currentFolder.value,
-                bucket: currentBucket.value,
+                folder,
+                bucket,
                 uploadTraceId
-            });
+            }, { transferSession: ownerSession });
+            requireTransferSession(ownerSession);
             const session = sessionRes.data || sessionRes || {};
             logUploadTrace(uploadTraceId, 'session:created', {
                 mode: session.mode,
@@ -1231,12 +1390,13 @@ const filePageSize = ref(25);
             const retryCompleteUpload = async (uploadToken, maxAttempts = 3) => {
                 let lastError = null;
                 for (let attempt = 1; attempt <= maxAttempts; attempt++) {
+                    requireTransferSession(ownerSession);
                     try {
                         logUploadTrace(uploadTraceId, 'complete:start', { attempt, maxAttempts });
                         const completeRes = await api.post(transferUiHelpers.resolveUploadCompleteUrl(), {
                             uploadToken,
                             uploadTraceId
-                        });
+                        }, { transferSession: ownerSession });
                         logUploadTrace(uploadTraceId, 'complete:success', { attempt });
                         return completeRes;
                     } catch (error) {
@@ -1255,6 +1415,7 @@ const filePageSize = ref(25);
             };
 
             const uploadThroughApplication = () => new Promise((resolve, reject) => {
+                requireTransferSession(ownerSession);
                 const xhr = new XMLHttpRequest();
                 logUploadTrace(uploadTraceId, 'application:start', {
                     originalFileName: file.name,
@@ -1319,7 +1480,7 @@ const filePageSize = ref(25);
                 };
                 const formData = new FormData();
                 formData.append('file', file);
-                Object.entries(uploadData.value || {}).forEach(([key, value]) => {
+                Object.entries({ folder, bucket }).forEach(([key, value]) => {
                     formData.append(key, value);
                 });
                 formData.append('targetFileName', resolvedTargetFileName);
@@ -1381,7 +1542,7 @@ const filePageSize = ref(25);
             return uploadThroughApplication();
         };
 
-        const promptUndoUploadedFiles = (uploadedItems, bucketName) => {
+        const promptUndoUploadedFiles = (uploadedItems, bucketName, session) => {
             if (!uploadedItems || uploadedItems.length === 0) {
                 return;
             }
@@ -1405,7 +1566,8 @@ const filePageSize = ref(25);
                         type: 'primary',
                         class: 'upload-success-notification__action',
                         onClick: async () => {
-                            if (undoing) {
+                            if (undoing || !isCurrentTransferSession(session)) {
+                                notification.close();
                                 return;
                             }
                             undoing = true;
@@ -1414,8 +1576,10 @@ const filePageSize = ref(25);
                                     params: {
                                         objectNames: uploadedItems.map(item => item.objectName).join(','),
                                         bucket: bucketName || currentBucket.value
-                                    }
+                                    },
+                                    transferSession: session
                                 });
+                                if (!isCurrentTransferSession(session)) return;
                                 uploadedItems.forEach(item => clearSyncingFile(bucketName || currentBucket.value, item.objectName));
                                 notification.close();
                                 ElementPlus.ElMessage.success('已撤销本次上传');
@@ -1429,6 +1593,56 @@ const filePageSize = ref(25);
                     }, () => '撤销上传')
                 ])
             });
+        };
+
+        const startMultipartUpload = (uploads, file, { bucket, folder, session, targetFileName, targetKey }) => {
+            multipartTargetKeys.add(targetKey);
+            const task = createUploadTask({ name: targetFileName, size: file.size });
+            const { xhr, objectName, ...transferTask } = task;
+            transferUploadTasks.value.unshift({ ...transferTask, targetKey });
+            transferCenterVisible.value = true;
+            transferCenterMinimized.value = false;
+
+            const applyState = (state) => {
+                if (!isCurrentTransferSession(session)) return;
+                const row = transferUploadTasks.value.find(item => item.id === task.id);
+                if (!row) return;
+                const steps = { running: '正在分片上传', paused: '已暂停', completed: '上传完成', failed: '上传失败', cancelled: '已取消' };
+                Object.assign(row, state, {
+                    step: steps[state.status],
+                    error: state.status === 'failed' ? extractUploadErrorMessage({ message: state.error }) : '',
+                    speedBytesPerSecond: state.status === 'running' ? state.speedBytesPerSecond : 0
+                });
+                if (state.status === 'completed') {
+                    multipartControllers.delete(task.id);
+                    multipartTargetKeys.delete(targetKey);
+                }
+                if (state.status === 'completed' && currentMenu.value === 'files'
+                    && currentBucket.value === bucket && currentFolder.value === folder) {
+                    void loadFiles({ silent: true });
+                }
+            };
+
+            try {
+                const controller = uploads.createMultipartUploader({
+                    file,
+                    bucket,
+                    folder,
+                    targetFileName,
+                    apiBasePath: contextPathHelpers.joinContextPath(appContextPath, '/api'),
+                    getAuthHeaders: () => {
+                        requireTransferSession(session);
+                        return { Authorization: 'Bearer ' + token.value };
+                    },
+                    onProgress: applyState
+                });
+                multipartControllers.set(task.id, controller);
+                void controller.start().catch(() => { /* 引擎已通过 onProgress 上报失败状态。 */ });
+            } catch (error) {
+                multipartControllers.delete(task.id);
+                multipartTargetKeys.delete(targetKey);
+                applyState({ status: 'failed', error: error.message, controllerUnavailable: true });
+            }
         };
 
         const runUploadBatch = async (files, options = {}) => {
@@ -1455,13 +1669,48 @@ const filePageSize = ref(25);
                 ElementPlus.ElMessage.warning('已有上传任务进行中');
                 return;
             }
+            const {
+                bucket: uploadBucket = currentBucket.value,
+                folder: uploadFolder = currentFolder.value,
+                session = transferSession
+            } = options;
+            if (!isCurrentTransferSession(session)) return;
+            const uploads = window.FileManagerUploads;
+            const ordinaryTargets = new Set();
+            const folderPrefix = uploadFolder && !uploadFolder.endsWith('/') ? uploadFolder + '/' : uploadFolder;
+            const ordinaryItems = uploadItems.filter(({ raw: file, targetName }) => {
+                const targetFileName = String(targetName || file.name).trim();
+                const dot = targetFileName.lastIndexOf('.');
+                const extStart = dot >= 0 && dot < targetFileName.length - 1 ? dot : targetFileName.length;
+                // 服务端只替换文件主名里的对象名非法字符，扩展名原样保留。
+                const objectName = targetFileName.slice(0, extStart).replace(/[\\/:*?"<>|]/g, '_') + targetFileName.slice(extStart);
+                const targetKey = JSON.stringify([uploadBucket, folderPrefix + objectName]);
+                const multipart = uploads?.shouldUseMultipartUpload?.(file.size);
+                if (multipartTargetKeys.has(targetKey) || (multipart && ordinaryTargets.has(targetKey))) {
+                    ElementPlus.ElMessage.warning('已有同名上传任务：' + targetFileName);
+                    return false;
+                }
+                if (!multipart) {
+                    ordinaryTargets.add(targetKey);
+                    return true;
+                }
+                startMultipartUpload(uploads, file, { bucket: uploadBucket, folder: uploadFolder, session, targetFileName, targetKey });
+                return false;
+            });
+            if (!ordinaryItems.length) {
+                if (options.closeMultipartDialog !== false) {
+                    uploadRef.value?.clearFiles();
+                    showUploadDialog.value = false;
+                }
+                return;
+            }
+
             uploading.value = true;
             uploadCancelRequested.value = false;
             clearFinishedUploadTasks();
             const uploadedItems = [];
-            const uploadBucket = currentBucket.value;
             try {
-                for (const uploadItem of uploadItems) {
+                for (const uploadItem of ordinaryItems) {
                     const file = uploadItem.raw;
                     if (uploadCancelRequested.value) {
                         break;
@@ -1474,6 +1723,9 @@ const filePageSize = ref(25);
                         const result = await uploadFileRequest({
                             file,
                             targetFileName: uploadItem.targetName,
+                            bucket: uploadBucket,
+                            folder: uploadFolder,
+                            session,
                             onXhr: (xhr) => {
                                 updateUploadTask(task.id, { xhr });
                             },
@@ -1486,6 +1738,7 @@ const filePageSize = ref(25);
                                 });
                             }
                         });
+                        if (!isCurrentTransferSession(session)) return;
                         const uploadInfo = result.response.data || {};
                         uploadedItems.push(uploadInfo);
                         registerSyncingFile(uploadBucket, uploadInfo);
@@ -1499,6 +1752,7 @@ const filePageSize = ref(25);
                             xhr: null
                         });
                     } catch (error) {
+                        if (!isCurrentTransferSession(session)) return;
                         updateUploadTask(task.id, {
                             status: error.message === '上传已取消' ? 'cancelled' : 'failed',
                             step: error.message === '上传已取消' ? '已取消' : '上传失败',
@@ -1513,17 +1767,22 @@ const filePageSize = ref(25);
                 if (uploadRef.value) {
                     uploadRef.value.clearFiles();
                 }
-                await loadFiles();
+                if (currentBucket.value === uploadBucket && currentFolder.value === uploadFolder && currentMenu.value === 'files') {
+                    await loadFiles();
+                }
+                if (!isCurrentTransferSession(session)) return;
                 scheduleSyncingRetry();
                 if (uploadedItems.length > 0) {
-                    promptUndoUploadedFiles(uploadedItems, uploadBucket);
+                    promptUndoUploadedFiles(uploadedItems, uploadBucket, session);
                 }
                 if (options.closeDialog !== false) {
                     showUploadDialog.value = false;
                 }
             } finally {
-                uploading.value = false;
-                uploadCancelRequested.value = false;
+                if (isCurrentTransferSession(session)) {
+                    uploading.value = false;
+                    uploadCancelRequested.value = false;
+                }
             }
         };
 
@@ -1543,123 +1802,175 @@ const filePageSize = ref(25);
             );
         };
 
-        const runChunkedFileDownload = async (file, session, taskId, fileHandle) => {
+        const requestFileDownloadSession = async (objectName, bucket, ownerSession) => {
+            requireTransferSession(ownerSession);
+            const payload = { scene: 'FILE', bucket, objectName };
+            const result = await api.post(transferUiHelpers.resolveDownloadSessionUrl(payload), payload, {
+                transferSession: ownerSession
+            });
+            requireTransferSession(ownerSession);
+            return result.data || result;
+        };
+
+        const buildChunkedRestartHandler = (file, taskId, target) => async () => {
+            const task = getDownloadTask(taskId);
+            if (!task || !isCurrentTransferSession(target.ownerSession)) return;
+            updateDownloadTask(taskId, { runKey: null, status: 'running', step: '准备重新下载', error: '' });
+            try {
+                const fileHandle = downloadHelpers.supportsStreamToDisk?.()
+                    ? await window.showSaveFilePicker({ suggestedName: file.fileName || 'download.bin' }) : null;
+                const session = await requestFileDownloadSession(file.objectName, target.bucket, target.ownerSession);
+                await runChunkedFileDownload(file, session, taskId, fileHandle, target);
+            } catch (error) {
+                if (!isCurrentTransferSession(target.ownerSession)) return;
+                if (error?.name === 'AbortError') {
+                    updateDownloadTask(taskId, { status: task.status, step: task.step, error: task.error });
+                } else {
+                    updateDownloadTask(taskId, { retryHandler: task.restartHandler });
+                    failDownloadTask(taskId, error?.message || '重新下载失败');
+                }
+            }
+        };
+
+        const runChunkedFileDownload = async (file, session, taskId, fileHandle, { bucket, ownerSession }) => {
+            requireTransferSession(ownerSession);
             const currentTaskId = taskId || addDownloadTask(createDownloadTask({
                 type: 'single-file',
                 name: file.fileName,
                 step: '正在下载大文件',
                 totalBytes: file.size || 0
             })).id;
-            updateDownloadTask(currentTaskId, {
-                type: 'single-file',
-                name: file.fileName,
-                status: 'running',
-                step: '正在下载大文件',
-                progress: 0,
-                downloadedBytes: 0,
-                totalBytes: file.size || 0,
-                speedBytesPerSecond: 0,
-                error: '',
-                abortController: null
-            });
-            const directUrl = session?.downloadUrl;
-            const fallbackUrl = session?.fallbackUrl;
-            const nativeUrl = session?.fallbackUrl || session?.downloadUrl;
-            const progressHandler = (progress) => {
-                updateDownloadTask(currentTaskId, {
-                    step: '正在下载大文件',
-                    progress: progress.progress,
-                    downloadedBytes: progress.downloadedBytes,
-                    totalBytes: progress.totalBytes,
-                    speedBytesPerSecond: progress.speedBytesPerSecond
-                });
+            let latestSession = session;
+            let controller;
+            let attemptId = 0;
+            const objectName = file.objectName;
+            const runKey = Symbol();
+            const writesToDisk = !!fileHandle || !!downloadHelpers.supportsStreamToDisk?.();
+            const isCurrent = () => isCurrentTransferSession(ownerSession) && getDownloadTask(currentTaskId)?.runKey === runKey;
+            const refreshUrl = async () => {
+                latestSession = await requestFileDownloadSession(objectName, bucket, ownerSession);
+                return latestSession.downloadUrl;
             };
-            const fallbackChunkedDownloadToNative = (error) => {
-                if (!fallbackUrl || fallbackUrl === directUrl || !canUseNativeDownload(fallbackUrl)) {
-                    return false;
-                }
-                recordClientDiagnostic('warn', 'download-fallback', {
-                    fileName: file.fileName,
-                    directUrl,
-                    fallbackUrl,
-                    reason: error && error.message ? error.message : String(error || '')
-                });
-                updateDownloadTask(currentTaskId, {
-                    step: '直连失败，已切换浏览器下载',
-                    progress: 100,
-                    downloadedBytes: file.size || 0,
-                    totalBytes: file.size || 0,
-                    speedBytesPerSecond: 0,
-                    error: ''
-                });
-                openNativeDownload(fallbackUrl);
+            const delegateToBrowser = (url) => {
+                if (!isCurrent()) return;
+                openNativeDownload(url);
                 markDelegatedDownloadTask(currentTaskId, {
                     step: '浏览器下载中',
+                    totalBytes: file.size || 0,
                     downloadedBytes: file.size || 0
                 });
-                if (window.console && typeof window.console.warn === 'function') {
-                    window.console.warn('[download-fallback]', error && error.message ? error.message : error);
-                }
-                ElementPlus.ElMessage.success('直连失败，已切换浏览器下载');
-                return true;
             };
-            updateDownloadTask(currentTaskId, {
-                controller: null,
-                retryHandler: () => runChunkedFileDownload(file, session, currentTaskId)
-            });
-            try {
-                if (!fileHandle && !downloadHelpers.supportsStreamToDisk?.() && canUseNativeDownload(nativeUrl)) {
-                    updateDownloadTask(currentTaskId, {
-                        step: '已交给浏览器下载',
-                        progress: 100,
-                        downloadedBytes: file.size || 0,
-                        totalBytes: file.size || 0,
-                        speedBytesPerSecond: 0
-                    });
-                    openNativeDownload(nativeUrl);
-                    markDelegatedDownloadTask(currentTaskId, {
-                        step: '浏览器下载中',
-                        downloadedBytes: file.size || 0
-                    });
-                    ElementPlus.ElMessage.success('已交给浏览器下载');
-                    return;
-                }
-
-                const controller = downloadHelpers.createChunkedDownloader({
-                    fileHandle,
-                    url: directUrl,
-                    fileName: file.fileName,
-                    totalSize: file.size || 0,
-                    headers: buildDownloadHeadersForUrl(directUrl),
-                    chunkSize: downloadHelpers.DEFAULT_CHUNK_SIZE,
-                    onProgress: progressHandler
-                });
-                updateDownloadTask(currentTaskId, {
-                    controller,
-                    retryHandler: () => runChunkedFileDownload(file, session, currentTaskId)
-                });
-                await controller.start();
-                const state = controller.getState();
-                if (state.status === 'paused') {
-                    markPausedDownloadTask(currentTaskId);
-                    return;
-                }
-                if (state.status === 'cancelled') {
+            const handleFailure = (error) => {
+                if (!isCurrent()) return;
+                const state = controller?.getState();
+                if (state?.status === 'cancelled' || error?.name === 'AbortError') {
                     markCancelledDownloadTask(currentTaskId);
                     return;
                 }
-                completeDownloadTask(currentTaskId, {
-                    step: '保存完成',
-                    downloadedBytes: file.size || 0
-                });
-                ElementPlus.ElMessage.success('下载完成');
-            } catch (error) {
-                if (error?.name === 'AbortError') { markCancelledDownloadTask(currentTaskId); return; }
-                if (fallbackChunkedDownloadToNative(error)) {
+                const { downloadUrl, fallbackUrl } = latestSession;
+                const hasWrittenData = writesToDisk && state?.downloadedBytes > 0;
+                if (!hasWrittenData && fallbackUrl && fallbackUrl !== downloadUrl && canUseNativeDownload(fallbackUrl)) {
+                    recordClientDiagnostic('warn', 'download-fallback', {
+                        fileName: file.fileName,
+                        directUrl: downloadUrl,
+                        fallbackUrl,
+                        reason: error?.message || ''
+                    });
+                    controller?.cancel(); // 释放流式失败保留的 writer，再交给浏览器。
+                    delegateToBrowser(fallbackUrl);
+                    ElementPlus.ElMessage.success('直连失败，已切换浏览器下载');
                     return;
                 }
-                failDownloadTask(currentTaskId, error.message || '下载失败');
-                ElementPlus.ElMessage.error('下载失败: ' + (error.message || ''));
+                if (state) updateDownloadTask(currentTaskId, { downloadedBytes: state.downloadedBytes, progress: state.progress });
+                failDownloadTask(currentTaskId, error?.message || '下载失败');
+                ElementPlus.ElMessage.error('下载失败: ' + (error?.message || ''));
+            };
+            const runAttempt = async (action) => {
+                if (!isCurrent()) return;
+                const attempt = ++attemptId;
+                updateDownloadTask(currentTaskId, {
+                    status: 'running', step: '正在下载大文件', error: '', speedBytesPerSecond: 0,
+                    resumed: action !== 'start'
+                });
+                try {
+                    await controller[action === 'retry' ? 'resume' : action]();
+                    if (attempt !== attemptId || !isCurrent()) return;
+                    const state = controller.getState();
+                    if (state.status === 'paused') {
+                        markPausedDownloadTask(currentTaskId, state);
+                    } else if (state.status === 'cancelled') {
+                        markCancelledDownloadTask(currentTaskId);
+                    } else if (state.status === 'completed') {
+                        completeDownloadTask(currentTaskId, {
+                            step: '保存完成', downloadedBytes: state.downloadedBytes ?? file.size ?? 0
+                        });
+                        ElementPlus.ElMessage.success('下载完成');
+                    } else if (state.status === 'failed' && action === 'retry') {
+                        // 非临时故障的 resume 不启动；引擎此时已释放旧 writer。
+                        await restart();
+                    }
+                } catch (error) {
+                    if (attempt === attemptId) handleFailure(error);
+                }
+            };
+            const restart = async () => {
+                if (!isCurrent()) return;
+                updateDownloadTask(currentTaskId, {
+                    status: 'running', step: '正在申请下载地址', error: '', speedBytesPerSecond: 0
+                });
+                try {
+                    await refreshUrl();
+                    if (!isCurrent() || getDownloadTask(currentTaskId).status === 'cancelled') return;
+                    await runChunkedFileDownload(file, latestSession, currentTaskId, fileHandle, { bucket, ownerSession });
+                } catch (error) {
+                    if (getDownloadTask(currentTaskId)?.status !== 'cancelled') handleFailure(error);
+                }
+            };
+            updateDownloadTask(currentTaskId, {
+                status: 'running', step: '正在下载大文件', progress: 0, downloadedBytes: 0,
+                totalBytes: file.size || 0, speedBytesPerSecond: 0, error: '', resumed: false,
+                controller: null, abortController: null, resumeHandler: null, retryHandler: restart, runKey,
+                restartHandler: buildChunkedRestartHandler({ fileName: file.fileName, objectName, size: file.size }, currentTaskId, { bucket, ownerSession })
+            });
+            try {
+                const nativeUrl = session.fallbackUrl || session.downloadUrl;
+                if (!writesToDisk && canUseNativeDownload(nativeUrl)) {
+                    delegateToBrowser(nativeUrl);
+                    ElementPlus.ElMessage.success('已交给浏览器下载');
+                    return;
+                }
+                controller = downloadHelpers.createChunkedDownloader({
+                    fileHandle,
+                    url: session.downloadUrl,
+                    fileName: file.fileName,
+                    totalSize: file.size || 0,
+                    chunkSize: writesToDisk ? downloadHelpers.STREAM_SEGMENT_SIZE : downloadHelpers.DEFAULT_CHUNK_SIZE,
+                    refreshUrl,
+                    fetchImpl: (url, options) => {
+                        requireTransferSession(ownerSession);
+                        const headers = new Headers(options.headers);
+                        headers.delete('Authorization');
+                        Object.entries(buildDownloadHeadersForUrl(url)).forEach(([name, value]) => headers.set(name, value));
+                        return fetch(url, { ...options, headers });
+                    },
+                    onProgress: (progress) => {
+                        if (!isCurrent()) return;
+                        updateDownloadTask(currentTaskId, {
+                            progress: progress.progress,
+                            downloadedBytes: progress.downloadedBytes,
+                            totalBytes: progress.totalBytes,
+                            speedBytesPerSecond: progress.speedBytesPerSecond
+                        });
+                    }
+                });
+                updateDownloadTask(currentTaskId, {
+                    controller,
+                    resumeHandler: () => runAttempt('resume'),
+                    retryHandler: () => runAttempt('retry')
+                });
+                await runAttempt('start');
+            } catch (error) {
+                handleFailure(error);
             }
         };
 
@@ -1713,13 +2024,16 @@ const filePageSize = ref(25);
             abortController.signal.addEventListener('abort', onAbort, { once: true });
         });
 
-        const runBatchDownloadTask = async (objectNames, fileName, taskId) => {
+        const runBatchDownloadTask = async (objectNames, fileName, taskId, bucket = currentBucket.value, session = transferSession) => {
+            if (!isCurrentTransferSession(session)) return;
             const currentTaskId = taskId || addDownloadTask(createDownloadTask({
                 type: 'batch-download',
                 name: fileName,
                 step: downloadHelpers.BATCH_DOWNLOAD_STEPS ? downloadHelpers.BATCH_DOWNLOAD_STEPS[0] : '创建归档任务'
             })).id;
             const abortController = new AbortController();
+            const requestConfig = { transferSession: session, signal: abortController.signal };
+            const restartHandler = () => runBatchDownloadTask(objectNames, fileName, currentTaskId, bucket, session);
             updateDownloadTask(currentTaskId, {
                 type: 'batch-download',
                 name: fileName,
@@ -1732,19 +2046,21 @@ const filePageSize = ref(25);
                 error: '',
                 controller: null,
                 abortController,
-                retryHandler: () => runBatchDownloadTask(objectNames, fileName, currentTaskId)
+                retryHandler: restartHandler,
+                restartHandler
             });
             try {
                 const result = await downloadHelpers.runArchiveTaskDownload({
                     payload: {
                         scene: 'FILE',
                         taskType: 'BATCH',
-                        bucket: currentBucket.value,
+                        bucket,
                         objectNames: objectNames.slice()
                     },
-                    createTaskRequest: (payload) => api.post('/transfer/archive-tasks', payload),
-                    getTaskRequest: (archiveTaskId) => api.get('/transfer/archive-tasks/' + archiveTaskId),
+                    createTaskRequest: (payload) => api.post('/transfer/archive-tasks', payload, requestConfig),
+                    getTaskRequest: (archiveTaskId) => api.get('/transfer/archive-tasks/' + archiveTaskId, requestConfig),
                     onUpdate: (task) => {
+                        if (abortController.signal.aborted) return;
                         updateDownloadTask(currentTaskId, {
                             step: resolveArchiveTaskStep(task),
                             progress: resolveArchiveTaskProgress(task),
@@ -1754,8 +2070,12 @@ const filePageSize = ref(25);
                         });
                     },
                     wait: createAbortablePollWait(abortController),
-                    openDownload: (url) => transferUiHelpers.runArchiveDownload(url, fileName, openNativeDownload)
+                    openDownload: (url) => {
+                        requireTransferSession(session);
+                        if (!abortController.signal.aborted) return transferUiHelpers.runArchiveDownload(url, fileName, openNativeDownload);
+                    }
                 });
+                if (!isCurrentTransferSession(session) || abortController.signal.aborted) return;
                 completeDownloadTask(currentTaskId, {
                     step: '保存完成',
                     downloadedBytes: Number(result?.task?.bytesWritten || 0),
@@ -1763,6 +2083,7 @@ const filePageSize = ref(25);
                 });
                 ElementPlus.ElMessage.success('下载完成');
             } catch (error) {
+                if (!isCurrentTransferSession(session) || getDownloadTask(currentTaskId)?.abortController !== abortController) return;
                 if (
                     abortController.signal.aborted
                     || error?.code === 'ERR_CANCELED'
@@ -1778,7 +2099,8 @@ const filePageSize = ref(25);
             }
         };
 
-        const runFolderDownloadTask = async (file, taskId) => {
+        const runFolderDownloadTask = async (file, taskId, bucket = currentBucket.value, session = transferSession) => {
+            if (!isCurrentTransferSession(session)) return;
             const archiveName = (file?.fileName || '目录') + '.zip';
             const currentTaskId = taskId || addDownloadTask(createDownloadTask({
                 type: 'folder-download',
@@ -1786,6 +2108,8 @@ const filePageSize = ref(25);
                 step: downloadHelpers.BATCH_DOWNLOAD_STEPS ? downloadHelpers.BATCH_DOWNLOAD_STEPS[0] : '创建归档任务'
             })).id;
             const abortController = new AbortController();
+            const requestConfig = { transferSession: session, signal: abortController.signal };
+            const restartHandler = () => runFolderDownloadTask(file, currentTaskId, bucket, session);
             updateDownloadTask(currentTaskId, {
                 type: 'folder-download',
                 name: archiveName,
@@ -1798,19 +2122,21 @@ const filePageSize = ref(25);
                 error: '',
                 controller: null,
                 abortController,
-                retryHandler: () => runFolderDownloadTask(file, currentTaskId)
+                retryHandler: restartHandler,
+                restartHandler
             });
             try {
                 const result = await downloadHelpers.runArchiveTaskDownload({
                     payload: {
                         scene: 'FILE',
                         taskType: 'FOLDER',
-                        bucket: currentBucket.value,
+                        bucket,
                         objectName: file.objectName
                     },
-                    createTaskRequest: (payload) => api.post('/transfer/archive-tasks', payload),
-                    getTaskRequest: (archiveTaskId) => api.get('/transfer/archive-tasks/' + archiveTaskId),
+                    createTaskRequest: (payload) => api.post('/transfer/archive-tasks', payload, requestConfig),
+                    getTaskRequest: (archiveTaskId) => api.get('/transfer/archive-tasks/' + archiveTaskId, requestConfig),
                     onUpdate: (task) => {
+                        if (abortController.signal.aborted) return;
                         updateDownloadTask(currentTaskId, {
                             step: resolveArchiveTaskStep(task),
                             progress: resolveArchiveTaskProgress(task),
@@ -1820,8 +2146,12 @@ const filePageSize = ref(25);
                         });
                     },
                     wait: createAbortablePollWait(abortController),
-                    openDownload: (url) => transferUiHelpers.runArchiveDownload(url, archiveName, openNativeDownload)
+                    openDownload: (url) => {
+                        requireTransferSession(session);
+                        if (!abortController.signal.aborted) return transferUiHelpers.runArchiveDownload(url, archiveName, openNativeDownload);
+                    }
                 });
+                if (!isCurrentTransferSession(session) || abortController.signal.aborted) return;
                 completeDownloadTask(currentTaskId, {
                     step: '保存完成',
                     downloadedBytes: Number(result?.task?.bytesWritten || 0),
@@ -1829,6 +2159,7 @@ const filePageSize = ref(25);
                 });
                 ElementPlus.ElMessage.success('下载完成');
             } catch (error) {
+                if (!isCurrentTransferSession(session) || getDownloadTask(currentTaskId)?.abortController !== abortController) return;
                 if (
                     abortController.signal.aborted
                     || error?.code === 'ERR_CANCELED'
@@ -1845,65 +2176,75 @@ const filePageSize = ref(25);
         };
 
         const pauseDownloadTask = async (task) => {
-            if (!task || task.status !== 'running' || !task.controller || typeof task.controller.pause !== 'function') {
-                return;
-            }
+            task = task && getDownloadTask(task.id);
+            if (task?.status !== 'running' || !task.controller?.pause) return;
             task.controller.pause();
-            markPausedDownloadTask(task.id);
+            const state = task.controller.getState();
+            // writer.close() 已提交时引擎拒绝暂停，界面保留进行中。
+            if (state.status === 'paused') markPausedDownloadTask(task.id, state);
         };
 
         const resumeDownloadTask = async (task) => {
-            if (!task || task.status !== 'paused' || !task.controller || typeof task.controller.resume !== 'function') {
-                return;
-            }
-            updateDownloadTask(task.id, {
-                status: 'running',
-                step: '正在下载大文件',
-                error: '',
-                speedBytesPerSecond: 0
-            });
-            try {
-                await task.controller.resume();
-                const state = task.controller.getState();
-                if (state.status === 'paused') {
-                    markPausedDownloadTask(task.id);
-                    return;
-                }
-                if (state.status === 'cancelled') {
-                    markCancelledDownloadTask(task.id);
-                    return;
-                }
-                completeDownloadTask(task.id, {
-                    step: '保存完成',
-                    downloadedBytes: task.totalBytes || state.totalBytes || 0
-                });
-                ElementPlus.ElMessage.success('下载完成');
-            } catch (error) {
-                failDownloadTask(task.id, error.message || '下载失败');
-                ElementPlus.ElMessage.error('下载失败: ' + (error.message || ''));
-            }
+            task = task && getDownloadTask(task.id);
+            if (task?.status === 'paused') await task.resumeHandler?.();
         };
 
         const cancelDownloadTask = async (task) => {
-            if (!task || (task.status !== 'running' && task.status !== 'paused')) {
-                return;
-            }
-            if (task.controller && typeof task.controller.cancel === 'function') {
+            task = task && getDownloadTask(task.id);
+            if (!task || !['running', 'paused', 'failed'].includes(task.status)) return;
+            if (task.controller?.cancel) {
                 task.controller.cancel();
-                markCancelledDownloadTask(task.id);
-                return;
-            }
-            if (task.abortController) {
+                if (task.controller.getState().status === 'cancelled') markCancelledDownloadTask(task.id);
+            } else if (task.abortController) {
                 task.abortController.abort();
                 markCancelledDownloadTask(task.id);
             }
         };
 
         const retryDownloadTask = async (task) => {
-            if (!task || typeof task.retryHandler !== 'function') {
+            task = task && getDownloadTask(task.id);
+            if (task?.status === 'failed') await task.retryHandler?.();
+            if (task?.status === 'completed' || task?.status === 'cancelled') await task.restartHandler?.();
+        };
+
+        const handleTransferTaskAction = async (task, action) => {
+            if (!task || !['pause', 'resume', 'retry', 'cancel'].includes(action)) return;
+            const { direction } = task;
+            const source = direction === 'upload' ? transferUploadTasks.value : downloadTasks.value;
+            const row = source.find(item => direction + ':' + item.id === task.id);
+            const capability = 'can' + action[0].toUpperCase() + action.slice(1);
+            if (!row || !normalizeTransferTask(row, direction)[capability]) return;
+            if (direction === 'download') {
+                await { pause: pauseDownloadTask, resume: resumeDownloadTask, retry: retryDownloadTask, cancel: cancelDownloadTask }[action](row);
                 return;
             }
-            await task.retryHandler();
+            const controller = multipartControllers.get(row.id);
+            if (!controller || row.cleanupPending) return;
+            if (action === 'cancel') {
+                row.cleanupPending = true;
+                row.cleanupFailed = false;
+                row.error = '';
+                try {
+                    await controller.cancel();
+                    if (controller.getState().status === 'cancelled') {
+                        multipartControllers.delete(row.id);
+                        if (transferUploadTasks.value.some(item => item.id === row.id)) multipartTargetKeys.delete(row.targetKey);
+                    }
+                } catch (error) {
+                    if (controller.getState().status === 'cancelled') {
+                        row.cleanupFailed = true;
+                        row.error = '取消上传失败：' + (error?.message || '请重试');
+                    }
+                } finally {
+                    row.cleanupPending = false;
+                }
+                return;
+            }
+            try {
+                await controller[action === 'retry' ? 'resume' : action]();
+            } catch (_) {
+                // 分片引擎已通过 onProgress 上报任务状态。
+            }
         };
 
         const generateSharePassword = () => {
@@ -2170,10 +2511,49 @@ const filePageSize = ref(25);
             return sha512(password);
         };
 
+        const resetTransferSession = () => {
+            transferSession++;
+            multipartControllers.forEach(controller => {
+                // 已退出的会话不再发认证请求。pause 会停止分片，等待服务端按原规则回收。
+                controller.pause();
+            });
+            multipartControllers.clear();
+            multipartTargetKeys.clear();
+            downloadTasks.value.forEach(task => {
+                task.controller?.cancel();
+                task.abortController?.abort();
+            });
+            uploadTasks.value.forEach(task => task.xhr?.abort());
+            stopSyncingRetry();
+            syncingFileMeta.value = {};
+            syncingFileKeys.value = new Set();
+            clearTimeout(uploadDialogSelectionTimer);
+            uploadDialogSelectionTimer = null;
+            downloadTasks.value = [];
+            transferUploadTasks.value = [];
+            uploadTasks.value = [];
+            pendingUploadFiles.value = [];
+            uploadRef.value?.clearFiles();
+            uploading.value = false;
+            uploadCancelRequested.value = false;
+            uploadDialogDropActive.value = false;
+            showUploadDialog.value = false;
+            downloadCenterVisible.value = false;
+            downloadCenterMinimized.value = false;
+            transferCenterVisible.value = false;
+            transferCenterMinimized.value = false;
+            transferCenterTab.value = 'all';
+            fileLoading.value = false;
+        };
+
         // Methods
         const finishLogin = async (data) => {
+            if (token.value !== data.token) resetTransferSession();
             token.value = data.token;
-            localStorage.setItem('token', token.value);
+            const persisted = persistStoredToken(token.value);
+            if (!persisted) {
+                ElementPlus.ElMessage.warning('本地存储受限，登录状态仅在当前会话有效，刷新后需重新登录');
+            }
             userInfo.value = data;
             isLoggedIn.value = true;
             await loadCurrentPermissions();
@@ -2239,8 +2619,12 @@ const filePageSize = ref(25);
         };
 
         const logout = () => {
+            resetTransferSession();
             token.value = '';
-            localStorage.removeItem('token');
+            const cleared = clearStoredToken();
+            if (!cleared) {
+                ElementPlus.ElMessage.warning('当前页面已退出。浏览器未能清除保存的登录状态；请在浏览器中为本站清理站点数据，尤其是在共用设备上。');
+            }
             userInfo.value = {};
             permissionInfo.value = {
                 userId: null,
@@ -2889,23 +3273,35 @@ const filePageSize = ref(25);
         };
 
         // File management
-        const loadFiles = async () => {
+        let fileListAppliedRequest = 0;
+        const loadFiles = async ({ silent = false } = {}) => {
             if (!currentBucket.value) return;
-            updateBreadcrumb();
-            fileLoading.value = true;
+            const request = ++fileListRequest;
+            const session = transferSession;
+            const menu = currentMenu.value;
+            const params = {
+                folder: currentFolder.value,
+                bucket: currentBucket.value,
+                sortBy: fileSortBy.value,
+                order: fileOrder.value,
+                folderFirst: folderFirstMode.value,
+                page: filePage.value,
+                size: filePageSize.value
+            };
+            const isCurrentView = () => isCurrentTransferSession(session)
+                && request >= visibleFileListRequest && request > fileListAppliedRequest
+                && menu === currentMenu.value && params.bucket === currentBucket.value && params.folder === currentFolder.value
+                && params.sortBy === fileSortBy.value && params.order === fileOrder.value && params.folderFirst === folderFirstMode.value
+                && params.page === filePage.value && params.size === filePageSize.value;
+            if (!silent) {
+                visibleFileListRequest = request;
+                updateBreadcrumb();
+                fileLoading.value = true;
+            }
             try {
-                const res = await api.get('/file/list', {
-                    params: {
-                        folder: currentFolder.value,
-                        bucket: currentBucket.value,
-                        sortBy: fileSortBy.value,
-                        order: fileOrder.value,
-                        folderFirst: folderFirstMode.value,
-                        page: filePage.value,
-                        size: filePageSize.value
-                    }
-                });
-                if (res.code === 200) {
+                const res = await api.get('/file/list', { params, transferSession: session });
+                if (res.code === 200 && isCurrentView()) {
+                    fileListAppliedRequest = request;
                     // 判断返回的是分页结果还是普通列表
                     if (res.data.items !== undefined) {
                         // 分页模式
@@ -2918,9 +3314,11 @@ const filePageSize = ref(25);
                     }
                 }
             } catch (error) {
-                ElementPlus.ElMessage.error('加载文件列表失败');
+                if (!silent && isCurrentView()) ElementPlus.ElMessage.error('加载文件列表失败');
             } finally {
-                fileLoading.value = false;
+                if (!silent && request === visibleFileListRequest) {
+                    fileLoading.value = false;
+                }
             }
         };
 
@@ -2950,9 +3348,11 @@ const filePageSize = ref(25);
             loadFiles();
         };
 
-        const loadUploadConfig = async () => {
+        const loadUploadConfig = async (session = transferSession) => {
+            if (!isCurrentTransferSession(session)) return;
             try {
-                const res = await api.get('/file/upload-config');
+                const res = await api.get('/file/upload-config', { transferSession: session });
+                if (!isCurrentTransferSession(session)) return;
                 if (res.code === 200) {
                     const extensions = res.data.allowedExtensions || [];
                     fileConfig.value.allowedExtensionsText = extensions.join(',');
@@ -2965,7 +3365,7 @@ const filePageSize = ref(25);
                     fileConfig.value.uploadDialogMode = res.data.uploadDialogMode || fileConfig.value.uploadDialogMode || 'INSTANT';
                 }
             } catch (error) {
-                ElementPlus.ElMessage.error('加载上传配置失败');
+                if (isCurrentTransferSession(session)) ElementPlus.ElMessage.error('加载上传配置失败');
             }
         };
 
@@ -3208,27 +3608,34 @@ const filePageSize = ref(25);
         };
 
         const handleFileDrop = async (event) => {
+            const target = { bucket: currentBucket.value, folder: currentFolder.value, session: transferSession };
+            const menu = currentMenu.value;
             fileDropDragDepth = 0;
             fileDropActive.value = false;
-            if (!currentBucket.value) {
+            if (!target.bucket) {
                 ElementPlus.ElMessage.warning('请先选择存储桶');
                 return;
             }
-            if (!hasApiPermission('API_FILE_OPERATE') || !hasBucketPermission(currentBucket.value, 'UPLOAD')) {
+            if (!hasApiPermission('API_FILE_OPERATE') || !hasBucketPermission(target.bucket, 'UPLOAD')) {
                 ElementPlus.ElMessage.warning('当前账号无上传权限');
                 return;
             }
             const droppedFiles = Array.from(event?.dataTransfer?.files || []).filter(Boolean);
-            if (!droppedFiles.length) {
-                return;
-            }
-            await loadUploadConfig();
-            showUploadDialog.value = true;
+            if (!droppedFiles.length) return;
+            await loadUploadConfig(target.session);
+            if (!isCurrentTransferSession(target.session)) return;
+            const sameView = currentMenu.value === menu && currentBucket.value === target.bucket && currentFolder.value === target.folder;
             if (fileConfig.value.fileDropMode === 'MANUAL') {
+                if (!sameView) {
+                    ElementPlus.ElMessage.warning('目录已切换，请重新拖放文件');
+                    return;
+                }
+                showUploadDialog.value = true;
                 pendingUploadFiles.value = pendingUploadFiles.value.concat(normalizePendingUploadFiles(droppedFiles));
                 return;
             }
-            await runUploadBatch(droppedFiles, { closeDialog: false });
+            if (sameView) showUploadDialog.value = true;
+            await runUploadBatch(droppedFiles, { ...target, closeDialog: false, closeMultipartDialog: sameView });
         };
 
         const handleUploadDialogDragOver = (event) => {
@@ -3306,39 +3713,33 @@ const filePageSize = ref(25);
                 return;
             }
 
-            // 文件下载
-              try {
-                  const useTaskCenter = shouldUseTaskCenterForFile(file);
-                   const fileHandle = useTaskCenter && downloadHelpers.supportsStreamToDisk?.()
-                       ? await window.showSaveFilePicker({suggestedName: file.fileName || 'download.bin'}) : null;
-                   const sessionRes = await api.post(transferUiHelpers.resolveDownloadSessionUrl({
-                      scene: 'FILE',
-                      bucket: currentBucket.value,
-                      objectName: file.objectName
-                }), {
-                      scene: 'FILE',
-                      bucket: currentBucket.value,
-                      objectName: file.objectName
-                  });
-                  const session = sessionRes.data || sessionRes;
-                  recordClientDiagnostic('info', 'download-session', {
-                      fileName: file.fileName,
-                      bucket: currentBucket.value,
-                      objectName: file.objectName,
-                      mode: session.mode,
-                      downloadUrl: session.downloadUrl,
-                      fallbackUrl: session.fallbackUrl
-                  });
-                  if (useTaskCenter) {
-                      await runChunkedFileDownload(file, session, null, fileHandle);
-                      return;
-                  }
-                  await transferUiHelpers.runSingleFileDownload(session, (url) => openNativeDownload(url));
-              } catch (error) {
-                  if (error?.name === 'AbortError') return;
-                  ElementPlus.ElMessage.error('下载失败: ' + (error.response?.data?.message || error.message || '未知错误'));
-              }
-          };
+            // 文件下载：保存对话框打开期间仍可能导航或切换账号。
+            const bucket = currentBucket.value;
+            const ownerSession = transferSession;
+            const objectName = file.objectName;
+            try {
+                const useTaskCenter = shouldUseTaskCenterForFile(file);
+                const fileHandle = useTaskCenter && downloadHelpers.supportsStreamToDisk?.()
+                    ? await window.showSaveFilePicker({ suggestedName: file.fileName || 'download.bin' }) : null;
+                const session = await requestFileDownloadSession(objectName, bucket, ownerSession);
+                recordClientDiagnostic('info', 'download-session', {
+                    fileName: file.fileName,
+                    bucket,
+                    objectName,
+                    mode: session.mode,
+                    downloadUrl: session.downloadUrl,
+                    fallbackUrl: session.fallbackUrl
+                });
+                if (useTaskCenter) {
+                    await runChunkedFileDownload(file, session, null, fileHandle, { bucket, ownerSession });
+                    return;
+                }
+                await transferUiHelpers.runSingleFileDownload(session, (url) => openNativeDownload(url));
+            } catch (error) {
+                if (!isCurrentTransferSession(ownerSession) || error?.name === 'AbortError') return;
+                ElementPlus.ElMessage.error('下载失败: ' + (error.response?.data?.message || error.message || '未知错误'));
+            }
+        };
 
         const imagePreviewExtensions = ['png', 'jpg', 'jpeg', 'gif', 'webp', 'bmp', 'svg'];
         const textPreviewExtensions = ['txt', 'md', 'log', 'json', 'xml', 'yml', 'yaml', 'properties', 'csv', 'java', 'js', 'ts', 'css', 'html', 'htm', 'sql', 'sh'];
@@ -4739,7 +5140,8 @@ const filePageSize = ref(25);
                     ensureTransportPriorityDefaults();
                 }
             } catch (error) {
-                ElementPlus.ElMessage.error('加载配置失败');
+                const detail = error?.response?.data?.message || error?.message || '';
+                ElementPlus.ElMessage.error(detail ? '加载配置失败: ' + detail : '加载配置失败');
             }
         };
 
@@ -4768,7 +5170,8 @@ const filePageSize = ref(25);
                     ElementPlus.ElMessage.success('保存成功');
                 }
             } catch (error) {
-                ElementPlus.ElMessage.error('保存失败');
+                const detail = error?.response?.data?.message || error?.message || '';
+                ElementPlus.ElMessage.error(detail ? '保存配置失败: ' + detail : '保存配置失败');
             }
         };
 
@@ -5017,6 +5420,8 @@ const filePageSize = ref(25);
 
         return {
             isLoggedIn,
+            currentTheme,
+            toggleTheme,
             navigationOpen,
             toggleNavigation,
             closeNavigation,
@@ -5161,6 +5566,17 @@ const filePageSize = ref(25);
             activeDownloadTaskCount,
             failedDownloadTaskCount,
             primaryDownloadTask,
+            transferCenterVisible,
+            transferCenterMinimized,
+            transferCenterTab,
+            transferUploadTasks,
+            unifiedTransferTasks,
+            activeTransferCount,
+            filteredTransferTasks,
+            completedTransferCount,
+            transferTabCounts,
+            clearCompletedTransfers,
+            handleTransferTaskAction,
             showHttpsNotice,
             httpsSuggestionUrl,
             displayVersionLabel,

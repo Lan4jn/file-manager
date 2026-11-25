@@ -60,4 +60,10 @@ public class MinioConfig {
 
         return minioClient;
     }
+
+    @Bean
+    public MinioMultipartClient minioMultipartClient(MinioClient minioClient) {
+        return new MinioMultipartClient(minioClient, endpoint, accessKey, secretKey,
+                connectTimeoutMs, writeTimeoutMs, readTimeoutMs);
+    }
 }

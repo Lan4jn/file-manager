@@ -5,16 +5,40 @@ const { test } = require('node:test');
 
 const root = resolve(__dirname, '../../main/resources/static');
 const html = readFileSync(resolve(root, 'index.html'), 'utf8');
+const css = readFileSync(resolve(root, 'css/workspace-blueprint-layout.css'), 'utf8');
 const files = html.slice(html.indexOf('<!-- File Manager -->'), html.indexOf('<!-- Shares -->'));
 const buckets = html.slice(html.indexOf('<!-- Bucket Management -->'), html.indexOf('<!-- File Manager -->'));
 
-test('登录表单与路径说明分栏，账户提交仍使用生产方法', () => {
-    assert.ok(/class="login-content"[\s\S]*@submit\.prevent="handleLogin"[\s\S]*<\/el-card>\s*<\/div>\s*<aside class="login-path-guide"/.test(html), '缺少独立路径说明');
+test('登录页只展示登录面板，并保留密码和证书登录入口', () => {
+    const login = html.slice(html.indexOf('<!-- Login Page -->'), html.indexOf('<!-- Main App -->'));
+    assert.ok(!login.includes('<aside'), '登录表单旁不应另有说明栏');
+    assert.ok(login.includes('@submit.prevent="handleLogin"'));
+    assert.ok(login.includes('@click="handleCertLogin"'));
+    assert.ok(login.includes('@click="toggleTheme"'));
     assert.doesNotMatch(html, /team-documents|验收材料|交付文件/);
 });
 
 test('工作台最近与收藏同主栏，提醒独立为副栏', () => {
-    assert.ok(/class="workbench-directories"[\s\S]*workbenchOverview\.recentDirectories[\s\S]*workbenchOverview\.favoriteDirectories[\s\S]*<\/section>\s*<\/div>\s*<section class="workbench-panel workbench-reminders"/.test(html), '缺少主副栏分组');
+    assert.match(html, /class="workbench-directories"\s*>\s*<section\b[^>]*class="workbench-panel workbench-panel--recent"[\s\S]*?workbenchOverview\.recentDirectories[\s\S]*?<\/section>\s*<section\b[^>]*class="workbench-panel workbench-panel--favorites"[\s\S]*?workbenchOverview\.favoriteDirectories[\s\S]*?<\/section>\s*<\/div>\s*<section class="workbench-panel workbench-reminders"/);
+});
+
+test('最近与收藏使用独立卡片，收藏有独立强调线', () => {
+    assert.match(css, /\.workbench-directories\s*\{[^}]*display:\s*flex\b[^}]*flex-direction:\s*column\b[^}]*gap:\s*20px\b/);
+    assert.match(css, /\.workbench-directories\s*\{[^}]*background:\s*transparent\b/);
+    const cards = css.match(/\.workbench-directories\s*>\s*\.workbench-panel\s*\{([^}]*)\}/)?.[1] || '';
+    assert.match(cards, /border:\s*1px solid var\(--border-default\)/);
+    assert.match(cards, /border-radius:\s*var\(--radius-lg\)/);
+    assert.match(cards, /background:\s*var\(--surface-panel\)/);
+    assert.match(cards, /box-shadow:\s*var\(--shadow-sm\)/);
+    assert.match(css, /\.workbench-panel--favorites\s*\{[^}]*border-top:\s*2px solid var\(--workbench-fav-accent\)/);
+    assert.doesNotMatch(css, /\.workbench-panel\s*\+\s*\.workbench-panel/);
+});
+
+test('最近目录只在 1024px 起使用双列，收藏目录仍为整行清单', () => {
+    assert.match(html, /class="workbench-directory-list workbench-directory-list--recent"\s*>[\s\S]*?v-for="item in workbenchOverview\.recentDirectories"/);
+    assert.match(html, /class="workbench-directory-list workbench-directory-list--favorites"\s*>[\s\S]*?v-for="item in workbenchOverview\.favoriteDirectories"/);
+    assert.match(css, /@media\s*\(\s*min-width\s*:\s*1024px\s*\)\s*\{\s*[^{}]*\.workbench-directory-list--recent\s*\{[^}]*display:\s*grid\b[^}]*grid-template-columns:\s*repeat\(2,\s*minmax\(0,\s*1fr\)\)/);
+    assert.match(css, /\.workbench-directory-list--favorites\s*\{[^}]*display:\s*flex\b[^}]*flex-direction:\s*column\b/);
 });
 
 test('桌面桶列固定宽度采用批准排布，名称保持弹性', () => {
@@ -34,9 +58,8 @@ test('更多控制导航与次要动作，真实命令只绑定一次', () => {
 
 test('窄屏文件行在同一行卡保留名称、元数据和操作', () => {
     assert.ok(/class="[^"\n]*blueprint-file-table/.test(files), '缺少独立文件列表布局');
-    const css = readFileSync(resolve(root, 'css/workspace-blueprint-layout.css'), 'utf8');
     assert.match(css, /grid-template-areas:\s*"select name ops"\s*"\. size ops"\s*"\. date ops"/);
-    assert.match(html, /workspace-theme\.css\?v=build143"[^>]*>\s*<link[^>]*workspace-blueprint\.css\?v=build143"[^>]*>\s*<link[^>]*workspace-blueprint-layout\.css\?v=build143/);
+    assert.match(html, /tokens\.css\?v=build152[\s\S]*workspace-theme\.css\?v=build152[\s\S]*workspace-blueprint-layout\.css\?v=build152/);
 });
 
 test('更多从工具栏外收到 Escape、点击后关闭，离开文件页后解绑', () => {
@@ -83,14 +106,16 @@ test('更多从工具栏外收到 Escape、点击后关闭，离开文件页后�
 });
 
 test('提醒副栏不继承旧模板的整行跨列', () => {
-    const css = readFileSync(resolve(root, 'css/workspace-blueprint-layout.css'), 'utf8');
     assert.match(css, /\.workbench-grid\s+\.workbench-reminders\s*\{[^}]*grid-column:\s*auto/);
 });
 
 test('文件大小与日期单独使用不换行的数值样式', () => {
-    const css = readFileSync(resolve(root, 'css/workspace-blueprint-layout.css'), 'utf8');
     for (const prop of ['size', 'uploadTime']) {
         assert.match(files, new RegExp(`prop="${prop}"[^>]*class-name="file-row-number"`));
     }
     assert.match(css, /\.file-row-number\s+\.cell\s*\{[^}]*white-space:\s*nowrap/);
+});
+
+test('布局样式包含 1920px 宽屏规则', () => {
+    assert.match(css, /@media\s*\(\s*min-width\s*:\s*1920px\s*\)\s*\{/);
 });

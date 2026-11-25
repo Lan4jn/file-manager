@@ -5,30 +5,33 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
     <meta name="page-type" content="software">
     <meta name="site-kind" content="software">
-    <meta name="theme-color" content="#edf3f5">
+    <meta name="theme-color" content="#fafafa">
     <meta property="og:type" content="website">
     <meta property="og:title" content="文件管理器">
     <meta property="og:description" content="文件目录、上传下载与权限分享">
-    <meta property="og:image" content="./vendor/taste/login-preview.png">
+    <meta property="og:image" content="./vendor/taste/login-single-build147.png">
     <meta property="og:image:width" content="1440">
-    <meta property="og:image:height" content="900">
-    <meta property="og:image:alt" content="文件管理器登录与功能示意">
+    <meta property="og:image:height" content="1000">
+    <meta property="og:image:alt" content="文件管理器单栏账号登录页">
     <meta name="twitter:card" content="summary_large_image">
+    <script>(function(){try{var t=localStorage.getItem('fm-theme')==='dark'?'dark':'light';var r=document.documentElement;r.dataset.theme=t;r.classList.toggle('dark',t==='dark');r.style.colorScheme=t;var m=document.querySelector('meta[name="theme-color"]');if(m)m.setAttribute('content',t==='dark'?'#13161b':'#fafafa');}catch(e){}})();</script>
+    <style>[v-cloak]{display:none!important;}html[data-theme="light"],html[data-theme="light"] body{background-color:#fafafa;}html[data-theme="dark"],html[data-theme="dark"] body{background-color:#13161b;}</style>
     <script>document.documentElement.classList.add('m-enter');setTimeout(()=>document.documentElement.classList.add('m-enter-done'),700)</script>
     <title>文件管理器</title>
     <meta name="description" content="MinIO 文件与目录管理、上传下载和文件分享">
     <meta name="robots" content="noindex, nofollow">
-    <link rel="icon" type="image/svg+xml" href="./favicon.svg?v=20260324">
-    <link rel="alternate icon" type="image/x-icon" href="./favicon.ico?v=20260324">
+    <link rel="icon" type="image/svg+xml" href="./favicon.svg?v=build152">
+    <link rel="alternate icon" type="image/x-icon" href="./favicon.ico?v=build152">
     <link rel="stylesheet" href="./css/element-plus.css">
-    <link rel="stylesheet" href="./css/app.css">
+    <link rel="stylesheet" href="./css/tokens.css?v=build152">
+    <link rel="stylesheet" href="./css/app.css?v=build152">
     <link rel="stylesheet" href="./vendor/taste/motion/motion.css">
-    <link rel="stylesheet" href="./css/workspace-theme.css?v=build143">
-    <link rel="stylesheet" href="./css/workspace-blueprint.css?v=build143">
-    <link rel="stylesheet" href="./css/workspace-blueprint-layout.css?v=build143">
+    <link rel="stylesheet" href="./css/workspace-theme.css?v=build152">
+    <link rel="stylesheet" href="./css/workspace-blueprint-layout.css?v=build152">
+    <link rel="stylesheet" href="./css/client-certificate.css?v=build152">
 </head>
 <body class="workspace-app">
-    <div id="app">
+    <div id="app" v-cloak>
         <a v-if="isLoggedIn" class="skip-link" href="#main-content">跳至主要内容</a>
         <!-- Login Page -->
         <main v-if="!isLoggedIn" class="login-container">
@@ -37,7 +40,15 @@
                 <div class="login-content">
                 <section class="login-hero" aria-labelledby="login-title">
                     <div class="login-brand">
-                        <span class="brand-mark" aria-hidden="true">M</span>
+                        <span class="brand-mark" aria-hidden="true">
+                            <svg class="brand-mark-svg" viewBox="0 0 24 24" fill="none">
+                                <rect x="6" y="3" width="12" height="3.2" rx="1.2" fill="currentColor" fill-opacity="0.28"/>
+                                <rect x="4" y="6.8" width="16" height="3.6" rx="1.4" fill="currentColor" class="brand-mark__accent"/>
+                                <rect x="3" y="10.2" width="18" height="10.8" rx="2.4" fill="currentColor" fill-opacity="0.92"/>
+                                <rect x="6.5" y="13.6" width="7" height="1.5" rx="0.75" fill="var(--surface-panel, #ffffff)" fill-opacity="0.85"/>
+                                <rect x="6.5" y="16.5" width="11" height="1.5" rx="0.75" fill="var(--surface-panel, #ffffff)" fill-opacity="0.52"/>
+                            </svg>
+                        </span>
                         <div><h1 class="heading-5" id="login-title" data-enter-whole>文件管理器</h1><p class="caption-5">Drive Powered by MinIO</p></div>
                     </div>
                     <el-alert
@@ -61,6 +72,21 @@
                         </div>
                         <div class="login-card-actions">
                             <span class="version-chip">{{ displayVersionLabel }}</span>
+                            <button
+                                type="button"
+                                class="theme-toggle-btn theme-toggle-btn--icon"
+                                :aria-label="currentTheme === 'dark' ? '切换为浅色主题' : '切换为深色主题'"
+                                :title="currentTheme === 'dark' ? '切换为浅色主题' : '切换为深色主题'"
+                                @click="toggleTheme"
+                            >
+                                <svg v-if="currentTheme === 'dark'" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                                    <circle cx="12" cy="12" r="4"></circle>
+                                    <path d="M12 2v2m0 16v2M4.93 4.93l1.41 1.41m11.32 11.32 1.41 1.41M2 12h2m16 0h2M4.93 19.07l1.41-1.41m11.32-11.32 1.41-1.41"></path>
+                                </svg>
+                                <svg v-else viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                                    <path d="M12 3a6 6 0 0 0 9 9 9 9 0 1 1-9-9Z"></path>
+                                </svg>
+                            </button>
                         </div>
                     </div>
                     <el-form aria-labelledby="login-form-title" :model="loginForm" label-position="top" @submit.prevent="handleLogin">
@@ -91,30 +117,12 @@
                     </el-form>
                 </el-card>
                 </div>
-                <aside class="login-path-guide" aria-labelledby="login-path-title" data-enter-media>
-                    <h2 id="login-path-title">从存储桶找到文件</h2>
-                    <p>按目录浏览文件，上传、下载，或通过账号和链接分享。</p>
-                    <figure class="login-path-example">
-                        <figcaption>存储路径层级</figcaption>
-                        <ol class="login-path-tree">
-                            <li>
-                                <span><el-icon aria-hidden="true"><Box /></el-icon>存储桶</span>
-                                <ol><li>
-                                    <span><el-icon aria-hidden="true"><Folder /></el-icon>目录</span>
-                                    <ol><li><span><el-icon aria-hidden="true"><Folder /></el-icon>子目录</span></li></ol>
-                                </li></ol>
-                            </li>
-                        </ol>
-                        <code>存储桶 / 目录 / 子目录</code>
-                    </figure>
-                </aside>
             </div>
             </section>
         </main>
 
         <!-- Main App -->
         <div v-else class="main-container" :data-page="currentMenu">
-            <div class="app-backdrop"></div>
             <el-alert
                 v-if="showHttpsNotice"
                 class="https-notice https-notice--app"
@@ -140,6 +148,21 @@
                     </div>
                 </div>
                 <div class="header-right">
+                    <button
+                        type="button"
+                        class="theme-toggle-btn"
+                        :aria-label="currentTheme === 'dark' ? '切换为浅色主题' : '切换为深色主题'"
+                        @click="toggleTheme"
+                    >
+                        <svg v-if="currentTheme === 'dark'" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                            <circle cx="12" cy="12" r="4"></circle>
+                            <path d="M12 2v2m0 16v2M4.93 4.93l1.41 1.41m11.32 11.32 1.41 1.41M2 12h2m16 0h2M4.93 19.07l1.41-1.41m11.32-11.32 1.41-1.41"></path>
+                        </svg>
+                        <svg v-else viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                            <path d="M12 3a6 6 0 0 0 9 9 9 9 0 1 1-9-9Z"></path>
+                        </svg>
+                        <span class="theme-toggle-btn__label">{{ currentTheme === 'dark' ? '浅色' : '深色' }}</span>
+                    </button>
                     <button class="ghost-action" @click="showVersionDialog = true">{{ displayVersionLabel }}</button>
                     <button v-if="canOpenDiagnostics" class="ghost-action" type="button" @click="showDiagnosticsDialog = true">
                         前端诊断
@@ -173,7 +196,15 @@
                     <button type="button" class="workspace-nav-close" aria-label="关闭导航" @click="closeNavigation"><el-icon><Close /></el-icon></button>
                     <div class="sidebar-top">
                         <div class="sidebar-brand">
-                            <div class="brand-mark">M</div>
+                            <div class="brand-mark" aria-hidden="true">
+                                <svg class="brand-mark-svg" viewBox="0 0 24 24" fill="none">
+                                    <rect x="6" y="3" width="12" height="3.2" rx="1.2" fill="currentColor" fill-opacity="0.28"/>
+                                    <rect x="4" y="6.8" width="16" height="3.6" rx="1.4" fill="currentColor" class="brand-mark__accent"/>
+                                    <rect x="3" y="10.2" width="18" height="10.8" rx="2.4" fill="currentColor" fill-opacity="0.92"/>
+                                    <rect x="6.5" y="13.6" width="7" height="1.5" rx="0.75" fill="var(--surface-panel, #ffffff)" fill-opacity="0.85"/>
+                                    <rect x="6.5" y="16.5" width="11" height="1.5" rx="0.75" fill="var(--surface-panel, #ffffff)" fill-opacity="0.52"/>
+                                </svg>
+                            </div>
                             <div>
                                 <strong class="title-3">文件管理器</strong>
                                 <p class="caption-5">Drive Powered by MinIO</p>
@@ -181,6 +212,7 @@
                         </div>
                     </div>
                     <el-menu :default-active="currentMenu" @select="handleMenuSelect">
+                        <div class="sidebar-group-label">工作区</div>
                         <el-tooltip v-if="canAccessMenu('buckets')" content="管理MinIO所有存储桶，包括创建、删除、查看文件" placement="right" effect="light" :show-after="700">
                             <el-menu-item index="buckets">
                                 <el-icon><Box /></el-icon>
@@ -208,6 +240,12 @@
                                 </span>
                             </el-menu-item>
                         </el-tooltip>
+                        <div
+                            v-if="canAccessMenu('audit-logs') || canAccessMenu('users') || canAccessMenu('roles') || canAccessMenu('minio-keys') || canAccessMenu('config')"
+                            class="sidebar-group-divider"
+                        >
+                            <span>系统管理</span>
+                        </div>
                         <el-tooltip v-if="canAccessMenu('audit-logs')" content="查看系统文件操作与关键业务行为日志" placement="right" effect="light" :show-after="700">
                             <el-menu-item index="audit-logs">
                                 <el-icon><Document /></el-icon>
@@ -268,45 +306,72 @@
                         </div>
                         <div class="workbench-grid">
                             <div class="workbench-directories">
-                                <section class="workbench-panel">
+                                <section class="workbench-panel workbench-panel--recent">
                                     <div class="workbench-panel__header">
+                                        <span class="workbench-panel__badge workbench-panel__badge--recent" aria-hidden="true">
+                                            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true">
+                                                <circle cx="12" cy="12" r="9"></circle>
+                                                <path d="M12 7v5l3 2"></path>
+                                            </svg>
+                                        </span>
                                         <div>
                                             <h4>最近访问目录</h4>
                                             <p>最近成功打开过的目录</p>
                                         </div>
+                                        <span class="workbench-panel__count">{{ workbenchOverview.recentDirectories.length }}</span>
                                     </div>
-                                    <div v-if="workbenchLoading" class="workbench-empty">加载中...</div>
-                                    <div v-else-if="!workbenchOverview.recentDirectories.length" class="workbench-empty">还没有目录访问记录</div>
-                                    <button
-                                        v-for="item in workbenchOverview.recentDirectories"
-                                        :key="'recent-' + item.bucketName + '-' + item.directoryPath"
-                                        type="button"
-                                        class="workbench-directory"
-                                        @click="openWorkbenchDirectory(item)"
-                                    >
-                                        <strong>{{ item.directoryName || item.directoryPath || '目录' }}</strong>
-                                        <span>{{ item.bucketName }} / {{ item.directoryPath }}</span>
-                                    </button>
+                                    <div class="workbench-directory-list workbench-directory-list--recent">
+                                        <div v-if="workbenchLoading" class="workbench-empty">加载中...</div>
+                                        <div v-else-if="!workbenchOverview.recentDirectories.length" class="workbench-empty">还没有目录访问记录</div>
+                                        <button
+                                            v-for="item in workbenchOverview.recentDirectories"
+                                            :key="'recent-' + item.bucketName + '-' + item.directoryPath"
+                                            type="button"
+                                            class="workbench-directory"
+                                            @click="openWorkbenchDirectory(item)"
+                                        >
+                                            <svg class="workbench-directory__icon" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linejoin="round" aria-hidden="true">
+                                                <path d="M3 7a2 2 0 0 1 2-2h4l2 2h8a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"></path>
+                                            </svg>
+                                            <span class="workbench-directory__body">
+                                                <strong>{{ item.directoryName || item.directoryPath || '目录' }}</strong>
+                                                <span>{{ item.bucketName }} / {{ item.directoryPath }}</span>
+                                            </span>
+                                        </button>
+                                    </div>
                                 </section>
-                                <section class="workbench-panel">
+                                <section class="workbench-panel workbench-panel--favorites">
                                     <div class="workbench-panel__header">
+                                        <span class="workbench-panel__badge workbench-panel__badge--favorites" aria-hidden="true">
+                                            <svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true">
+                                                <path d="m12 2 3 6.1 6.7 1-4.85 4.73L18 20.5l-6-3.15L6 20.5l1.15-6.67L2.3 9.1l6.7-1z"></path>
+                                            </svg>
+                                        </span>
                                         <div>
                                             <h4>收藏目录</h4>
                                             <p>常用目录快捷入口</p>
                                         </div>
+                                        <span class="workbench-panel__count">{{ workbenchOverview.favoriteDirectories.length }}</span>
                                     </div>
-                                    <div v-if="workbenchLoading" class="workbench-empty">加载中...</div>
-                                    <div v-else-if="!workbenchOverview.favoriteDirectories.length" class="workbench-empty">还没有收藏目录</div>
-                                    <div
-                                        v-for="item in workbenchOverview.favoriteDirectories"
-                                        :key="'favorite-' + item.bucketName + '-' + item.directoryPath"
-                                        class="workbench-favorite"
-                                    >
-                                        <button type="button" class="workbench-directory workbench-directory__content" @click="openWorkbenchDirectory(item)">
-                                            <strong>{{ item.directoryName || item.directoryPath || '目录' }}</strong>
-                                            <span>{{ item.bucketName }} / {{ item.directoryPath }}</span>
-                                        </button>
-                                        <button type="button" class="workbench-directory__remove" @click.stop="removeFavoriteDirectory(item)">取消收藏</button>
+                                    <div class="workbench-directory-list workbench-directory-list--favorites">
+                                        <div v-if="workbenchLoading" class="workbench-empty">加载中...</div>
+                                        <div v-else-if="!workbenchOverview.favoriteDirectories.length" class="workbench-empty">还没有收藏目录</div>
+                                        <div
+                                            v-for="item in workbenchOverview.favoriteDirectories"
+                                            :key="'favorite-' + item.bucketName + '-' + item.directoryPath"
+                                            class="workbench-favorite"
+                                        >
+                                            <button type="button" class="workbench-directory workbench-directory__content" @click="openWorkbenchDirectory(item)">
+                                                <svg class="workbench-directory__icon workbench-directory__icon--favorite" width="16" height="16" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true">
+                                                    <path d="m12 2 3 6.1 6.7 1-4.85 4.73L18 20.5l-6-3.15L6 20.5l1.15-6.67L2.3 9.1l6.7-1z"></path>
+                                                </svg>
+                                                <span class="workbench-directory__body">
+                                                    <strong>{{ item.directoryName || item.directoryPath || '目录' }}</strong>
+                                                    <span>{{ item.bucketName }} / {{ item.directoryPath }}</span>
+                                                </span>
+                                            </button>
+                                            <button type="button" class="workbench-directory__remove" @click.stop="removeFavoriteDirectory(item)">取消收藏</button>
+                                        </div>
                                     </div>
                                 </section>
                             </div>
@@ -669,22 +734,22 @@
                         </div>
                         <el-tabs v-model="shareTab">
                             <el-tab-pane label="我的分享" name="my-shares">
-                                <div style="display: flex; justify-content: flex-end; margin-bottom: 12px;">
+                                <div class="share-filter-bar">
                                     <el-checkbox v-model="shareValidOnly" @change="handleShareValidOnlyChange">仅显示有效分享</el-checkbox>
                                 </div>
                                 <el-table :data="shareList" v-loading="shareLoading" @expand-change="handleShareExpand">
                                     <el-table-column type="expand" width="54">
                                         <template #default="{ row }">
-                                            <div style="padding: 8px 16px; line-height: 1.9;">
-                                                <div style="line-height: 1.9;">
+                                            <div class="share-expand-detail">
+                                                <div class="share-expand-detail__grid">
                                                     <div><strong>分享方式：</strong>{{ row.shareTargetTypeText }}</div>
                                                     <div v-if="row.targetType === 'USER'"><strong>接收用户：</strong>{{ row.recipientDisplayText || '未找到接收用户' }}</div>
-                                                    <div v-if="row.targetType !== 'USER'"><strong>分享链接：</strong>{{ row.shareUrl }}</div>
-                                                    <div v-if="row.targetType !== 'USER' && row.password"><strong>提取码：</strong>{{ row.password }}</div>
-                                                    <div><strong>分享时间：</strong>{{ row.createTimeText }}</div>
-                                                    <div><strong>过期时间：</strong>{{ row.expireTimeText }}</div>
+                                                    <div v-if="row.targetType !== 'USER'"><strong>分享链接：</strong><span class="mono-text">{{ row.shareUrl }}</span></div>
+                                                    <div v-if="row.targetType !== 'USER' && row.password"><strong>提取码：</strong><span class="mono-text">{{ row.password }}</span></div>
+                                                    <div><strong>分享时间：</strong><span class="tabular-nums">{{ row.createTimeText }}</span></div>
+                                                    <div><strong>过期时间：</strong><span class="tabular-nums">{{ row.expireTimeText }}</span></div>
                                                     <div><strong>访问方式：</strong>{{ row.hasPasswordText }}</div>
-                                                    <div><strong>浏览次数：</strong>{{ row.viewCount || 0 }}</div>
+                                                    <div><strong>浏览次数：</strong><span class="tabular-nums">{{ row.viewCount || 0 }}</span></div>
                                                     <div><strong>分享状态：</strong>{{ row.cancelled ? '已取消' : '有效' }}</div>
                                                 </div>
                                             </div>
@@ -695,11 +760,11 @@
                                     <el-table-column prop="shareCode" label="分享码"></el-table-column>
                                     <el-table-column label="分享内容" min-width="260">
                                         <template #default="{ row }">
-                                            <div v-if="row.shareItemsLoading" style="color: #909399;">正在加载...</div>
-                                            <div v-else-if="row.shareItemsError" style="color: #f56c6c;" :title="row.shareItemsErrorMessage || '加载失败：分享内容加载失败，请稍后重试'">
+                                            <div v-if="row.shareItemsLoading" class="share-items-loading">正在加载...</div>
+                                            <div v-else-if="row.shareItemsError" class="share-items-error" :title="row.shareItemsErrorMessage || '加载失败：分享内容加载失败，请稍后重试'">
                                                 {{ row.shareItemsErrorMessage || '加载失败：分享内容加载失败，请稍后重试' }}
                                             </div>
-                                            <div v-else style="display: flex; flex-wrap: wrap; gap: 8px;">
+                                            <div v-else class="share-items-tags">
                                                 <el-tooltip
                                                     v-for="item in row.visibleShareItems"
                                                     :key="item.objectName"
@@ -772,7 +837,7 @@
                                         <el-badge v-if="inboxUnreadCount > 0" :value="inboxUnreadCount" type="danger" />
                                     </span>
                                 </template>
-                                <div style="display: flex; justify-content: flex-end; margin-bottom: 12px;">
+                                <div class="share-filter-bar">
                                     <el-checkbox v-model="inboxValidOnly" @change="handleInboxValidOnlyChange">仅显示有效分享</el-checkbox>
                                 </div>
                                 <el-table :data="inboxList" v-loading="inboxLoading">
@@ -780,11 +845,11 @@
                                     <el-table-column prop="senderUsername" label="分享人" width="140"></el-table-column>
                                     <el-table-column label="分享内容" min-width="260">
                                         <template #default="{ row }">
-                                            <span v-if="!row.isShareMessage" style="color: #909399;">-</span>
-                                            <div v-else-if="row.shareItemsErrorMessage" style="color: #f56c6c;" :title="row.shareItemsErrorMessage">
+                                            <span v-if="!row.isShareMessage" class="share-items-loading">-</span>
+                                            <div v-else-if="row.shareItemsErrorMessage" class="share-items-error" :title="row.shareItemsErrorMessage">
                                                 {{ row.shareItemsErrorMessage }}
                                             </div>
-                                            <div v-else style="display: flex; flex-wrap: wrap; gap: 8px;">
+                                            <div v-else class="share-items-tags">
                                                 <el-tooltip
                                                     v-for="item in row.visibleShareItems"
                                                     :key="item.objectName"
@@ -1526,36 +1591,36 @@
             destroy-on-close
             @closed="closePreviewDialog"
         >
-            <div v-loading="previewLoading" style="min-height: 420px;">
-                <div v-if="previewKind === 'unsupported'" style="min-height: 420px; display: flex; align-items: center; justify-content: center; color: #909399; text-align: center; padding: 24px;">
+            <div v-loading="previewLoading" class="preview-stage">
+                <div v-if="previewKind === 'unsupported'" class="preview-stage__empty">
                     <div>
-                        <div style="font-size: 16px; font-weight: 600; color: #303133; margin-bottom: 8px;">当前文件类型不支持在线预览</div>
+                        <div class="preview-stage__empty-title">当前文件类型不支持在线预览</div>
                         <div>请下载后查看，支持范围可在右下角查看。</div>
                     </div>
                 </div>
-                <div v-else-if="previewKind === 'text'" style="min-height: 420px;">
-                    <pre style="margin: 0; min-height: 420px; max-height: 70vh; overflow: auto; padding: 16px; border-radius: 14px; background: #0f172a; color: #e2e8f0; font-size: 13px; line-height: 1.6; white-space: pre-wrap; word-break: break-word;">{{ previewText }}</pre>
+                <div v-else-if="previewKind === 'text'" class="preview-stage__body">
+                    <pre class="preview-stage__text">{{ previewText }}</pre>
                 </div>
-                <div v-else-if="previewKind === 'image'" style="min-height: 420px; display: flex; align-items: center; justify-content: center; background: #f5f7fa; border-radius: 14px; overflow: hidden;">
-                    <img v-if="previewUrl" :src="previewUrl" :alt="previewTitle" style="max-width: 100%; max-height: 70vh; object-fit: contain;" />
+                <div v-else-if="previewKind === 'image'" class="preview-stage__media">
+                    <img v-if="previewUrl" :src="previewUrl" :alt="previewTitle" class="preview-stage__image" />
                 </div>
-                <div v-else-if="previewKind === 'pdf'" style="min-height: 420px;">
-                    <iframe v-if="previewUrl" :src="previewUrl" style="width: 100%; height: 70vh; border: 0; border-radius: 14px; background: #fff;"></iframe>
+                <div v-else-if="previewKind === 'pdf'" class="preview-stage__body">
+                    <iframe v-if="previewUrl" :src="previewUrl" class="preview-stage__frame"></iframe>
                 </div>
-                <div v-else-if="previewKind === 'audio'" style="min-height: 420px; display: flex; align-items: center; justify-content: center; background: #f5f7fa; border-radius: 14px;">
-                    <audio v-if="previewUrl" :src="previewUrl" controls style="width: 100%; max-width: 720px;"></audio>
+                <div v-else-if="previewKind === 'audio'" class="preview-stage__media">
+                    <audio v-if="previewUrl" :src="previewUrl" controls class="preview-stage__audio"></audio>
                 </div>
-                <div v-else-if="previewKind === 'video'" style="min-height: 420px; display: flex; align-items: center; justify-content: center; background: #000; border-radius: 14px; overflow: hidden;">
-                    <video v-if="previewUrl" :src="previewUrl" controls style="width: 100%; max-height: 70vh;"></video>
+                <div v-else-if="previewKind === 'video'" class="preview-stage__video-wrap">
+                    <video v-if="previewUrl" :src="previewUrl" controls class="preview-stage__video"></video>
                 </div>
             </div>
             <template #footer>
-                <div style="display: flex; justify-content: flex-end; align-items: center; gap: 16px; flex-wrap: wrap;">
-                    <div style="display: inline-flex; align-items: center; gap: 6px; color: #909399; font-size: 13px;">
+                <div class="preview-footer-bar">
+                    <div class="preview-footer-hint">
                         <span>可预览文件</span>
                         <el-tooltip placement="top-end" effect="light">
                             <template #content>
-                                <div style="max-width: 420px; font-size: 13px; line-height: 1.7;">
+                                <div class="preview-hint-tooltip">
                                     <div v-for="group in previewHintGroups" :key="group.label">
                                         <strong>{{ group.label }}</strong>：{{ group.extensions.join('、') }}
                                     </div>
@@ -1893,10 +1958,9 @@
                 </section>
             </transition>
             <button class="message-center-trigger" type="button" @click="messageCenterVisible = !messageCenterVisible">
-                <el-badge :value="inboxUnreadCount" :hidden="!inboxUnreadCount">
-                    <el-icon class="message-center-trigger__icon"><chat-circle /></el-icon>
-                </el-badge>
+                <el-icon class="message-center-trigger__icon"><chat-circle /></el-icon>
                 <span class="message-center-trigger__text">消息中心</span>
+                <span v-if="inboxUnreadCount > 0" class="message-center-trigger__count tabular-nums">{{ inboxUnreadCount > 99 ? '99+' : inboxUnreadCount }}</span>
             </button>
         </div>
 
@@ -2036,6 +2100,95 @@
             </template>
         </el-dialog>
 
+        <div v-if="isLoggedIn" class="transfer-center-shell">
+            <button
+                class="transfer-center-trigger"
+                type="button"
+                ref="transferCenterTrigger"
+                aria-controls="transfer-center-panel"
+                :aria-expanded="transferCenterVisible && !transferCenterMinimized"
+                :aria-label="'传输中心，' + activeTransferCount + ' 项进行中'"
+                @click="transferCenterVisible = !transferCenterVisible || transferCenterMinimized; transferCenterMinimized = false; if (transferCenterVisible) $nextTick(() => $refs.transferCenterToggle?.focus())"
+            >
+                <span>传输中心</span>
+                <span v-if="activeTransferCount > 0" class="transfer-center-count" aria-hidden="true">{{ activeTransferCount > 99 ? '99+' : activeTransferCount }}</span>
+            </button>
+            <aside
+                class="transfer-center-panel"
+                id="transfer-center-panel"
+                v-show="transferCenterVisible"
+                aria-labelledby="transfer-center-title"
+                @keydown.esc.stop="transferCenterVisible = false; transferCenterMinimized = false; $refs.transferCenterTrigger.focus()"
+            >
+                <header class="transfer-center-header">
+                    <div>
+                        <h2 id="transfer-center-title">传输中心</h2>
+                        <p>进行中 {{ activeTransferCount }} · 已完成 {{ completedTransferCount }}</p>
+                    </div>
+                    <div class="transfer-center-actions">
+                        <button type="button" ref="transferCenterToggle" class="transfer-center-button"
+                            aria-controls="transfer-center-content" :aria-expanded="!transferCenterMinimized"
+                            @click="transferCenterMinimized = !transferCenterMinimized">
+                            {{ transferCenterMinimized ? '展开' : '收起' }}
+                        </button>
+                        <button type="button" class="transfer-center-button"
+                            @click="transferCenterVisible = false; transferCenterMinimized = false; $refs.transferCenterTrigger.focus()">
+                            关闭
+                        </button>
+                    </div>
+                </header>
+                <div id="transfer-center-content" class="transfer-center-content" v-show="!transferCenterMinimized">
+                    <div class="transfer-center-toolbar">
+                        <div class="transfer-center-actions" role="group" aria-label="筛选传输任务">
+                            <button v-for="(label, tab) in { all: '全部', upload: '上传', download: '下载' }" :key="tab"
+                                type="button" class="transfer-center-button" :aria-pressed="transferCenterTab === tab"
+                                @click="transferCenterTab = tab">
+                                {{ label }} {{ transferTabCounts[tab] }}
+                            </button>
+                        </div>
+                        <button type="button" class="transfer-center-button" :disabled="completedTransferCount === 0" @click="clearCompletedTransfers">
+                            清空已完成
+                        </button>
+                    </div>
+                    <p v-if="!filteredTransferTasks.length" class="transfer-center-empty">当前筛选下没有传输任务</p>
+                    <ul v-else class="transfer-center-list" role="list">
+                        <li v-for="task in filteredTransferTasks" :key="task.direction + ':' + task.id"
+                            class="transfer-center-task" :data-status="task.status">
+                            <div class="transfer-center-task-heading">
+                                <strong>{{ task.name }}</strong>
+                                <span class="transfer-center-direction">{{ task.direction === 'upload' ? '上传' : '下载' }}</span>
+                            </div>
+                            <div class="transfer-center-meta">
+                                <span class="transfer-center-state">{{ ({ queued: '等待中', pending: '等待中', running: '进行中', paused: '已暂停', completed: '已完成', failed: '失败', cancelled: '已取消', delegated: '浏览器接管' })[task.status] || '状态未知' }}</span>
+                                <span v-if="task.step">{{ task.step }}</span>
+                            </div>
+                            <div class="transfer-center-progress">
+                                <progress :value="Math.round(task.progress || 0)" max="100" :aria-label="'传输进度：' + task.name"></progress>
+                                <span aria-hidden="true">{{ Math.round(task.progress || 0) }}%</span>
+                            </div>
+                            <div class="transfer-center-meta">
+                                <span>已传 {{ formatSize(task.transferredBytes) }} / {{ task.totalBytes ? formatSize(task.totalBytes) : '未知大小' }}</span>
+                                <span>速率 {{ formatSize(task.speedBytesPerSecond) }}/s</span>
+                                <span v-if="task.totalParts > 0">分片 {{ task.completedParts }}/{{ task.totalParts }}</span>
+                                <span v-if="task.resumed">断点续传</span>
+                            </div>
+                            <p v-if="task.error" class="transfer-center-error">失败原因：{{ task.error }}</p>
+                            <div v-if="task.canPause || task.canResume || task.canRetry || task.canCancel" class="transfer-center-actions">
+                                <button v-if="task.canPause" type="button" class="transfer-center-button"
+                                    :aria-label="'暂停 ' + task.name" @click="handleTransferTaskAction(task, 'pause')">暂停</button>
+                                <button v-if="task.canResume" type="button" class="transfer-center-button"
+                                    :aria-label="'继续 ' + task.name" @click="handleTransferTaskAction(task, 'resume')">继续</button>
+                                <button v-if="task.canRetry" type="button" class="transfer-center-button"
+                                    :aria-label="'重试 ' + task.name" @click="handleTransferTaskAction(task, 'retry')">重试</button>
+                                <button v-if="task.canCancel" type="button" class="transfer-center-button transfer-center-button--danger"
+                                    :aria-label="'取消 ' + task.name" @click="handleTransferTaskAction(task, 'cancel')">取消</button>
+                            </div>
+                        </li>
+                    </ul>
+                </div>
+            </aside>
+        </div>
+
         <div v-if="downloadCenterVisible" class="download-task-center">
             <div class="download-task-center__backdrop"></div>
             <div class="download-task-center__dialog">
@@ -2132,11 +2285,12 @@
         console.log('Axios loaded:', typeof axios);
     </script>
     <script src="./js/context-path-helpers.js"></script>
+    <script src="./js/theme-helpers.js?v=build152"></script>
     <script src="./js/role-bucket-permission-helpers.js"></script>
     <script src="./js/permission-ui-helpers.js"></script>
     <script src="./js/login-error-helpers.js"></script>
     <script src="./js/download-manager.js"></script>
-    <script src="./js/transfer-ui-helpers.js"></script>
+    <script src="./js/transfer-ui-helpers.js?v=build152"></script>
     <script src="./js/file-list-ui-helpers.js"></script>
     <script src="./js/upload-dialog-helpers.js"></script>
     <script src="./js/file-action-visibility-helpers.js"></script>
@@ -2148,10 +2302,11 @@
     <script src="./js/rename-helpers.js"></script>
     <script src="./js/url-helpers.js"></script>
     <script src="./js/message-center-helpers.js"></script>
-    <script src="./js/workspace-file-toolbar.js?v=build143"></script>
-    <script src="./js/standard-cert-ui.js?v=build145"></script>
-    <script src="./js/client-certificate-ui.js?v=build144"></script>
-    <script src="./js/app.js?v=build145"></script>
-    <script type="module" src="./js/workspace-motion.js?v=build143"></script>
+    <script src="./js/workspace-file-toolbar.js?v=build152"></script>
+    <script src="./js/standard-cert-ui.js?v=build152"></script>
+    <script src="./js/client-certificate-ui.js?v=build152"></script>
+    <script src="./js/upload-manager.js?v=build152"></script>
+    <script src="./js/app.js?v=build152"></script>
+    <script type="module" src="./js/workspace-motion.js?v=build152"></script>
 </body>
 </html>

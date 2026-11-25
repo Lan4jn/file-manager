@@ -6,33 +6,24 @@
     <title>文件分享 · 文件管理器</title>
     <meta name="page-type" content="software">
     <meta name="site-kind" content="software">
-    <meta name="theme-color" content="#edf3f5">
+    <meta name="theme-color" content="#fafafa">
     <meta property="og:type" content="website">
     <meta property="og:title" content="文件分享">
     <meta property="og:description" content="文件目录、上传下载与权限分享">
-    <meta property="og:image" content="./vendor/taste/login-preview.png">
+    <meta property="og:image" content="./vendor/taste/login-single-build147.png">
     <meta property="og:image:width" content="1440">
-    <meta property="og:image:height" content="900">
-    <meta property="og:image:alt" content="文件管理器登录与功能示意">
+    <meta property="og:image:height" content="1000">
+    <meta property="og:image:alt" content="文件管理器单栏账号登录页">
     <meta name="twitter:card" content="summary_large_image">
+    <script>(function(){try{var t=localStorage.getItem('fm-theme')==='dark'?'dark':'light';var r=document.documentElement;r.dataset.theme=t;r.classList.toggle('dark',t==='dark');r.style.colorScheme=t;var m=document.querySelector('meta[name="theme-color"]');if(m)m.setAttribute('content',t==='dark'?'#13161b':'#fafafa');}catch(e){}})();</script>
+    <style>html[data-theme="light"],html[data-theme="light"] body{background-color:#fafafa;}html[data-theme="dark"],html[data-theme="dark"] body{background-color:#13161b;}</style>
     <script>document.documentElement.classList.add('m-enter');setTimeout(()=>document.documentElement.classList.add('m-enter-done'),700)</script>
     <meta name="description" content="验证并访问分享给你的文件与目录">
     <meta name="robots" content="noindex, nofollow">
-    <link rel="icon" type="image/svg+xml" href="./favicon.svg">
+    <link rel="icon" type="image/svg+xml" href="./favicon.svg?v=build152">
+    <link rel="alternate icon" type="image/x-icon" href="./favicon.ico?v=build152">
+    <link rel="stylesheet" href="./css/tokens.css?v=build152">
     <style>
-        :root {
-            --bg-1: #f3eadc;
-            --bg-2: #efe6da;
-            --panel: rgba(255, 252, 246, 0.9);
-            --text: #1f2937;
-            --muted: #6b7280;
-            --accent: #9a3412;
-            --accent-soft: #f6d7bf;
-            --border: #e7d3bc;
-            --danger: #b91c1c;
-            --shadow: rgba(120, 53, 15, 0.14);
-        }
-
         * {
             box-sizing: border-box;
         }
@@ -40,35 +31,19 @@
         body {
             margin: 0;
             min-height: 100vh;
-            font-family: "PingFang SC", "Hiragino Sans GB", "Microsoft YaHei", sans-serif;
-            color: var(--text);
-            background:
-                radial-gradient(circle at top left, rgba(154, 52, 18, 0.18), transparent 30%),
-                radial-gradient(circle at bottom right, rgba(249, 115, 22, 0.12), transparent 24%),
-                linear-gradient(140deg, var(--bg-1), var(--bg-2));
-            padding: 28px;
+            font-family: var(--font-sans);
+            color: var(--text-primary);
+            background: var(--surface-canvas);
+            padding: 32px 24px 64px;
         }
 
         .shell {
-            max-width: 980px;
+            max-width: 960px;
             margin: 0 auto;
         }
 
         .hero {
-            background: linear-gradient(135deg, rgba(255, 249, 240, 0.94), rgba(255, 252, 246, 0.78));
-            border: 1px solid var(--border);
-            border-radius: 28px;
-            padding: 28px;
-            box-shadow: 0 30px 80px var(--shadow);
-            backdrop-filter: blur(12px);
-        }
-
-        .eyebrow {
-            font-size: 12px;
-            letter-spacing: 0.16em;
-            text-transform: uppercase;
-            color: var(--accent);
-            margin-bottom: 10px;
+            background: transparent;
         }
 
         .hero-head {
@@ -81,20 +56,22 @@
 
         h1 {
             margin: 0;
-            font-size: 34px;
-            line-height: 1.15;
+            font-size: 28px;
+            line-height: 1.2;
+            font-weight: 500;
+            letter-spacing: -0.02em;
         }
 
         .meta,
         .hint,
         .error {
-            margin-top: 10px;
+            margin-top: 8px;
             font-size: 14px;
-            line-height: 1.7;
+            line-height: 1.6;
         }
 
         .meta {
-            color: var(--muted);
+            color: var(--text-secondary);
         }
 
         .hint {
@@ -107,49 +84,56 @@
 
         .stats {
             display: flex;
-            gap: 12px;
+            gap: 8px;
             flex-wrap: wrap;
         }
 
         .badge {
-            padding: 10px 14px;
-            border-radius: 999px;
-            background: var(--accent-soft);
-            color: var(--accent);
-            font-size: 13px;
+            padding: 4px 10px;
+            border-radius: var(--radius-xs);
+            border: 1px solid var(--border-subtle);
+            background: var(--surface-panel);
+            color: var(--text-secondary);
+            font-size: 12px;
+            line-height: 16px;
         }
 
         .verify {
-            margin-top: 22px;
+            margin-top: 24px;
             display: flex;
-            gap: 12px;
+            align-items: center;
+            gap: 10px;
             flex-wrap: wrap;
         }
 
         input {
             min-width: 220px;
             flex: 1;
-            border: 1px solid var(--border);
-            border-radius: 14px;
-            padding: 12px 14px;
-            font-size: 15px;
-            background: rgba(255, 255, 255, 0.92);
+            height: 40px;
+            border: 1px solid var(--border-default);
+            border-radius: var(--radius-md);
+            padding: 8px 12px;
+            font-size: 14px;
+            background: var(--surface-panel);
+            color: var(--text-primary);
         }
 
         button {
-            border: 0;
-            border-radius: 14px;
-            padding: 12px 18px;
+            height: 40px;
+            border: 1px solid var(--accent);
+            border-radius: var(--radius-md);
+            padding: 0 16px;
             background: var(--accent);
-            color: #fff;
-            font-size: 15px;
+            color: var(--accent-ink);
+            font-size: 14px;
+            font-weight: 500;
             cursor: pointer;
         }
 
         button.secondary {
-            background: transparent;
-            border: 1px solid var(--border);
-            color: var(--accent);
+            background: var(--surface-panel);
+            border: 1px solid var(--border-default);
+            color: var(--text-primary);
         }
 
         .hidden {
@@ -157,11 +141,12 @@
         }
 
         .panel {
-            margin-top: 20px;
-            border: 1px solid var(--border);
-            border-radius: 22px;
-            background: rgba(255, 255, 255, 0.72);
+            margin-top: 24px;
+            border: 1px solid var(--border-default);
+            border-radius: var(--radius-lg);
+            background: var(--surface-panel);
             overflow: hidden;
+            box-shadow: var(--shadow-sm);
         }
 
         .panel-head {
@@ -169,24 +154,27 @@
             justify-content: space-between;
             align-items: center;
             gap: 12px;
-            padding: 18px 22px;
-            border-bottom: 1px solid rgba(231, 211, 188, 0.8);
-            background: rgba(255, 247, 238, 0.9);
+            padding: 16px 20px;
+            border-bottom: 1px solid var(--border-subtle);
+            background: var(--surface-rail);
             flex-wrap: wrap;
         }
 
         .panel-title {
-            font-size: 16px;
-            font-weight: 600;
+            font-size: 15px;
+            font-weight: 500;
+            color: var(--text-primary);
         }
 
         .crumb {
-            color: var(--muted);
-            font-size: 13px;
+            margin-top: 4px;
+            color: var(--text-muted);
+            font-family: var(--font-mono);
+            font-size: 12px;
         }
 
         .list {
-            padding: 8px 0;
+            padding: 0;
         }
 
         .item {
@@ -194,8 +182,8 @@
             grid-template-columns: minmax(0, 1fr) auto auto;
             gap: 16px;
             align-items: center;
-            padding: 14px 22px;
-            border-top: 1px solid rgba(231, 211, 188, 0.55);
+            padding: 14px 20px;
+            border-top: 1px solid var(--border-subtle);
         }
 
         .item:first-child {
@@ -207,8 +195,9 @@
         }
 
         .item-name {
-            font-size: 15px;
-            font-weight: 600;
+            font-size: 14px;
+            font-weight: 500;
+            color: var(--text-primary);
             white-space: nowrap;
             overflow: hidden;
             text-overflow: ellipsis;
@@ -216,28 +205,29 @@
 
         .item-sub {
             margin-top: 4px;
-            color: var(--muted);
-            font-size: 13px;
+            color: var(--text-muted);
+            font-size: 12px;
         }
 
         .item-kind {
-            font-size: 13px;
-            color: var(--accent);
-            background: var(--accent-soft);
-            border-radius: 999px;
-            padding: 8px 12px;
+            font-size: 12px;
+            color: var(--text-secondary);
+            background: var(--surface-raised);
+            border: 1px solid var(--border-subtle);
+            border-radius: var(--radius-xs);
+            padding: 4px 8px;
         }
 
         .item-actions {
             display: flex;
-            gap: 10px;
+            gap: 8px;
         }
 
         .task-action-btn {
-            width: 34px;
-            height: 34px;
+            width: 32px;
+            height: 32px;
             padding: 0;
-            border-radius: 999px;
+            border-radius: var(--radius-md);
             display: inline-flex;
             align-items: center;
             justify-content: center;
@@ -247,31 +237,28 @@
 
         .task-action-btn--danger {
             color: var(--danger);
-            border-color: rgba(185, 28, 28, 0.24);
+            border-color: var(--danger-border);
         }
 
         .empty {
-            padding: 40px 22px;
-            color: var(--muted);
+            padding: 40px 20px;
+            color: var(--text-muted);
             text-align: center;
+            font-size: 14px;
         }
 
-        @media (max-width: 720px) {
+        @media (max-width: 700px) {
             body {
-                padding: 16px;
-            }
-
-            .hero {
-                padding: 22px;
-                border-radius: 22px;
+                padding: 20px 16px 48px;
             }
 
             h1 {
-                font-size: 28px;
+                font-size: 22px;
             }
 
             .item {
                 grid-template-columns: 1fr;
+                padding: 14px 16px;
             }
 
             .item-actions {
@@ -280,14 +267,39 @@
         }
     </style>
     <link rel="stylesheet" href="./vendor/taste/motion/motion.css">
-    <link rel="stylesheet" href="./css/workspace-theme.css?v=build143">
-    <link rel="stylesheet" href="./css/workspace-blueprint.css?v=build143">
+    <link rel="stylesheet" href="./css/workspace-theme.css?v=build152">
 </head>
 <body class="workspace-share">
 <a class="skip-link" href="#share-main">跳至分享内容</a>
 <main class="shell" id="share-main">
     <div class="hero" data-enter>
-        <header class="share-brand"><span class="title-3">文件管理器</span><a href="./">返回工作台</a></header>
+        <header class="share-brand">
+            <div class="share-brand__left">
+                <span class="brand-mark" aria-hidden="true">
+                    <svg class="brand-mark-svg" viewBox="0 0 24 24" fill="none">
+                        <rect x="6" y="3" width="12" height="3.2" rx="1.2" fill="currentColor" fill-opacity="0.28"/>
+                        <rect x="4" y="6.8" width="16" height="3.6" rx="1.4" fill="currentColor" class="brand-mark__accent"/>
+                        <rect x="3" y="10.2" width="18" height="10.8" rx="2.4" fill="currentColor" fill-opacity="0.92"/>
+                        <rect x="6.5" y="13.6" width="7" height="1.5" rx="0.75" fill="var(--surface-panel, #ffffff)" fill-opacity="0.85"/>
+                        <rect x="6.5" y="16.5" width="11" height="1.5" rx="0.75" fill="var(--surface-panel, #ffffff)" fill-opacity="0.52"/>
+                    </svg>
+                </span>
+                <span class="title-3">文件管理器</span>
+            </div>
+            <div class="share-brand__right">
+                <button type="button" id="shareThemeToggle" class="theme-toggle-btn" aria-label="切换浅色或深色主题">
+                    <svg class="theme-icon-sun" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                        <circle cx="12" cy="12" r="4"></circle>
+                        <path d="M12 2v2m0 16v2M4.93 4.93l1.41 1.41m11.32 11.32 1.41 1.41M2 12h2m16 0h2M4.93 19.07l1.41-1.41m11.32-11.32 1.41-1.41"></path>
+                    </svg>
+                    <svg class="theme-icon-moon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                        <path d="M12 3a6 6 0 0 0 9 9 9 9 0 1 1-9-9Z"></path>
+                    </svg>
+                    <span id="shareThemeLabel">深色</span>
+                </button>
+                <a href="./">返回工作台</a>
+            </div>
+        </header>
         <div class="hero-head">
             <div>
                 <h1 id="title" data-enter-whole>正在加载分享内容</h1>
@@ -344,9 +356,36 @@
 <button id="shareDownloadToggle" class="secondary hidden share-download-toggle" type="button">下载任务</button>
 
 <script src="./js/axios.min.js"></script>
+<script src="./js/theme-helpers.js?v=build152"></script>
 <script src="./js/context-path-helpers.js"></script>
 <script src="./js/download-manager.js"></script>
-<script src="./js/transfer-ui-helpers.js"></script>
+<script src="./js/transfer-ui-helpers.js?v=build152"></script>
+<script>
+    (function () {
+        var themeApi = window.FileManagerTheme;
+        var themeBtn = document.getElementById('shareThemeToggle');
+        var themeLabel = document.getElementById('shareThemeLabel');
+        function renderThemeLabel(theme) {
+            if (themeLabel) {
+                themeLabel.textContent = theme === 'dark' ? '浅色' : '深色';
+            }
+            if (themeBtn) {
+                themeBtn.setAttribute('aria-label', theme === 'dark' ? '切换为浅色主题' : '切换为深色主题');
+            }
+        }
+        if (themeApi) {
+            var currentTheme = themeApi.initTheme(window, document);
+            renderThemeLabel(currentTheme);
+            if (themeBtn) {
+                themeBtn.addEventListener('click', function () {
+                    var storage = themeApi.getSafeStorage ? themeApi.getSafeStorage(window) : null;
+                    currentTheme = themeApi.toggleTheme(currentTheme, storage, document);
+                    renderThemeLabel(currentTheme);
+                });
+            }
+        }
+    })();
+</script>
 <script>
     (function () {
         var contextPathHelpers = window.ContextPathHelpers || {};
@@ -799,7 +838,12 @@
         }
 
         function authorizedHeaders() {
-            var token = window.localStorage.getItem('token');
+            var token = '';
+            try {
+                token = (window.localStorage && window.localStorage.getItem('token')) || '';
+            } catch (e) {
+                token = '';
+            }
             return token ? { Authorization: 'Bearer ' + token } : {};
         }
 
@@ -985,6 +1029,6 @@
         }
     })();
 </script>
-<script type="module" src="./js/workspace-motion.js?v=build142"></script>
+<script type="module" src="./js/workspace-motion.js?v=build152"></script>
 </body>
 </html>

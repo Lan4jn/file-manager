@@ -1,8 +1,10 @@
 package com.lan4jn.file.controller;
 
 import com.lan4jn.file.common.Result;
+import com.lan4jn.file.rbac.PermissionCodes;
 import com.lan4jn.file.service.ConfigService;
 import com.lan4jn.file.service.PermissionAssertService;
+import org.springframework.http.HttpStatus;
 import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.web.bind.annotation.*;
 
@@ -26,7 +28,7 @@ public class AdminConfigController {
 
     @GetMapping("/file-config")
     public Result<Map<String, Object>> getFileConfig() {
-        ensureSuperAdmin();
+        ensureConfigAccess();
         Set<String> extensions = configService.getAllowedExtensions();
         Long maxSize = configService.getMaxFileSize();
         Long frontendDownloadThreshold = configService.getFrontendDownloadThresholdBytes();
@@ -50,7 +52,7 @@ public class AdminConfigController {
 
     @PostMapping("/file-config")
     public Result<Void> updateFileConfig(@RequestBody Map<String, Object> configData) {
-        ensureSuperAdmin();
+        ensureConfigAccess();
         if (configData.containsKey("allowedExtensions")) {
             List<String> extensions = (List<String>) configData.get("allowedExtensions");
             configService.setAllowedExtensions(extensions);
@@ -158,7 +160,7 @@ public class AdminConfigController {
 
     @GetMapping("/share-config")
     public Result<Map<String, Object>> getShareConfig() {
-        ensureSuperAdmin();
+        ensureConfigAccess();
         Long batchShareMaxSize = configService.getBatchShareMaxSize();
         Long batchDownloadMaxSize = configService.getBatchDownloadMaxSize();
         Integer shareExpireHours = configService.getShareExpireHours();
@@ -171,7 +173,7 @@ public class AdminConfigController {
 
     @PostMapping("/share-config")
     public Result<Void> updateShareConfig(@RequestBody Map<String, Object> configData) {
-        ensureSuperAdmin();
+        ensureConfigAccess();
         if (configData.containsKey("batchShareMaxSize")) {
             Long maxSize = Long.valueOf(configData.get("batchShareMaxSize").toString());
             configService.setBatchShareMaxSize(maxSize);
@@ -187,9 +189,16 @@ public class AdminConfigController {
         return Result.success();
     }
 
-    private void ensureSuperAdmin() {
-        if (!permissionAssertService.isSuperAdmin()) {
-            throw new SecurityException("系统配置仅超级管理员可访问");
+    private void ensureConfigAccess() {
+        if (!(permissionAssertService.isSuperAdmin()
+                || permissionAssertService.hasMenuPermission(PermissionCodes.MENU_CONFIG))) {
+            throw new SecurityException("缺少系统配置访问权限");
         }
+    }
+
+    @ExceptionHandler(SecurityException.class)
+    @ResponseStatus(HttpStatus.FORBIDDEN)
+    public Result<Void> handleConfigAccessDenied(SecurityException e) {
+        return Result.error(403, e.getMessage());
     }
 }

@@ -16,7 +16,7 @@ $env:ENV_FILE = "multi"
 $env:DM_MIRROR_URL = "jdbc:dm://127.0.0.1:5236"
 $env:DM_MIRROR_USERNAME = "FILE_MANAGER_MIRROR"
 $env:DM_MIRROR_PASSWORD = "replace-me"
-java -jar target/file-manager-1.9-build145.jar
+java -jar target/file-manager-1.9-build149.jar
 ```
 
 主库事务提交后，系统会防抖触发镜像同步；同时每隔一段时间执行全量校准。同步时先按外键反向顺序清理镜像，再按正向顺序复制主库数据，并在单个镜像事务中一次提交。因此发生差异时始终以主库为准。
@@ -48,7 +48,7 @@ $env:DM_URL = "jdbc:dm://127.0.0.1:5236"
 $env:DM_USERNAME = "FILE_MANAGER_TEST"
 $env:DM_PASSWORD = "replace-me"
 $env:DM_DDL_AUTO = "create"
-java -jar target/file-manager-1.9-build145.jar
+java -jar target/file-manager-1.9-build149.jar
 ```
 
 确认表结构创建成功后停止应用，将 `DM_DDL_AUTO` 改回 `validate`。
@@ -64,7 +64,7 @@ $env:DM_USERNAME = "FILE_MANAGER_TEST"
 $env:DM_PASSWORD = "replace-me"
 $env:DM_DDL_AUTO = "validate"
 
-java -jar target/file-manager-1.9-build145.jar `
+java -jar target/file-manager-1.9-build149.jar `
   --app.database-migration.enabled=true `
   --app.database-migration.sqlite-url=jdbc:sqlite:./data/file-manager.db `
   --app.database-migration.truncate-target=true `

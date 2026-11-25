@@ -4,6 +4,7 @@ import org.junit.jupiter.api.Test;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertThrows;
+import static org.junit.jupiter.api.Assertions.assertTrue;
 
 class TransferSessionServiceTest {
 
@@ -19,6 +20,19 @@ class TransferSessionServiceTest {
         assertEquals("bucket-a", ticket.getBucket());
         assertEquals("docs/readme.txt", ticket.getObjectName());
         assertEquals("readme.txt", ticket.getFileName());
+    }
+
+    @Test
+    void shouldIssueDownloadTokenWithSixtyMinuteDefaultTtl() {
+        TransferSessionService service = new TransferSessionService();
+        long beforeIssue = System.currentTimeMillis();
+        String token = service.issueFileDownloadToken("alice", "bucket-a", "docs/readme.txt", "readme.txt");
+        long afterIssue = System.currentTimeMillis();
+
+        long expiresAt = service.requireDownloadTicket(token).getExpireAt();
+
+        assertTrue(expiresAt >= beforeIssue + 3_600_000L && expiresAt <= afterIssue + 3_600_000L,
+                "The issued download token should expire after sixty minutes");
     }
 
     @Test

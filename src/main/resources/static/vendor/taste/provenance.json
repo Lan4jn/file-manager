@@ -32,10 +32,10 @@
     }
   ],
   "preview": {
-    "file": "login-preview.png",
-    "source": "Project login template rendered by Taste shoot.mjs; empty account form and product capabilities",
-    "sha256": "3b50b3fe2abd06cb043e429181269d048df59f134daf4328557faece127f0651",
+    "file": "login-single-build147.png",
+    "source": "Chrome render of the empty single-column file-manager login form (build147, light theme)",
+    "sha256": "b0b16d4a2a675c9e6e49115321b27052c1b8532d4cbf2fc8790989f5c2b3c8c2",
     "width": 1440,
-    "height": 900
+    "height": 1000
   }
 }

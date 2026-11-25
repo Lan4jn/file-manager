@@ -19,18 +19,25 @@ test('should keep only the new message center implementation in index.html', () 
     assert.equal(newForwardDialogMatches.length, 1);
 });
 
-test('should set current release to 1.9-build145 and document the build', () => {
+test('should set current release to 1.9-build152 and document the build', () => {
     const version = pomXml.match(/<artifactId>file-manager<\/artifactId>\s*<version>([^<]+)<\/version>/)?.[1];
-    assert.equal(version, '1.9-build145');
+    assert.equal(version, '1.9-build152');
 
     const versionNotePath = path.join(projectRoot, 'src/main/resources/version-notes/v1.9.md');
     assert.equal(fs.existsSync(versionNotePath), true);
 
     const versionNote = fs.readFileSync(versionNotePath, 'utf8');
-    assert.match(versionNote, /# v1\.9 版本更新内容/);
+    assert.match(versionNote, /^# v1\.9 版本更新内容\r?\n\r?\n## build152\r?\n/);
+    assert.match(versionNote, /^## build151\r?$/m);
+    assert.match(versionNote, /^## build150\r?$/m);
+    assert.match(versionNote, /^## build149\r?$/m);
+    assert.match(versionNote, /^## build148\r?$/m);
+    assert.match(versionNote, /## build147/);
+    assert.match(versionNote, /## build146/);
     assert.match(versionNote, /## build145/);
     assert.match(versionNote, /## build144/);
     assert.match(versionNote, /## build143/);
     assert.match(versionNote, /## build142/);
     assert.match(versionNote, /## build141/);
+    assert.match(versionNote, /## build140/);
 });

@@ -1,17 +1,22 @@
 package com.lan4jn.file.service;
 
+import com.google.common.io.ByteStreams;
 import com.lan4jn.file.dto.TransferArchiveTaskRequest;
 import com.lan4jn.file.entity.TransferArchiveTask;
 import com.lan4jn.file.model.FileInfo;
 import com.lan4jn.file.repository.TransferArchiveTaskRepository;
+import com.lan4jn.file.utils.HttpRangeUtils;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
+import java.io.IOException;
 import java.io.InputStream;
 import java.io.OutputStream;
+import java.nio.channels.Channels;
+import java.nio.channels.SeekableByteChannel;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.Paths;
@@ -216,6 +221,11 @@ public class TransferArchiveTaskService {
 
     @Transactional(readOnly = true)
     public ArchiveDownload openArchiveDownload(Long taskId, String username, String shareCode, String password) {
+        return openArchiveDownload(taskId, username, shareCode, password, null);
+    }
+
+    @Transactional(readOnly = true)
+    public ArchiveDownload openArchiveDownload(Long taskId, String username, String shareCode, String password, String rangeHeader) {
         TransferArchiveTask task = shareCode == null || shareCode.trim().isEmpty()
                 ? getTask(taskId, requireText(username, "username"))
                 : getShareTask(taskId, shareCode, password);
@@ -225,13 +235,34 @@ public class TransferArchiveTaskService {
             throw new IllegalArgumentException("归档文件不存在");
         }
         try {
-            return new ArchiveDownload(
-                    task.getArchiveFileName(),
-                    Files.size(archivePath),
-                    Files.newInputStream(archivePath)
-            );
-        } catch (Exception ex) {
+            long totalSize = Files.size(archivePath);
+            HttpRangeUtils.ByteRange range;
+            try {
+                range = HttpRangeUtils.parseSingleRange(rangeHeader, totalSize);
+            } catch (IllegalArgumentException ex) {
+                throw new UnsatisfiableArchiveRangeException(totalSize, ex);
+            }
+            if (range == null) {
+                return new ArchiveDownload(task.getArchiveFileName(), totalSize, Files.newInputStream(archivePath));
+            }
+            return new ArchiveDownload(task.getArchiveFileName(), range.getLength(), openRangeStream(archivePath, range), range);
+        } catch (IOException ex) {
             throw new RuntimeException("打开归档文件失败: " + ex.getMessage(), ex);
+        }
+    }
+
+    private InputStream openRangeStream(Path path, HttpRangeUtils.ByteRange range) throws IOException {
+        SeekableByteChannel channel = Files.newByteChannel(path);
+        try {
+            channel.position(range.getStart());
+            return ByteStreams.limit(Channels.newInputStream(channel), range.getLength());
+        } catch (IOException | RuntimeException ex) {
+            try {
+                channel.close();
+            } catch (IOException closeFailure) {
+                ex.addSuppressed(closeFailure);
+            }
+            throw ex;
         }
     }
 
@@ -416,6 +447,22 @@ public class TransferArchiveTaskService {
         }
     }
 
-    public record ArchiveDownload(String fileName, Long contentLength, InputStream inputStream) {
+    public record ArchiveDownload(String fileName, Long contentLength, InputStream inputStream, HttpRangeUtils.ByteRange range) {
+        public ArchiveDownload(String fileName, Long contentLength, InputStream inputStream) {
+            this(fileName, contentLength, inputStream, null);
+        }
+    }
+
+    static final class UnsatisfiableArchiveRangeException extends IllegalArgumentException {
+        private final long totalSize;
+
+        UnsatisfiableArchiveRangeException(long totalSize, IllegalArgumentException cause) {
+            super(cause.getMessage(), cause);
+            this.totalSize = totalSize;
+        }
+
+        long getTotalSize() {
+            return totalSize;
+        }
     }
 }

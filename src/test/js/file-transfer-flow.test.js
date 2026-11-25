@@ -23,5 +23,6 @@ test('should not duplicate api prefix for file transfer session request', () => 
 test('should load transfer ui helpers before app js in index html', () => {
     const html = fs.readFileSync('src/main/resources/static/index.html', 'utf8');
 
-    assert.match(html, /<script src="\.\/js\/transfer-ui-helpers\.js"><\/script>/);
+    assert.match(html, /<script src="\.\/js\/transfer-ui-helpers\.js\?v=build152"><\/script>/);
+    assert.ok(html.indexOf('<script src="./js/app.js?') > html.indexOf('<script src="./js/transfer-ui-helpers.js?'), '登录工作区应先加载传输组件');
 });

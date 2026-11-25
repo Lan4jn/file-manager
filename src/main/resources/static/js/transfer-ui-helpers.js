@@ -102,8 +102,30 @@
             && (matcher(resolved.toString()) || archiveMatcher(resolved.toString()));
     }
 
+    var activeTokenProvider = null;
+
+    function setTokenProvider(provider) {
+        activeTokenProvider = typeof provider === 'function' ? provider : null;
+    }
+
+    function getActiveToken() {
+        if (typeof activeTokenProvider === 'function') {
+            var provided = activeTokenProvider();
+            if (typeof provided === 'string') {
+                return provided;
+            }
+        }
+        var token = '';
+        try {
+            token = (window.localStorage && window.localStorage.getItem('token')) || '';
+        } catch (e) {
+            token = '';
+        }
+        return token;
+    }
+
     async function fetchProtectedDownload(url, fileName) {
-        var token = window.localStorage ? window.localStorage.getItem('token') : '';
+        var token = getActiveToken();
         var headers = token ? { Authorization: 'Bearer ' + token } : {};
         return fetchBlobDownload(url, fileName, headers);
     }
@@ -225,7 +247,8 @@
         createNativeDownload: createNativeDownload,
         runSingleFileDownload: runSingleFileDownload,
         runArchiveDownload: runArchiveDownload,
-        uploadWithXhr: uploadWithXhr
+        uploadWithXhr: uploadWithXhr,
+        setTokenProvider: setTokenProvider
     };
 
     if (typeof module !== 'undefined' && module.exports) {

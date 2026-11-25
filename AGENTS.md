@@ -9,9 +9,9 @@
 - 运行产物：`data/`（SQLite `file-manager.db`）、`logs/`（Log4j2 输出）、`target/`（构建结果）。`share/` 为前端压缩包，非必要勿改。
 
 ## 构建、运行与测试
-- `mvn clean package`：编译并生成 `target/file-manager-1.0.0.jar`。
+- `mvn clean package`：编译并生成 `target/file-manager-1.9-build149.jar`。
 - `mvn spring-boot:run`：本地启动，默认读 `src/main/resources/application.yml`；设置 `ENV_FILE=dev|prod` 可切到 `/config/application-<env>.yml`。
-- `java -jar target/file-manager-1.0.0.jar`：运行打包产物，需预先配置 MinIO 凭据。
+- `java -jar target/file-manager-1.9-build149.jar`：运行打包产物，需预先配置 MinIO 凭据。
 - `mvn test`：运行单元/集成测试（JUnit5，`spring-boot-starter-test`）。
 
 ## 代码风格与命名
@@ -34,3 +34,8 @@
 - 禁止提交真实 MinIO Key、JWT Secret。环境值放 `/config` 并用 `ENV_FILE` 读取；生产密钥由部署环境注入。
 - 默认管理员账户 `admin/admin123`，首次运行后请立即修改。
 - `file-manager.db` 与日志位于仓库根目录，可写但勿提交；做破坏性 schema 变更前备份数据库。
+
+## 版本号维护（强制）
+- 每批包含代码改动的交付，必须以当前工作树版本为起点，将 build 号递增 1；同一批修改不按文件或测试重跑重复递增。
+- 发布版本按用户要求维护；当前发布版本为 1.9，完整版本格式为 1.9-build<N>。
+- 同步更新 pom.xml、对应版本说明和版本回归测试；保留历史版本说明，检查运行文档与构建产物版本一致。

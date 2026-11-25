@@ -56,7 +56,6 @@ test('Taste presentation covers entry pages and all management views without edi
         assert.ok(doc.includes('workspace-motion.js'));
     }
     assert.ok(html.includes('class="login-content"'));
-    assert.ok(html.includes('class="login-path-guide"'));
     assert.ok(html.includes(':data-page="currentMenu"'));
     for(const page of ['buckets','shares','audit','users','roles','keys','settings']) assert.ok(html.includes('page-content--'+page),page);
     for(const file of ['host-grotesk','jetbrains-mono']) assert.equal(fs.readFileSync(root+'fonts/'+file+'-latin-variable.woff2').subarray(0,4).toString(),'wOF2');

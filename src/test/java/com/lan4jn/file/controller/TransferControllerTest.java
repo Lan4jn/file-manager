@@ -1,6 +1,9 @@
 package com.lan4jn.file.controller;
 
 import com.lan4jn.file.common.GlobalExceptionHandler;
+import com.lan4jn.file.dto.MultipartUploadCompleteRequest;
+import com.lan4jn.file.dto.MultipartUploadInitRequest;
+import com.lan4jn.file.dto.MultipartUploadInitResponse;
 import com.lan4jn.file.entity.TransferArchiveTask;
 import com.lan4jn.file.dto.TransferArchiveTaskRequest;
 import com.lan4jn.file.dto.UploadResponse;
@@ -8,17 +11,20 @@ import com.lan4jn.file.model.FileInfo;
 import com.lan4jn.file.model.ShareLink;
 import com.lan4jn.file.rbac.BucketAction;
 import com.lan4jn.file.rbac.PermissionCodes;
+import com.lan4jn.file.repository.TransferArchiveTaskRepository;
 import com.lan4jn.file.service.ConfigService;
 import com.lan4jn.file.service.FileService;
 import com.lan4jn.file.service.FileDomainSupport;
 import com.lan4jn.file.service.PermissionAssertService;
 import com.lan4jn.file.service.PermissionSnapshot;
 import com.lan4jn.file.service.TransferArchiveTaskService;
+import com.lan4jn.file.service.TransferMultipartUploadService;
 import com.lan4jn.file.service.TransferProxyService;
 import com.lan4jn.file.service.TransferSessionService;
 import com.lan4jn.file.service.ShareService;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.io.TempDir;
 import org.springframework.context.support.GenericApplicationContext;
 import org.springframework.http.HttpHeaders;
 import org.springframework.http.HttpStatus;
@@ -27,21 +33,30 @@ import org.springframework.test.web.servlet.MockMvc;
 import org.springframework.test.web.servlet.setup.MockMvcBuilders;
 
 import java.io.ByteArrayInputStream;
+import java.io.IOException;
+import java.io.InputStream;
 import java.nio.charset.StandardCharsets;
+import java.nio.file.Files;
+import java.nio.file.Path;
 import java.util.List;
 import java.util.Map;
+import java.util.Optional;
 import java.util.Set;
 
 import static org.hamcrest.Matchers.containsString;
+import static org.junit.jupiter.api.Assertions.assertArrayEquals;
 import static org.junit.jupiter.api.Assertions.assertDoesNotThrow;
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.delete;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.put;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.content;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.header;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
@@ -55,6 +70,7 @@ class TransferControllerTest {
     private PermissionAssertService permissionAssertService;
     private TransferSessionService transferSessionService;
     private TransferArchiveTaskService transferArchiveTaskService;
+    private TransferMultipartUploadService multipartUploadService;
     private ShareService shareService;
 
     @BeforeEach
@@ -67,7 +83,8 @@ class TransferControllerTest {
         transferSessionService = new TransferSessionService();
         TransferProxyService transferProxyService = new TransferProxyService(
                 configService, fileService, permissionAssertService, transferSessionService, transferArchiveTaskService, shareService);
-        TransferController controller = new TransferController(transferProxyService);
+        multipartUploadService = mock(TransferMultipartUploadService.class);
+        TransferController controller = new TransferController(transferProxyService, multipartUploadService);
         mockMvc = MockMvcBuilders.standaloneSetup(controller)
                 .setControllerAdvice(new GlobalExceptionHandler())
                 .build();
@@ -79,6 +96,7 @@ class TransferControllerTest {
     void shouldBeInstantiableBySpringContainer() {
         GenericApplicationContext context = new GenericApplicationContext();
         context.registerBean(TransferProxyService.class, () -> mock(TransferProxyService.class));
+        context.registerBean(TransferMultipartUploadService.class, () -> mock(TransferMultipartUploadService.class));
         context.registerBean(TransferController.class);
 
         assertDoesNotThrow(context::refresh);
@@ -88,6 +106,42 @@ class TransferControllerTest {
     @Test
     void shouldDeclareSingleConstructorForSpringInjection() {
         assertEquals(1, TransferController.class.getDeclaredConstructors().length);
+    }
+
+    @Test
+    void shouldExposeMultipartRoutesAndForwardRawPartBody() throws Exception {
+        String basePath = "/api/transfer/upload/multipart";
+        byte[] partBody = {1, 2, 3};
+        when(multipartUploadService.initSession(any(MultipartUploadInitRequest.class)))
+                .thenReturn(new MultipartUploadInitResponse("session-1", "bucket-a", "sample.bin", "sample.bin",
+                        10_485_760L, 2, true, List.of(new MultipartUploadInitResponse.UploadedPart(1, "etag-1"))));
+        when(multipartUploadService.uploadPart(eq("session-1"), eq(2), any(InputStream.class), eq(3L)))
+                .thenAnswer(call -> {
+                    InputStream body = call.getArgument(2);
+                    assertArrayEquals(partBody, body.readAllBytes());
+                    return Map.of("partNumber", 2, "eTag", "etag-2");
+                });
+        when(multipartUploadService.completeSession(eq("session-1"), any(MultipartUploadCompleteRequest.class)))
+                .thenAnswer(call -> {
+                    MultipartUploadCompleteRequest request = call.getArgument(1);
+                    assertEquals("trace-1", request.getUploadTraceId());
+                    assertEquals("etag-2", request.getParts().get(0).getETag());
+                    UploadResponse response = new UploadResponse();
+                    response.setObjectName("sample.bin");
+                    return response;
+                });
+
+        mockMvc.perform(post(basePath + "/init").contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"fileName\":\"sample.bin\",\"size\":10485763}"))
+                .andExpect(jsonPath("$.data.uploadedParts[0].eTag").value("etag-1"));
+        mockMvc.perform(put(basePath + "/session-1/parts/2").contentType(MediaType.APPLICATION_OCTET_STREAM)
+                        .content(partBody))
+                .andExpect(jsonPath("$.data.eTag").value("etag-2"));
+        mockMvc.perform(post(basePath + "/session-1/complete").contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"uploadTraceId\":\"trace-1\",\"parts\":[{\"partNumber\":2,\"eTag\":\"etag-2\"}]}"))
+                .andExpect(jsonPath("$.data.objectName").value("sample.bin"));
+        mockMvc.perform(delete(basePath + "/session-1")).andExpect(jsonPath("$.code").value(200));
+        verify(multipartUploadService).abortSession("session-1");
     }
 
     @Test
@@ -444,8 +498,47 @@ class TransferControllerTest {
 
         mockMvc.perform(get("/api/transfer/archive-tasks/1/download"))
                 .andExpect(status().isOk())
+                .andExpect(header().string(HttpHeaders.ACCEPT_RANGES, "bytes"))
+                .andExpect(header().longValue(HttpHeaders.CONTENT_LENGTH, 5L))
+                .andExpect(header().doesNotExist(HttpHeaders.CONTENT_RANGE))
                 .andExpect(header().string(HttpHeaders.CONTENT_DISPOSITION, containsString("batch-download-1.zip")))
                 .andExpect(content().string("hello"));
+    }
+
+    @Test
+    void shouldStreamOnlyTheRequestedArchiveBytes(@TempDir Path directory) throws Exception {
+        archiveDownloadMvc(directory).perform(get("/api/transfer/archive-tasks/1/download")
+                        .header(HttpHeaders.RANGE, "bytes=2-5"))
+                .andExpect(status().isPartialContent())
+                .andExpect(header().string(HttpHeaders.ACCEPT_RANGES, "bytes"))
+                .andExpect(header().string(HttpHeaders.CONTENT_RANGE, "bytes 2-5/10"))
+                .andExpect(header().longValue(HttpHeaders.CONTENT_LENGTH, 4L))
+                .andExpect(content().bytes(new byte[] {2, 3, 4, 5}));
+    }
+
+    @Test
+    void shouldRejectAnUnsatisfiableArchiveRange(@TempDir Path directory) throws Exception {
+        archiveDownloadMvc(directory).perform(get("/api/transfer/archive-tasks/1/download")
+                        .header(HttpHeaders.RANGE, "bytes=10-12"))
+                .andExpect(status().isRequestedRangeNotSatisfiable())
+                .andExpect(header().string(HttpHeaders.CONTENT_RANGE, "bytes */10"))
+                .andExpect(content().bytes(new byte[0]));
+    }
+
+    private MockMvc archiveDownloadMvc(Path directory) throws IOException {
+        Path archive = Files.write(directory.resolve("archive.zip"), new byte[] {0, 1, 2, 3, 4, 5, 6, 7, 8, 9});
+        TransferArchiveTask ready = task(1L, "COMPLETED", "READY");
+        ready.setArchiveLocation(archive.toString());
+        ready.setArchiveFileName("archive.zip");
+        TransferArchiveTaskRepository repository = mock(TransferArchiveTaskRepository.class);
+        when(repository.findByIdAndOwnerUsername(1L, "alice")).thenReturn(Optional.of(ready));
+        TransferArchiveTaskService archiveService = new TransferArchiveTaskService(
+                repository, fileService, configService, shareService, directory.toString());
+        TransferProxyService proxyService = new TransferProxyService(
+                configService, fileService, permissionAssertService, transferSessionService, archiveService, shareService);
+        return MockMvcBuilders.standaloneSetup(new TransferController(proxyService, multipartUploadService))
+                .setControllerAdvice(new GlobalExceptionHandler())
+                .build();
     }
 
     private FileInfo fileInfo(String objectName, String fileName, long size) {

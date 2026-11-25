@@ -7,7 +7,7 @@ const { spawn } = require('node:child_process');
 const assert = require('node:assert/strict');
 const root = path.resolve('src/main/resources/static');
 const projectVersion = fs.readFileSync(path.resolve('pom.xml'), 'utf8').match(/<artifactId>file-manager<\/artifactId>\s*<version>([^<]+)<\/version>/)[1];
-const output = path.resolve(process.env.BROWSER_OUTPUT || 'design-preview/blueprint-build143');
+const output = path.resolve(process.env.BROWSER_OUTPUT || 'design-preview/precision-build152');
 const chrome = process.env.CHROME_PATH || 'C:/Program Files/Google/Chrome/Application/chrome.exe';
 const items = [
  {objectName:'交付文件/项目文档/',fileName:'项目文档',isFolder:true,size:0,uploadTime:'2026-11-16T09:24:00'},
@@ -41,7 +41,7 @@ const server = http.createServer((req,res) => {
  }
  const file = path.resolve(root, '.'+(name==='/'?'/index.html':decodeURIComponent(name)));
  if(!file.startsWith(root+path.sep)||!fs.existsSync(file)||!fs.statSync(file).isFile()){res.writeHead(404);res.end();return;}
- const mime={'.html':'text/html; charset=utf-8','.js':'text/javascript; charset=utf-8','.css':'text/css; charset=utf-8','.svg':'image/svg+xml','.ico':'image/x-icon','.woff2':'font/woff2'};
+ const mime={'.html':'text/html; charset=utf-8','.js':'text/javascript; charset=utf-8','.css':'text/css; charset=utf-8','.svg':'image/svg+xml','.ico':'image/x-icon','.woff2':'font/woff2','.jpg':'image/jpeg','.jpeg':'image/jpeg','.png':'image/png','.webp':'image/webp'};
  res.writeHead(200,{'Content-Type':mime[path.extname(file)]||'application/octet-stream'});res.end(fs.readFileSync(file));
 });
 (async()=>{
@@ -63,6 +63,8 @@ const server = http.createServer((req,res) => {
   const waitFor=expression=>evaluate('new Promise((resolve,reject)=>{const end=Date.now()+8000;function check(){if(('+expression+'))return resolve(true);if(Date.now()>end)return reject(Error("Condition timeout"));requestAnimationFrame(check)}check()})');
   const settle=()=>evaluate('Promise.resolve(typeof Vue==="undefined"?undefined:Vue.nextTick()).then(()=>new Promise(r=>requestAnimationFrame(()=>requestAnimationFrame(r)))).then(()=>Promise.all(document.getAnimations().filter(a=>a.effect && a.effect.getTiming().iterations!==Infinity).map(a=>a.finished.catch(()=>{}))))');
   const navigate=async file=>{await cmd('Page.navigate',{url:'http://127.0.0.1:'+server.address().port+'/fm/'+file});};
+  const click=async selector=>{const b=await evaluate('document.querySelector('+JSON.stringify(selector)+').getBoundingClientRect().toJSON()');await cmd('Input.dispatchMouseEvent',{type:'mousePressed',x:b.x+b.width/2,y:b.y+b.height/2,button:'left',clickCount:1});await cmd('Input.dispatchMouseEvent',{type:'mouseReleased',x:b.x+b.width/2,y:b.y+b.height/2,button:'left',clickCount:1});};
+  const toggleTheme=async (selector,theme)=>{await click(selector);await settle();assert.equal(await evaluate('document.documentElement.dataset.theme'),theme);};
   const screenshot=async name=>{
     const snapshot=await evaluate('(() => {const doc=document.documentElement.cloneNode(true);doc.querySelectorAll("script").forEach(n=>n.remove());const live=document.querySelectorAll("input,textarea,select");doc.querySelectorAll("input,textarea,select").forEach((n,i)=>{const v=live[i];if(n.tagName==="INPUT"){n.setAttribute("value",v.type==="password"?"•".repeat(v.value.length):v.value);n.toggleAttribute("checked",v.checked)}else if(n.tagName==="TEXTAREA")n.textContent=v.value;else Array.from(n.options).forEach((o,j)=>o.toggleAttribute("selected",v.options[j].selected))});doc.classList.remove("m-enter");doc.classList.add("m-enter-done");doc.querySelectorAll(".hero").forEach(n=>{n.classList.remove("is-entering");n.classList.add("is-entered","is-still")});const base=document.createElement("base");base.setAttribute("href","../../src/main/resources/static/");doc.querySelector("head").prepend(base);return "<!doctype html>\\n"+doc.outerHTML})()');
     fs.writeFileSync(path.join(output,name.replace(/\.png$/,'.html')),snapshot);
@@ -91,11 +93,25 @@ const server = http.createServer((req,res) => {
   await cmd('Emulation.setDeviceMetricsOverride',{width:1440,height:1000,deviceScaleFactor:1,mobile:false});
   await navigate('index.html');await waitFor('document.querySelector(".login-card input")');
   assert.equal(await evaluate('document.body.classList.contains("workspace-app")'),true);
-  assert.match(await evaluate('getComputedStyle(document.querySelector(".login-container")).backgroundImage+" "+getComputedStyle(document.body).backgroundImage'),/ground\.svg/,'A real local blueprint ground should render');
+  assert.equal(await evaluate('document.documentElement.dataset.theme'),'light');
+  assert.doesNotMatch(await evaluate('getComputedStyle(document.querySelector(".login-container")).backgroundImage+" "+getComputedStyle(document.body).backgroundImage'),/ground\.svg/,'Login must not use ground.svg');
+  assert.match(await evaluate('getComputedStyle(document.querySelector(".login-container")).backgroundImage'),/workspace-bg-light\.jpg/,'Light login background');
   await evaluate('document.fonts.ready');
   assert.equal(await evaluate("document.fonts.check('14px \"Host Grotesk\"')"),true,'Local font must load');
   assert.ok((await dimensions()).height <= 1000, 'Desktop login should not have a redundant vertical scrollbar');
-   await screenshot('login-desktop.png');await responsiveSnapshots('login-desktop.png');
+   await settle();await screenshot('login-desktop.png');
+   await toggleTheme('.theme-toggle-btn','dark');
+   assert.equal(await evaluate('document.documentElement.classList.contains("dark")'),true);
+   assert.match(await evaluate('getComputedStyle(document.querySelector(".login-container")).backgroundImage'),/workspace-bg-dark\.jpg/,'Dark login background');
+   await screenshot('login-desktop-dark.png');
+   await toggleTheme('.theme-toggle-btn','light');
+   await cmd('Emulation.setDeviceMetricsOverride',{width:2560,height:1440,deviceScaleFactor:1,mobile:false});await settle();
+   await screenshot('login-4k.png');
+   await toggleTheme('.theme-toggle-btn','dark');
+   await screenshot('login-4k-dark.png');
+   await toggleTheme('.theme-toggle-btn','light');
+   await cmd('Emulation.setDeviceMetricsOverride',{width:1440,height:1000,deviceScaleFactor:1,mobile:false});await settle();
+   await responsiveSnapshots('login-desktop.png');
    await cmd('Emulation.setDeviceMetricsOverride',{width:390,height:844,deviceScaleFactor:1,mobile:false});await settle();
    assert.ok((await dimensions()).document<=390,'Login page overflows');
     const loginBottom=await evaluate('document.querySelector(".login-submit").getBoundingClientRect().bottom');assert.ok(loginBottom<=844&&loginBottom>0,'Login button must be in the first viewport: '+loginBottom);
@@ -121,10 +137,44 @@ const server = http.createServer((req,res) => {
   const flat=await evaluate('(() => {const result={};for(const name of ["message-bubble","message-bubble message-bubble--unread","dialog-panel--sidebar","diagnostics-panel__toolbar","version-item active"]){const node=document.createElement("div");node.className=name;node.style.position="fixed";node.style.left="-10000px";document.body.appendChild(node);result[name]=getComputedStyle(node).backgroundImage;node.remove()}return result})()');
   assert.ok(Object.values(flat).every(value=>value==='none'),'Legacy surfaces must have flat computed backgrounds');
   console.log('Legacy computed surfaces:',JSON.stringify(flat));
-   const focus=await evaluate("(()=>{const out={};const previous=document.activeElement;for(const name of ['el-date-table','el-month-table','el-year-table','el-dialog']){const box=document.createElement(name==='el-dialog'?'div':'table');box.className=name;box.style.cssText='position:fixed;left:-10000px;top:0;width:40px;height:40px';const node=name==='el-dialog'?box:box.insertRow().insertCell();node.tabIndex=0;document.body.append(box);node.focus({preventScroll:true});const css=getComputedStyle(node);out[name]={visible:node.matches(':focus-visible'),outline:css.outlineWidth,style:css.outlineStyle,color:css.outlineColor};box.remove()}previous?.focus?.({preventScroll:true});return out})()");
-   assert.ok(Object.values(focus).every(x=>x.visible && x.outline==='2px' && x.style==='solid'),JSON.stringify(focus));
-   console.log('Keyboard focus probes:',JSON.stringify(focus));
-  await screenshot('official-files.png');await responsiveSnapshots('official-files.png');
+   const pressTab=async()=>{await cmd('Input.dispatchKeyEvent',{type:'keyDown',key:'Tab',code:'Tab',windowsVirtualKeyCode:9});await cmd('Input.dispatchKeyEvent',{type:'keyUp',key:'Tab',code:'Tab',windowsVirtualKeyCode:9});};
+   await evaluate("(()=>{const c=document.createElement('div');c.id='__focus_probes__';c.style.cssText='position:fixed;left:-10000px;top:0;width:40px;height:40px';c.innerHTML='<button id=\"__probe_start__\" tabindex=\"0\"></button><table class=\"el-date-table\"><tr><td id=\"probe-date\" tabindex=\"0\"></td></tr></table><table class=\"el-month-table\"><tr><td id=\"probe-month\" tabindex=\"0\"></td></tr></table><table class=\"el-year-table\"><tr><td id=\"probe-year\" tabindex=\"0\"></td></tr></table><div id=\"probe-dialog\" class=\"el-dialog\" tabindex=\"0\"></div><div id=\"__probe_negative__\" tabindex=\"-1\"></div>';document.body.appendChild(c);document.getElementById('__probe_start__').focus({preventScroll:true});})()");
+   const negative=await evaluate("(()=>{const n=document.getElementById('__probe_negative__');const css=getComputedStyle(n);return {visible:n.matches(':focus-visible'),style:css.outlineStyle,outline:css.outlineWidth}})()");
+   assert.equal(negative.visible,false,'Negative probe must not match :focus-visible');
+   assert.equal(negative.style,'none','Negative probe must have no outline');
+   const focus={};
+   for(const [name,id] of [['el-date-table','probe-date'],['el-month-table','probe-month'],['el-year-table','probe-year'],['el-dialog','probe-dialog']]){
+     await pressTab();
+     const p=await evaluate("(()=>{const n=document.getElementById('"+id+"');const css=getComputedStyle(n);return {active:document.activeElement===n,visible:n.matches(':focus-visible'),outline:css.outlineWidth,style:css.outlineStyle,color:css.outlineColor}})()");
+     assert.ok(p.active,name+' must receive focus on Tab');
+     assert.ok(p.visible,name+' must match :focus-visible');
+     assert.equal(p.style,'solid',name+' must have solid outline');
+     assert.ok(parseFloat(p.outline)>0,name+' outline width must be positive: '+p.outline);
+     focus[name]=p;
+   }
+   await evaluate("(()=>{document.getElementById('__focus_probes__')?.remove();})()");
+   console.log('Keyboard focus probes:',JSON.stringify(focus),'Negative probe:',JSON.stringify(negative));
+  assert.match(await evaluate('getComputedStyle(document.querySelector(".main-content")).backgroundImage'),/workspace-bg-light\.jpg/,'Light files background');
+  await screenshot('official-files.png');
+  await toggleTheme('.header .theme-toggle-btn','dark');
+  assert.match(await evaluate('getComputedStyle(document.querySelector(".main-content")).backgroundImage'),/workspace-bg-dark\.jpg/,'Dark files background');
+  await screenshot('official-files-dark.png');
+  await evaluate('ui.showUploadDialog=true');await settle();
+  const darkUploadBackground=await evaluate('(()=>{const dialog=Array.from(document.querySelectorAll(".el-dialog")).find(e=>e.offsetHeight>0 && e.textContent.includes("上传文件"));return dialog ? getComputedStyle(dialog).backgroundColor : null})()');
+  assert.ok(darkUploadBackground,'Dark upload dialog must be visible');
+  assert.notEqual(darkUploadBackground,'rgb(255, 255, 255)','Dark upload dialog must not have a white background');
+  await screenshot('official-upload-dark.png');
+  await evaluate('ui.showUploadDialog=false');await settle();
+  await waitFor('(()=>{const b=document.querySelector(".header .theme-toggle-btn")?.getBoundingClientRect();if(!b)return false;const el=document.elementFromPoint(b.left+b.width/2,b.top+b.height/2);return el && !el.closest(".el-overlay")})()');
+  await toggleTheme('.header .theme-toggle-btn','light');
+  await cmd('Emulation.setDeviceMetricsOverride',{width:2560,height:1440,deviceScaleFactor:1,mobile:false});await settle();
+  assert.ok(await evaluate('document.querySelector("#main-content .page-content").getBoundingClientRect().width >= 2200'),'File page content must be at least 2200px wide at 2560px');
+  await screenshot('files-4k.png');
+  await toggleTheme('.header .theme-toggle-btn','dark');
+  await screenshot('files-4k-dark.png');
+  await toggleTheme('.header .theme-toggle-btn','light');
+  await cmd('Emulation.setDeviceMetricsOverride',{width:1440,height:1000,deviceScaleFactor:1,mobile:false});await settle();
+  await responsiveSnapshots('official-files.png');
   const fixtureConfig=await evaluate('JSON.parse(JSON.stringify(ui.fileConfig))');
    await evaluate('ui.loadInbox()');await settle();
    for(const menu of ['workbench','buckets','shares','audit-logs','users','roles','minio-keys','config']){
@@ -136,7 +186,16 @@ const server = http.createServer((req,res) => {
      assert.ok(sections.reminders.left>=sections.dirs.right && Math.abs(sections.reminders.top-sections.dirs.top)<=1,'Workbench reminders must occupy the right column '+JSON.stringify(sections));
     }
     if(menu==='buckets')await waitFor('document.body.innerText.includes("release-deliverables-archive")');
-    await screenshot(menu+'-desktop.png');await responsiveSnapshots(menu+'-desktop.png');
+    await screenshot(menu+'-desktop.png');
+    if(menu==='workbench'){
+     await toggleTheme('.header .theme-toggle-btn','dark');
+     await screenshot('workbench-desktop-dark.png');
+     await toggleTheme('.header .theme-toggle-btn','light');
+     await cmd('Emulation.setDeviceMetricsOverride',{width:2560,height:1440,deviceScaleFactor:1,mobile:false});await settle();
+     await screenshot('workbench-4k.png');
+     await cmd('Emulation.setDeviceMetricsOverride',{width:1440,height:1000,deviceScaleFactor:1,mobile:false});await settle();
+    }
+    await responsiveSnapshots(menu+'-desktop.png');
   }
   await evaluate('Object.assign(ui.fileConfig,'+JSON.stringify(fixtureConfig)+');ui.currentMenu="files"');await settle();
   await evaluate('ui.showUploadDialog=true');await settle();
@@ -156,12 +215,49 @@ const server = http.createServer((req,res) => {
   assert.equal(await evaluate('!!document.querySelector(".download-task-center__action[title=暂停下载]")'),true);
   assert.equal(await evaluate('!!document.querySelector(".download-task-center__action[title=取消下载]")'),true);
   await screenshot('downloads-desktop.png');
-   await evaluate('ui.downloadCenterVisible=false');
+  await evaluate(`Object.assign(ui, {
+    downloadCenterVisible: false,
+    transferUploadTasks: [{id:'smoke-upload',name:'交付素材分片.zip',status:'running',progress:50,uploadedBytes:33554432,totalBytes:67108864,completedParts:2,totalParts:4,step:'正在上传'}],
+    downloadTasks: [{id:'smoke-download',name:'产品使用手册.pdf',type:'single-file',status:'running',progress:50,downloadedBytes:4404019,totalBytes:8808038,step:'正在下载'}]
+  })`);await settle();
+  const transferTrigger='.transfer-center-trigger';
+  const triggers=await evaluate(`(() => {
+    const probe=selector=>{
+      const el=document.querySelector(selector);
+      return el && {rect:el.getBoundingClientRect().toJSON(),visibility:getComputedStyle(el).visibility};
+    };
+    return {transfer:probe('${transferTrigger}'),message:probe('.message-center-trigger')};
+  })()`);
+  for(const [name,trigger] of Object.entries(triggers)){
+    assert.ok(trigger?.rect.width>0 && trigger.rect.height>0 && trigger.visibility==='visible',name+' trigger must be visible');
+  }
+  const {transfer:{rect:transfer},message:{rect:message}}=triggers;
+  assert.ok(transfer.right<=message.left || message.right<=transfer.left || transfer.bottom<=message.top || message.bottom<=transfer.top,'Transfer and message triggers must not overlap');
+  await click(transferTrigger);await settle();
+  for(const [theme,name] of [['light','transfer-center-desktop.png'],['dark','transfer-center-dark.png']]){
+    if(theme==='dark')await toggleTheme('.header .theme-toggle-btn','dark');
+    const panel=await evaluate(`(() => {
+      const el=document.querySelector('.transfer-center-panel');
+      const content=el.querySelector('.transfer-center-content');
+      const rect=el.getBoundingClientRect();
+      return {width:rect.width,left:rect.left,right:rect.right,viewport:innerWidth,
+        overflow:el.scrollWidth>el.clientWidth || content.scrollWidth>content.clientWidth,
+        directions:[...el.querySelectorAll('.transfer-center-direction')].map(node=>node.textContent.trim()),
+        text:el.innerText};
+    })()`);
+    assert.ok(panel.width>0 && panel.left>=0 && panel.right<=panel.viewport && !panel.overflow,'Transfer panel must fit without horizontal overflow in '+theme+' theme');
+    assert.deepEqual(panel.directions,['上传','下载']);
+    assert.match(panel.text,/分片 2\/4/);
+    await screenshot(name);
+  }
+  await toggleTheme('.header .theme-toggle-btn','light');
+  await click(transferTrigger);
+  await evaluate('ui.transferUploadTasks=[]; ui.downloadTasks=[]');await settle();
+  assert.equal(await evaluate('document.querySelector(".transfer-center-panel").offsetWidth'),0,'Transfer panel must be closed before mobile checks');
   await cmd('Emulation.setDeviceMetricsOverride',{width:390,height:844,deviceScaleFactor:1,mobile:false});await settle();
   const mobile=await dimensions();console.log('Mobile file layout:',mobile);assert.ok(mobile.document<=390,'File page overflows');
   const primary=await evaluate('document.querySelector(".file-toolbar-upload").getBoundingClientRect().toJSON()');assert.ok(primary.bottom<=844,'Primary upload action must be visible');
   await screenshot('files-mobile.png');
-  const click=async selector=>{const b=await evaluate('document.querySelector('+JSON.stringify(selector)+').getBoundingClientRect().toJSON()');await cmd('Input.dispatchMouseEvent',{type:'mousePressed',x:b.x+b.width/2,y:b.y+b.height/2,button:'left',clickCount:1});await cmd('Input.dispatchMouseEvent',{type:'mouseReleased',x:b.x+b.width/2,y:b.y+b.height/2,button:'left',clickCount:1});};
    const more='.file-toolbar-more > summary';
    await click(more);await waitFor('document.querySelector(".file-toolbar-more[open]")');await settle();
    const visibleTools=await evaluate('[...document.querySelectorAll("#file-toolbar-overflow button")].filter(e=>e.getBoundingClientRect().width>0).map(e=>e.textContent.trim())');
@@ -192,6 +288,7 @@ const server = http.createServer((req,res) => {
    await evaluate('document.querySelector(".page-content--files .el-table .el-scrollbar__wrap").scrollLeft=0');await settle();
    console.log('Mobile row operations: no horizontal scroll, click and keyboard Enter/Escape passed',rowReach);
    await click('.workspace-nav-toggle');await waitFor('ui.navigationOpen && document.querySelector(".sidebar").getBoundingClientRect().left===0');
+  await waitFor('document.activeElement?.classList.contains("workspace-nav-close")');
   assert.equal(await evaluate('document.activeElement.classList.contains("workspace-nav-close")'),true);
   await screenshot('navigation-mobile.png');
   await cmd('Input.dispatchKeyEvent',{type:'keyDown',key:'Escape',code:'Escape',windowsVirtualKeyCode:27});await cmd('Input.dispatchKeyEvent',{type:'keyUp',key:'Escape',code:'Escape',windowsVirtualKeyCode:27});await settle();
@@ -207,8 +304,22 @@ const server = http.createServer((req,res) => {
    assert.ok(restricted.every(name=>!['上传','新建','分享','下载','移动','复制','删除'].includes(name)),JSON.stringify(restricted));
   await navigate('share.html?shareCode=visual-test');await waitFor('document.querySelectorAll("#itemList .item").length===3');
   const publicMobile=await dimensions();console.log('Mobile public share layout:',publicMobile);assert.ok(publicMobile.document<=390,'Public share overflows');
-  assert.match(await evaluate('getComputedStyle(document.body).backgroundImage'),/ground\.svg/);
+  assert.doesNotMatch(await evaluate('getComputedStyle(document.body).backgroundImage'),/ground\.svg/,'Public share must not use ground.svg');
   await screenshot('official-share-mobile.png');
+  await cmd('Emulation.setDeviceMetricsOverride',{width:1280,height:860,deviceScaleFactor:1,mobile:false});await settle();
+  assert.match(await evaluate('getComputedStyle(document.querySelector(".workspace-share")).backgroundImage'),/workspace-bg-light\.jpg/,'Light public share background');
+  await screenshot('official-share-desktop.png');
+  await toggleTheme('#shareThemeToggle','dark');
+  assert.match(await evaluate('getComputedStyle(document.querySelector(".workspace-share")).backgroundImage'),/workspace-bg-dark\.jpg/,'Dark public share background');
+  const publicDark=await dimensions();
+  assert.ok(publicDark.document<=publicDark.viewport && publicDark.body<=publicDark.viewport,'Dark public share overflows');
+  await screenshot('official-share-dark.png');
+  await toggleTheme('#shareThemeToggle','light');
+  await cmd('Emulation.setDeviceMetricsOverride',{width:2560,height:1440,deviceScaleFactor:1,mobile:false});await settle();
+  const public4k=await dimensions();
+  assert.ok(public4k.document<=public4k.viewport && public4k.body<=public4k.viewport,'4K public share overflows');
+  await screenshot('share-4k.png');
+  await cmd('Emulation.setDeviceMetricsOverride',{width:390,height:844,deviceScaleFactor:1,mobile:false});await settle();
   for(const variant of ['password','empty','expired']){
     shareVariant=variant;await navigate('share.html?shareCode=visual-'+variant);
     await waitFor(variant==='password'?'!document.querySelector("#verifyBlock").classList.contains("hidden")':variant==='empty'?'!document.querySelector("#emptyState").classList.contains("hidden")':'document.querySelector("#error").textContent.includes("分享已过期")');

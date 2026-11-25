@@ -1,6 +1,7 @@
 package com.lan4jn.file.controller;
 
 import com.lan4jn.file.common.GlobalExceptionHandler;
+import com.lan4jn.file.rbac.PermissionCodes;
 import com.lan4jn.file.service.ConfigService;
 import com.lan4jn.file.service.PermissionAssertService;
 import org.junit.jupiter.api.BeforeEach;
@@ -26,11 +27,12 @@ class AdminConfigControllerTest {
 
     private MockMvc mockMvc;
     private ConfigService configService;
+    private PermissionAssertService permissionAssertService;
 
     @BeforeEach
     void setUp() {
         configService = mock(ConfigService.class);
-        PermissionAssertService permissionAssertService = mock(PermissionAssertService.class);
+        permissionAssertService = mock(PermissionAssertService.class);
         when(permissionAssertService.isSuperAdmin()).thenReturn(true);
         mockMvc = MockMvcBuilders.standaloneSetup(new AdminConfigController(configService, permissionAssertService))
                 .setControllerAdvice(new GlobalExceptionHandler())
@@ -46,6 +48,29 @@ class AdminConfigControllerTest {
         mockMvc.perform(get("/api/admin/file-config"))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.data.frontendDownloadThresholdMB").value(100));
+    }
+
+    @Test
+    void shouldAllowNonSuperAdminWithConfigMenuPermission() throws Exception {
+        when(permissionAssertService.isSuperAdmin()).thenReturn(false);
+        when(permissionAssertService.hasMenuPermission(PermissionCodes.MENU_CONFIG)).thenReturn(true);
+        when(configService.getAllowedExtensions()).thenReturn(Set.of("txt"));
+
+        mockMvc.perform(get("/api/admin/file-config"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.code").value(200))
+                .andExpect(jsonPath("$.data.allowedExtensions[0]").value("txt"));
+    }
+
+    @Test
+    void shouldForbidNonSuperAdminWithoutConfigMenuPermission() throws Exception {
+        when(permissionAssertService.isSuperAdmin()).thenReturn(false);
+        when(permissionAssertService.hasMenuPermission(PermissionCodes.MENU_CONFIG)).thenReturn(false);
+
+        mockMvc.perform(get("/api/admin/file-config"))
+                .andExpect(status().isForbidden())
+                .andExpect(jsonPath("$.code").value(403))
+                .andExpect(jsonPath("$.message").value("缺少系统配置访问权限"));
     }
 
     @Test

@@ -19,7 +19,7 @@ import java.util.Map;
 @Service
 public class TransferSessionService {
 
-    private static final long DEFAULT_DOWNLOAD_TOKEN_TTL_MS = 10 * 60 * 1000L;
+    private static final long DEFAULT_DOWNLOAD_TOKEN_TTL_MS = 60 * 60 * 1000L;
     private static final long DEFAULT_UPLOAD_TOKEN_TTL_MS = 10 * 60 * 1000L;
     private static final String DEFAULT_TRANSFER_JWT_SECRET = "transfer-download-session-default-secret-32bytes";
 

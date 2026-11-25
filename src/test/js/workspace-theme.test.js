@@ -20,31 +20,36 @@ test('official entry pages load the shared scoped theme after their base styles'
     }
 });
 
-test('workspace theme provides neutral surfaces, focus and narrow screen support', () => {
-    const file = root + 'css/workspace-theme.css';
-    assert.ok(fs.existsSync(file), 'shared workspace theme must exist');
-    const css = fs.readFileSync(file, 'utf8');
-    assert.match(css, /\.workspace-app/);
-    assert.match(css, /\.workspace-share/);
-    for (const color of ['#dfdedb', '#d3d2ce', '#26251e', '#5a5850', '#2456d6', '#ffffff']) assert.ok(css.toLowerCase().includes(color), color);
-    for (const style of ['heading-5','title-3','title-4','body-6','button-sm','caption-5']) assert.ok(css.includes(style), style);
-    assert.ok(css.includes('../fonts/host-grotesk-latin-variable.woff2'));
-    assert.match(css, /:focus-visible/);
-    assert.match(css, /prefers-reduced-motion/);
-    assert.match(css, /@media[^\{]*max-width:\s*700px/);
-    assert.doesNotMatch(css, /(?:linear|radial)-gradient\s*\(|backdrop-filter:\s*blur/);
-});
+test('workspace theme and shared tokens provide a flat, accessible design system', () => {
+    const tokens = fs.readFileSync(root + 'css/tokens.css', 'utf8');
+    const theme = fs.readFileSync(root + 'css/workspace-theme.css', 'utf8');
 
-test('legacy message, version and diagnostic surfaces explicitly receive the flat theme', () => {
-    const css=fs.readFileSync(root+'css/workspace-theme.css','utf8');
-    for(const selector of ['.message-bubble--unread::before','.version-item.active','.dialog-panel--sidebar','.diagnostics-panel__toolbar']) assert.ok(css.includes(selector), selector);
-    assert.ok(css.includes('-webkit-backdrop-filter: none'));
-});
+    assert.match(tokens, /html\[data-theme="dark"\]/);
+    for (const token of ['--surface-canvas', '--surface-rail', '--surface-panel', '--accent', '--font-display', '--font-text', '--font-mono']) {
+        assert.match(tokens, new RegExp(`^\\s*${token}\\s*:`, 'm'), `missing token declaration: ${token}`);
+    }
+    for (const font of ['geist-latin-variable.woff2', 'host-grotesk-latin-variable.woff2', 'jetbrains-mono-latin-variable.woff2']) {
+        assert.ok(tokens.includes(`../fonts/${font}`), `missing local font URL: ${font}`);
+    }
 
-test('Taste palette, dark navigation and local mono font form one application system', () => {
-    const css=fs.readFileSync(root+'css/workspace-theme.css','utf8');
-    for(const token of ['--p-bg','--p-surface','--p-ink','--p-muted','--p-accent','--font-display','--font-text','--font-mono']) assert.ok(css.includes(token), token);
-    assert.ok(css.includes('jetbrains-mono-latin-variable.woff2'));
-    assert.ok(css.includes('.login-visual__stack'));
-    assert.ok(css.includes('.workspace-page-icon'));
+    assert.match(tokens, /--workspace-bg-image\s*:\s*url\(\s*(['"]?)\.\.\/img\/workspace-bg-light\.jpg\1\s*\)/);
+    assert.match(tokens, /--workspace-bg-image\s*:\s*url\(\s*(['"]?)\.\.\/img\/workspace-bg-dark\.jpg\1\s*\)/);
+    for (const image of ['workspace-bg-light.jpg', 'workspace-bg-dark.jpg']) {
+        assert.equal(fs.existsSync(root + `img/${image}`), true, `missing workspace background image: ${image}`);
+    }
+
+    assert.match(theme, /:focus-visible/);
+    assert.match(tokens, /@media\s*\(\s*prefers-reduced-motion\s*:\s*reduce\s*\)/);
+    assert.match(theme, /@media\s*\(\s*max-width\s*:\s*700px\s*\)/);
+    assert.match(theme, /\.page-content(?![\w-])[^{}]*\{(?:[^{};]*;)*\s*max-width\s*:\s*none\s*(?:!important\s*)?[;}]/);
+    assert.match(theme, /@media\s*\(\s*min-width\s*:\s*1920px\s*\)/);
+
+    for (const [file, css] of [['tokens.css', tokens], ['workspace-theme.css', theme]]) {
+        assert.doesNotMatch(css, /backdrop-filter\s*:[^;{}]*\bblur\s*\(|(?:linear|radial)-gradient\s*\(/i, `${file} must not use backdrop blur or gradients`);
+    }
+
+    for (const selector of ['.workspace-app', '.workspace-share', '.heading-5', '.workspace-page-icon', '.message-bubble--unread::before', '.version-item.active', '.dialog-panel--sidebar', '.diagnostics-panel__toolbar']) {
+        assert.ok(theme.includes(selector), `missing workspace selector: ${selector}`);
+    }
+    assert.match(theme, /-webkit-backdrop-filter\s*:\s*none\s*;/);
 });
